@@ -7,17 +7,46 @@
 |---|---|
 | Challenge | AI Advent Challenge 9 |
 | Product direction | Engineering Review Mentor |
-| Current milestone | Week 1 / Day 1 |
+| Current milestone | Week 1 / Day 2 |
 | Current executor | Codex |
-| Status | SUBMISSION_PENDING |
+| Status | DAY_2_READY_FOR_IMPLEMENTATION |
 | Day 1 implementation | DONE |
 | Day 1 verification | DONE |
 | Day 1 submission | PENDING |
-| Next action | Записать и загрузить Day 1 demo video |
-| Blockers | Demo video ещё не записано |
+| Day 2 planning | DONE / READY_FOR_IMPLEMENTATION |
+| Day 2 implementation | NOT_STARTED |
+| Day 2 verification | NOT_STARTED |
+| Day 2 submission | NOT_STARTED |
+| Next action | Реализовать `docs/tasks/DAY-02.md` в ветке `day_2` |
+| Blockers | Для Day 2 нет; отдельный Day 1 demo video ещё не записан |
 | Submission evidence | Repository/code link: DONE — `https://github.com/nikita11174/ai-advent`; demo video: PENDING |
 
-Branch workflow: `main` (stable) ← `developer` (integration) ← `day_1` (current Day 1 work).
+Текущая ветка: `day_2`, создана от актуальной `developer`. Branch workflow: `main` (stable) ←
+`developer` (integration) ← `day_N` (Challenge Day work).
+
+## Active Day 2 plan
+
+Day 2 сравнивает один exact developer input в режимах FREE и CONTROLLED:
+
+- FREE сохраняет Day 1 Russian Markdown response;
+- CONTROLLED использует DeepSeek JSON Output и компактный фиксированный review shape; UI
+  отображает summary/findings/recommendation, а `Показать JSON` раскрывает exact raw response;
+- controlled settings имеют defaults (`maxTokens=600`, `maxFindings=3`, три word limits по 30 и
+  default termination instruction), редактируются только в page state и передаются backend;
+- server bounds: `maxTokens 100..2000`, `maxFindings 0..10`, word limits `1..100`, termination
+  instruction `1..1000` символов после trim;
+- JSON format fixed/read-only; `Сбросить настройки` восстанавливает defaults;
+- comparison выполняет frontend двумя независимыми requests по одному input/settings snapshot,
+  показывает одно user message и immutable metadata actual controls, без backend `COMPARE` mode
+  и без conversation memory;
+- invalid/truncated/empty controlled output не repair/retry и не fallback в Markdown; доступный
+  raw response остаётся inspectable.
+
+Официальные DeepSeek Chat Completions и JSON Output docs подтверждают `response_format`,
+`max_tokens`, `stop` и `finish_reason`. Блокирующих решений нет; полный acceptance и план — в
+`docs/tasks/DAY-02.md`.
+
+Open product decisions: **NONE**. Day 2: **READY_FOR_IMPLEMENTATION**.
 
 ## Current architecture
 
@@ -98,6 +127,6 @@ Browser :4200
 
 ## Scope boundary
 
-Не начинать Day 2 и не добавлять persistence, conversation backend state, structured findings,
-comparison/scoring, user-first learning loop, heuristics, RAG, MCP product integration, agents,
-database или authentication без требований следующего Challenge Day.
+Не выходить за scope `docs/tasks/DAY-02.md`: не добавлять persistence, conversation backend state,
+user-first learning loop, scoring, skill tracking, heuristics, RAG, MCP product integration,
+agents, database, authentication или Day 3 reasoning strategies.

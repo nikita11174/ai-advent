@@ -24,8 +24,9 @@
 
 ## Current task
 
-Активен **Week 1 / Day 1**. Техническая реализация, verification и публикация кода завершены;
-submission ожидает только demo video. Точные факты и следующий шаг — в `docs/CURRENT-STATE.md`.
+Активен **Week 1 / Day 2** в ветке `day_2`. План закрыт и готов к implementation; точный contract и
+acceptance находятся в `docs/tasks/DAY-02.md`. Day 1 implementation, verification и repository
+link завершены; его отдельный submission ожидает только demo video.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.
