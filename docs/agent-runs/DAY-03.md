@@ -14,4 +14,5 @@
 - Result: technical acceptance PASS. EXPERTS strongest on this benchmark; one SELF_PROMPT run
   exposed a language-constraint omission. Chrome MCP unavailable; owner visual acceptance remains.
 - Planning commit: `ebe6e6ca8c465899008eb305f3ca147dc271643e`.
+- Implementation commit: `897ca53dd355a4df754e8c02e45e1feb8c956c47`.
 - Remaining: browser review, demo video, separately authorized publication.
