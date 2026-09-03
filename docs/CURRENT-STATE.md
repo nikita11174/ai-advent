@@ -24,6 +24,9 @@
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.
 
+Day 3 planning commit: `ebe6e6ca8c465899008eb305f3ca147dc271643e`. Day 3 implementation
+commit: `897ca53dd355a4df754e8c02e45e1feb8c956c47`.
+
 ## Current architecture
 
 ```text
