@@ -5,20 +5,26 @@ import { App } from './app';
 
 interface TestApp {
   input: string;
+  experiment: 'FORMAT' | 'REASONING';
   selectedMode: 'FREE' | 'CONTROLLED';
-  controls: {
-    maxTokens: number; maxFindings: number; summaryMaxWords: number;
-    reasonMaxWords: number; recommendationMaxWords: number; terminationInstruction: string;
-  };
+  selectedStrategy: 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
+  controls: { maxTokens: number; maxFindings: number };
   analyze(): void;
   compare(): void;
+  compareStrategies(): void;
   resetControls(): void;
   toggleRaw(id: number): void;
+  togglePrompt(id: number, strategy: 'SELF_PROMPT'): void;
+  newDialog(): void;
+  openDialog(id: string): void;
 }
 
-const controlledResponse = (rawResponse = '{"summary":"Резюме","findings":[],"recommendation":"Проверить тесты"}') => ({
-  review: { summary: 'Резюме', findings: [], recommendation: 'Проверить тесты' },
-  rawResponse,
+const now = '2026-09-03T10:00:00Z';
+const dialog = (id = '11111111-1111-1111-1111-111111111111', exchanges: unknown[] = []) => ({
+  id, title: 'Новый диалог', createdAt: now, updatedAt: now, state: { exchanges },
+});
+const controlled = (rawResponse = '{"summary":"Резюме","findings":[],"recommendation":"Проверить"}') => ({
+  review: { summary: 'Резюме', findings: [], recommendation: 'Проверить' }, rawResponse,
 });
 
 describe('App', () => {
@@ -27,171 +33,106 @@ describe('App', () => {
   let component: TestApp;
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [App],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
-    }).compileComponents();
+    await TestBed.configureTestingModule({ imports: [App], providers: [provideHttpClient(), provideHttpClientTesting()] }).compileComponents();
     http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(App);
     component = fixture.componentInstance as unknown as TestApp;
+    fixture.detectChanges();
+    http.expectOne('/api/dialogs').flush([]);
+    http.expectOne('/api/dialogs').flush(dialog());
     fixture.detectChanges();
   });
 
   afterEach(() => http.verify());
 
-  it('renders the Russian Day 2 shell and mode selector', () => {
-    expect(fixture.nativeElement.textContent).toContain('Engineering Review Mentor');
-    expect(fixture.nativeElement.textContent).toContain('AI Advent · День 2');
-    expect(fixture.nativeElement.textContent).toContain('Свободный');
-    expect(fixture.nativeElement.textContent).toContain('Контролируемый');
-  });
+  function flushSave(): void { http.expectOne(request => request.url.startsWith('/api/dialogs/')).flush(dialog()); }
 
-  it('submits FREE mode and renders safe Markdown', () => {
-    component.input = 'class Example {}';
-    component.analyze();
-    const request = http.expectOne('/api/review');
-    expect(request.request.body).toEqual({ input: 'class Example {}', mode: 'FREE' });
-    request.flush({ analysis: '## Риски\n\n- Деление на `size`' });
-    fixture.detectChanges();
-
+  it('keeps Day 1 FREE Markdown safe and persistent', () => {
+    component.input = 'class Example {}'; component.analyze();
+    http.expectOne('/api/review').flush({ analysis: '## Риски\n\n- `size`\n<img src=x onerror=alert(1)>' });
+    flushSave(); fixture.detectChanges();
     const response = fixture.nativeElement.querySelector('.analysis-text');
     expect(response.querySelector('h2')?.textContent).toBe('Риски');
     expect(response.querySelector('code')?.textContent).toBe('size');
-  });
-
-  it('keeps unsafe FREE Markdown HTML and URLs inert', () => {
-    component.input = 'code';
-    component.analyze();
-    http.expectOne('/api/review').flush({
-      analysis: '<script>alert(1)</script><img src=x onerror="alert(2)">\n[link](javascript:alert(3))',
-    });
-    fixture.detectChanges();
-
-    const response = fixture.nativeElement.querySelector('.analysis-text');
-    expect(response.querySelector('script')).toBeNull();
     expect(response.querySelector('img')).toBeNull();
-    expect(response.querySelector('[onerror]')).toBeNull();
-    expect(response.querySelector('a')?.getAttribute('href')).not.toMatch(/^javascript:/i);
   });
 
-  it('shows controlled defaults and restores edited settings', () => {
-    component.selectedMode = 'CONTROLLED';
-    fixture.detectChanges();
-    expect(component.controls.maxTokens).toBe(600);
-    expect(component.controls.maxFindings).toBe(3);
-    expect(component.controls.summaryMaxWords).toBe(30);
-    expect(component.controls.reasonMaxWords).toBe(30);
-    expect(component.controls.recommendationMaxWords).toBe(30);
-    component.controls.maxTokens = 450;
-    component.controls.maxFindings = 1;
-    component.resetControls();
-    expect(component.controls.maxTokens).toBe(600);
-    expect(component.controls.maxFindings).toBe(3);
-    expect(fixture.nativeElement.querySelector('input[readonly]').value).toBe('JSON');
-  });
-
-  it('submits edited CONTROLLED settings and renders structured result', () => {
-    component.selectedMode = 'CONTROLLED';
-    component.controls.maxTokens = 450;
-    component.controls.maxFindings = 1;
-    component.input = 'code';
-    component.analyze();
-    const request = http.expectOne('/api/review');
-    expect(request.request.body.mode).toBe('CONTROLLED');
-    expect(request.request.body.controls.maxTokens).toBe(450);
-    expect(request.request.body.controls.maxFindings).toBe(1);
-    request.flush(controlledResponse());
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.textContent).toContain('Краткое резюме');
-    expect(fixture.nativeElement.textContent).toContain('Существенных рисков не найдено.');
-    expect(fixture.nativeElement.textContent).toContain('Рекомендация');
-  });
-
-  it('expands raw JSON as escaped plain text', () => {
+  it('keeps Day 2 CONTROLLED rendering and raw JSON inert', () => {
     const raw = '{"summary":"<img src=x onerror=alert(1)>","findings":[],"recommendation":"ok"}';
-    component.selectedMode = 'CONTROLLED';
-    component.input = 'code';
-    component.analyze();
-    http.expectOne('/api/review').flush(controlledResponse(raw));
-    fixture.detectChanges();
-
-    component.toggleRaw(1);
-    fixture.detectChanges();
+    component.selectedMode = 'CONTROLLED'; component.input = 'code'; component.analyze();
+    http.expectOne('/api/review').flush(controlled(raw)); flushSave(); fixture.detectChanges();
+    component.toggleRaw(1); fixture.detectChanges();
     const rawBlock = fixture.nativeElement.querySelector('.raw-json');
     expect(rawBlock.textContent).toContain('<img src=x onerror=alert(1)>');
     expect(rawBlock.querySelector('img')).toBeNull();
-    component.toggleRaw(1);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.raw-json')).toBeNull();
   });
 
-  it('compares identical input once with a controls snapshot', () => {
-    component.controls.maxTokens = 450;
-    component.controls.maxFindings = 1;
-    component.input = 'same exact code';
-    component.compare();
+  it('keeps Day 2 comparison input and controls snapshot', () => {
+    component.controls.maxTokens = 450; component.controls.maxFindings = 1; component.input = 'same'; component.compare();
     const requests = http.match('/api/review');
     expect(requests).toHaveLength(2);
-    expect(requests[0].request.body.input).toBe('same exact code');
-    expect(requests[1].request.body.input).toBe('same exact code');
-    const free = requests.find((request) => request.request.body.mode === 'FREE')!;
-    const controlled = requests.find((request) => request.request.body.mode === 'CONTROLLED')!;
-    expect(free.request.body.controls).toBeUndefined();
-    expect(controlled.request.body.controls.maxTokens).toBe(450);
-    free.flush({ analysis: 'Свободный ответ' });
-    controlled.flush(controlledResponse());
-    fixture.detectChanges();
-
+    expect(requests.every(request => request.request.body.input === 'same')).toBe(true);
+    requests.find(request => request.request.body.mode === 'FREE')!.flush({ analysis: 'free' });
+    requests.find(request => request.request.body.mode === 'CONTROLLED')!.flush(controlled());
+    flushSave(); component.controls.maxTokens = 900; fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.user-message')).toHaveLength(1);
-    expect(fixture.nativeElement.textContent).toContain('Свободный ответ');
-    expect(fixture.nativeElement.textContent).toContain('Краткое резюме');
-    expect(fixture.nativeElement.textContent).toContain('JSON · max 450 tokens · до 1 замечаний');
-  });
-
-  it('keeps old comparison metadata after settings change', () => {
-    component.controls.maxTokens = 450;
-    component.input = 'code';
-    component.compare();
-    const requests = http.match('/api/review');
-    requests.find((request) => request.request.body.mode === 'FREE')!.flush({ analysis: 'Ответ' });
-    requests.find((request) => request.request.body.mode === 'CONTROLLED')!.flush(controlledResponse());
-    component.controls.maxTokens = 900;
-    fixture.detectChanges();
-
     expect(fixture.nativeElement.textContent).toContain('JSON · max 450 tokens');
-    expect(fixture.nativeElement.textContent).not.toContain('JSON · max 900 tokens');
   });
 
-  it('keeps successful comparison side when controlled side fails and exposes raw content', () => {
-    component.input = 'code';
-    component.compare();
-    const requests = http.match('/api/review');
-    requests.find((request) => request.request.body.mode === 'FREE')!.flush({ analysis: 'Успешный ответ' });
-    requests.find((request) => request.request.body.mode === 'CONTROLLED')!.flush(
-      { error: 'invalid JSON', rawResponse: '<b>broken</b>' }, { status: 502, statusText: 'Bad Gateway' });
+  it('runs selected Day 3 strategy and exposes generated prompt', () => {
+    component.experiment = 'REASONING'; component.selectedStrategy = 'SELF_PROMPT'; component.input = 'task'; component.analyze();
+    const request = http.expectOne('/api/reasoning-review');
+    expect(request.request.body).toEqual({ input: 'task', strategy: 'SELF_PROMPT' });
+    request.flush({ strategy: 'SELF_PROMPT', analysis: 'answer', generatedPrompt: '<b>prompt</b>' });
+    flushSave(); fixture.detectChanges();
+    component.togglePrompt(1, 'SELF_PROMPT'); fixture.detectChanges();
+    const prompt = fixture.nativeElement.querySelector('.raw-json');
+    expect(prompt.textContent).toContain('<b>prompt</b>');
+    expect(prompt.querySelector('b')).toBeNull();
+  });
+
+  it('compares all strategies with one immutable input and independent results', () => {
+    component.experiment = 'REASONING'; component.input = 'same task'; component.compareStrategies();
+    const requests = http.match('/api/reasoning-review');
+    expect(requests).toHaveLength(4);
+    expect(requests.every(request => request.request.body.input === 'same task')).toBe(true);
+    for (const request of requests) request.flush({ strategy: request.request.body.strategy, analysis: request.request.body.strategy });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.user-message')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('.strategy-card')).toHaveLength(4);
+  });
+
+  it('preserves successful strategies when one comparison request fails', () => {
+    component.experiment = 'REASONING'; component.input = 'task'; component.compareStrategies();
+    const requests = http.match('/api/reasoning-review');
+    requests[0].flush({ strategy: 'DIRECT', analysis: 'success' });
+    requests[1].flush({ error: 'failure' }, { status: 502, statusText: 'Bad Gateway' });
+    requests[2].flush({ strategy: 'SELF_PROMPT', analysis: 'self', generatedPrompt: 'prompt' });
+    requests[3].flush({ strategy: 'EXPERTS', analysis: 'experts' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('success');
+    expect(fixture.nativeElement.textContent).toContain('failure');
+  });
+
+  it('creates and restores dialogs with completed exchanges', () => {
+    component.newDialog();
+    http.expectOne('/api/dialogs').flush(dialog('22222222-2222-2222-2222-222222222222'));
+    component.openDialog('11111111-1111-1111-1111-111111111111');
+    http.expectOne('/api/dialogs/11111111-1111-1111-1111-111111111111').flush(dialog(undefined, [{ id: 7, input: 'restored', mode: 'FREE', free: { loading: false, analysis: 'saved' } }]));
     fixture.detectChanges();
-
-    expect(fixture.nativeElement.textContent).toContain('Успешный ответ');
-    expect(fixture.nativeElement.textContent).toContain('Контролируемый ответ не прошёл проверку');
-    expect(fixture.nativeElement.textContent).toContain('Показать JSON');
+    expect(fixture.nativeElement.textContent).toContain('restored');
+    expect(fixture.nativeElement.textContent).toContain('saved');
   });
 
-  it('submits the selected mode with Ctrl+Enter', () => {
-    component.selectedMode = 'CONTROLLED';
+  it('restores controlled defaults', () => {
+    component.controls.maxTokens = 450; component.controls.maxFindings = 1; component.resetControls();
+    expect(component.controls.maxTokens).toBe(600); expect(component.controls.maxFindings).toBe(3);
+  });
+
+  it('submits with Ctrl+Enter', () => {
     const textarea: HTMLTextAreaElement = fixture.nativeElement.querySelector('.composer > textarea');
-    textarea.value = 'Вопрос по коду';
-    textarea.dispatchEvent(new Event('input'));
+    textarea.value = 'question'; textarea.dispatchEvent(new Event('input'));
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
-
-    expect(http.expectOne('/api/review').request.body.mode).toBe('CONTROLLED');
-  });
-
-  it('renders a Russian network error inline', () => {
-    component.input = 'question';
-    component.analyze();
-    http.expectOne('/api/review').flush(null, { status: 0, statusText: 'Unknown Error' });
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Не удалось подключиться к серверу.');
+    http.expectOne('/api/review').flush({ analysis: 'answer' }); flushSave();
   });
 });

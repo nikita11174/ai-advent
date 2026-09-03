@@ -34,6 +34,11 @@ Challenge task
 Prompt текущего исполнителя должен описывать только актуальный шаг и необходимый context. Durable
 история, решения и evidence сохраняются в repository docs, а не переносятся бесконечно из чата.
 
+После substantial run разделять evidence: task truth — `docs/tasks/DAY-XX.md`, operational state —
+`docs/CURRENT-STATE.md`, concise tracked run record — `docs/agent-runs/DAY-XX.md`, detailed local
+prompt/final report — ignored `docs/local/agent-sessions/`, когда он доступен. Raw/local history
+не заменяет canonical docs; credentials и environment secrets в histories не сохраняются.
+
 Перед новым research/review/agent cycle ответить на три вопроса:
 
 1. Что именно ещё неизвестно?

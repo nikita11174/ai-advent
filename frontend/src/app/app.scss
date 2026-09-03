@@ -1,4 +1,16 @@
 :host { display: flex; height: 100vh; flex-direction: column; color: #17223b; }
+.workspace { display: flex; min-height: 0; flex: 1; }
+.dialog-sidebar {
+  display: flex; width: 230px; padding: 16px 12px; flex: 0 0 230px; flex-direction: column; gap: 14px;
+  background: #e9eef7; border-right: 1px solid #d8dfec;
+}
+.dialog-sidebar nav { display: grid; gap: 6px; overflow-y: auto; }
+.dialog-item {
+  padding: 10px 11px; overflow: hidden; color: #45516a; background: transparent; border: 0;
+  border-radius: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.dialog-item:hover, .dialog-item.current { color: #1f2c48; background: #fff; }
+.dialog-item.current { box-shadow: inset 3px 0 #4f46e5; }
 
 .topbar {
   z-index: 5; display: flex; flex: 0 0 64px; justify-content: space-between;
@@ -20,7 +32,7 @@
 }
 
 .chat-shell {
-  position: relative; display: grid; min-height: 0; flex: 1; grid-template-rows: 1fr auto;
+  position: relative; display: grid; min-width: 0; min-height: 0; flex: 1; grid-template-rows: 1fr auto;
   background:
     radial-gradient(circle at 15% 5%, rgba(96, 165, 250, 0.08), transparent 30%),
     radial-gradient(circle at 88% 18%, rgba(167, 139, 250, 0.07), transparent 26%), #f4f7fb;
@@ -47,6 +59,22 @@
   border-color: rgba(79, 70, 229, 0.18); border-bottom-left-radius: 6px;
 }
 .comparison { display: grid; width: 100%; grid-template-columns: 1fr 1fr; gap: 14px; }
+.reasoning-comparison { display: grid; width: 100%; grid-template-columns: 1fr 1fr; gap: 14px; }
+.strategy-card, .reference-card {
+  min-width: 0; padding: 16px; background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(79, 70, 229, 0.18); border-radius: 16px;
+  box-shadow: 0 10px 32px rgba(26, 43, 82, 0.06);
+}
+.reference-card h3 { margin-top: 0; }
+.reference-card li { margin-bottom: 7px; line-height: 1.45; }
+.evaluation-panel { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e5eaf3; }
+.evaluation-panel summary { cursor: pointer; font-size: 12px; font-weight: 650; }
+.evaluation-panel label, .winner-row label { display: grid; margin-top: 9px; gap: 4px; color: #59667e; font-size: 11px; }
+.evaluation-panel textarea, .winner-row textarea, .winner-row select {
+  box-sizing: border-box; width: 100%; padding: 7px 9px; color: #17223b; background: #fff;
+  border: 1px solid #cbd5e1; border-radius: 7px; font: 13px/1.4 inherit;
+}
+.winner-row { display: grid; grid-template-columns: 220px 1fr; gap: 12px; }
 .comparison-side {
   min-width: 0; padding: 16px; background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(79, 70, 229, 0.18); border-radius: 16px;
@@ -95,6 +123,12 @@
 .controls-panel input[readonly] { color: #64748b; background: #eef2f7; }
 .termination { margin-top: 9px; }
 .controls-panel button { margin-top: 4px; }
+.experiment-selector { display: flex; gap: 4px; margin-bottom: 10px; }
+.experiment-selector button {
+  padding: 7px 11px; color: #58657c; background: transparent; border: 0; border-radius: 8px; cursor: pointer;
+}
+.experiment-selector button.active { color: #312e81; background: #eef2ff; font-weight: 650; }
+.reasoning-controls { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .composer-actions span { color: #7a869e; font-size: 11px; }
 .composer-actions button { min-width: 150px; height: 42px; border-radius: 12px; }
@@ -102,6 +136,7 @@
 .latest-button { position: absolute; right: 50%; bottom: 136px; z-index: 6; transform: translateX(50%); background: #fff; box-shadow: 0 8px 24px rgba(26, 43, 82, 0.14); }
 
 @media (max-width: 680px) {
+  .dialog-sidebar { width: 150px; flex-basis: 150px; }
   .topbar { padding-inline: 14px; }
   .brand > span:last-child, .context > span:first-child { display: none; }
   .conversation-content { width: calc(100% - 20px); padding-top: 20px; }
@@ -111,7 +146,15 @@
   .composer-actions span { display: none; }
   .composer-actions { justify-content: flex-end; }
   .comparison { grid-template-columns: 1fr; }
+  .reasoning-comparison, .winner-row { grid-template-columns: 1fr; }
   .controls-grid { grid-template-columns: repeat(2, 1fr); }
   .action-buttons { width: 100%; }
   .action-buttons button { min-width: 0; flex: 1; }
+}
+
+@media (max-width: 480px) {
+  .workspace { flex-direction: column; }
+  .dialog-sidebar { width: auto; max-height: 120px; padding: 8px; flex: 0 0 auto; }
+  .dialog-sidebar nav { display: flex; }
+  .dialog-item { min-width: 140px; }
 }

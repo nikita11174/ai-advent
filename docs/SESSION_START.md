@@ -24,10 +24,9 @@
 
 ## Current task
 
-Активен planning **Week 1 / Day 3** в ветке `day_3`, созданной от verified Day 2 commit
-`da103f5`. Прочитать `docs/tasks/DAY-03.md`; implementation нельзя начинать до owner decisions.
-Day 2 implementation/verification завершены, submission ожидает demo/publication flow. Day 1
-по-прежнему ожидает отдельное demo video.
+Активен **Week 1 / Day 3** в ветке `day_3`, созданной от verified Day 2 commit `da103f5`.
+Implementation и technical verification выполнены; exact evidence и оставшийся visual/submission
+flow — в `docs/tasks/DAY-03.md`. Day 1 и Day 2 имеют отдельные pending submission items.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.
