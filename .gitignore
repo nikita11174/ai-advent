@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+target/
+build/
+.idea/
+*.iml
+logs/
+tmp/
+.tmp.driveupload/
