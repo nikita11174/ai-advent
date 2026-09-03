@@ -1,0 +1,80 @@
+:host { display: flex; height: 100vh; flex-direction: column; color: #17223b; }
+
+.topbar {
+  z-index: 5; display: flex; flex: 0 0 64px; justify-content: space-between;
+  padding: 0 clamp(18px, 4vw, 56px); color: #f8fbff; background: rgba(9, 20, 46, 0.96);
+  border-bottom: 1px solid rgba(147, 197, 253, 0.22); backdrop-filter: blur(16px);
+}
+.brand, .context { display: flex; align-items: center; }
+.brand { gap: 12px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
+.brand-mark {
+  display: grid; place-items: center; color: #07142f; font-size: 11px; font-weight: 800;
+  letter-spacing: 0.04em; background: linear-gradient(135deg, #67e8f9, #a78bfa);
+  border-radius: 11px;
+}
+.brand-mark { width: 36px; height: 36px; }
+.context { gap: 14px; color: #d7dfeb; font-size: 14px; }
+.model-badge {
+  padding: 6px 10px; color: #bae6fd; background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 999px;
+}
+
+.chat-shell {
+  position: relative; display: grid; min-height: 0; flex: 1; grid-template-rows: 1fr auto;
+  background:
+    radial-gradient(circle at 15% 5%, rgba(96, 165, 250, 0.08), transparent 30%),
+    radial-gradient(circle at 88% 18%, rgba(167, 139, 250, 0.07), transparent 26%), #f4f7fb;
+}
+.conversation { min-height: 0; overflow-y: auto; }
+.conversation-content {
+  display: flex; width: min(960px, calc(100% - 32px)); min-height: 100%; margin: 0 auto;
+  padding: 24px 0 18px; flex-direction: column; gap: 14px;
+}
+.empty-state { margin: auto auto 4px; padding: 20px; text-align: center; }
+.empty-state h1 { margin: 0; color: #17223b; font-size: clamp(22px, 3vw, 28px); letter-spacing: -0.025em; }
+.empty-state p { margin: 8px 0 0; color: #65728b; font-size: 15px; }
+
+.message-row { display: flex; width: 100%; }
+.user-row { justify-content: flex-end; }
+.mentor-row { justify-content: flex-start; }
+.message {
+  padding: 14px 16px; border: 1px solid rgba(94, 114, 153, 0.17); border-radius: 16px;
+  box-shadow: 0 10px 32px rgba(26, 43, 82, 0.06);
+}
+.user-message { max-width: min(72%, 660px); color: #f8fafc; background: #263a68; border-bottom-right-radius: 6px; }
+.mentor-message {
+  width: min(88%, 840px); color: #293750; background: rgba(255, 255, 255, 0.93);
+  border-color: rgba(79, 70, 229, 0.18); border-bottom-left-radius: 6px;
+}
+.message-label { display: block; margin-bottom: 9px; font-size: 11px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.7; }
+.message pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+.mentor-loading { display: grid; gap: 12px; color: #65728b; }
+.mentor-loading mat-progress-bar { width: min(280px, 100%); }
+.error-message { color: #8f1d2c; background: #fff5f5; border-color: #fecdd3; }
+
+.composer-wrap { z-index: 4; padding: 10px 16px 20px; background: linear-gradient(transparent, #f4f7fb 18%); }
+.composer {
+  width: min(960px, 100%); margin: 0 auto; padding: 12px 14px 10px; background: #fff;
+  border: 1px solid rgba(94, 114, 153, 0.25); border-radius: 18px;
+  box-shadow: 0 16px 46px rgba(26, 43, 82, 0.14);
+}
+.composer textarea {
+  display: block; width: 100%; min-height: 72px; max-height: 220px; padding: 8px;
+  color: #17223b; background: transparent; border: 0; outline: 0; resize: none;
+  font: 14px/1.6 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+.composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.composer-actions span { color: #7a869e; font-size: 11px; }
+.composer-actions button { min-width: 150px; height: 42px; border-radius: 12px; }
+.latest-button { position: absolute; right: 50%; bottom: 136px; z-index: 6; transform: translateX(50%); background: #fff; box-shadow: 0 8px 24px rgba(26, 43, 82, 0.14); }
+
+@media (max-width: 680px) {
+  .topbar { padding-inline: 14px; }
+  .brand > span:last-child, .context > span:first-child { display: none; }
+  .conversation-content { width: calc(100% - 20px); padding-top: 20px; }
+  .user-message { max-width: 88%; }
+  .mentor-message { width: 96%; }
+  .composer-wrap { padding-inline: 10px; }
+  .composer-actions span { display: none; }
+  .composer-actions { justify-content: flex-end; }
+}
