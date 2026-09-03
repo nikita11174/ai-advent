@@ -13,9 +13,9 @@
 | Day 1 implementation | DONE |
 | Day 1 verification | DONE |
 | Day 1 submission | PENDING |
-| Next action | Опубликовать текущий код по предоставленному GitHub URL и записать demo video |
-| Blockers | Только submission evidence |
-| Submission evidence | Target repository: `https://github.com/nikita11174/ai-advent`; публикация кода и demo video ещё не подтверждены |
+| Next action | Записать Day 1 demo video |
+| Blockers | Demo video ещё не записано |
+| Submission evidence | Repository/code: `https://github.com/nikita11174/ai-advent`; demo video ожидается |
 
 Branch workflow: `main` (stable) ← `developer` (integration) ← `day_1` (current Day 1 work).
 
