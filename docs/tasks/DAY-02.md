@@ -366,6 +366,10 @@ Security/publish safety:
 Known limitations: settings/history очищаются при refresh; calls не имеют conversation memory;
 model contract violations намеренно видны пользователю и не исправляются автоматически.
 
+Engineering conclusion: prompt и API-level JSON Output управляют форматом, но сами по себе не
+гарантируют semantic business contract. Поэтому успешный CONTROLLED result требует отдельной
+application-side проверки schema, cardinality, enum values и фактических length limits.
+
 ## 14. Submission checklist
 
 - [x] Implementation

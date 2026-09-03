@@ -36,7 +36,7 @@ business/runtime данные.
 
 Official DeepSeek documentation used for Day 1:
 
-- [Your First API Call](https://api-docs.deepseek.com/guides/function_calling) — base URL,
+- [Your First API Call](https://api-docs.deepseek.com/) — base URL,
   Bearer authentication, Chat Completions request and non-streaming response example.
 - [Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/) — endpoint,
   request fields, `thinking` toggle and response shape.

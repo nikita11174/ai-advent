@@ -24,10 +24,10 @@
 
 ## Current task
 
-Активен **Week 1 / Day 2** в ветке `day_2`. Implementation и verification завершены; submission
-ожидает demo video и owner-authorized publication/merge flow. Точный contract и evidence находятся
-в `docs/tasks/DAY-02.md`. Day 1 implementation, verification и repository link завершены; его
-отдельный submission по-прежнему ожидает demo video.
+Активен planning **Week 1 / Day 3** в ветке `day_3`, созданной от verified Day 2 commit
+`da103f5`. Прочитать `docs/tasks/DAY-03.md`; implementation нельзя начинать до owner decisions.
+Day 2 implementation/verification завершены, submission ожидает demo/publication flow. Day 1
+по-прежнему ожидает отдельное demo video.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

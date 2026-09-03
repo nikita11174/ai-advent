@@ -1,7 +1,8 @@
 # Lightweight Agent Workflow
 
-Процесс не привязан к конкретной модели. GPT/ChatGPT координирует работу вне репозитория, а
-Claude Code или Codex выступает текущим implementation agent.
+Процесс не привязан к конкретной модели. GPT/ChatGPT координирует acceptance criteria и owner
+decisions вне репозитория, а Claude Code или Codex выступает взаимозаменяемым implementation
+agent.
 
 ## Основной flow
 
@@ -30,6 +31,18 @@ Challenge task
 
 Для простой задачи допустим короткий путь: `implement -> verify -> evidence -> DONE`.
 
+Prompt текущего исполнителя должен описывать только актуальный шаг и необходимый context. Durable
+история, решения и evidence сохраняются в repository docs, а не переносятся бесконечно из чата.
+
+Перед новым research/review/agent cycle ответить на три вопроса:
+
+1. Что именно ещё неизвестно?
+2. Какой агент или источник лучше всего закрывает эту неизвестность?
+3. Может ли ответ реально изменить решение или implementation?
+
+Если неизвестности нет либо evidence уже достаточно, нужно реализовать/проверить/завершить текущий
+шаг, а не запускать precautionary loops ради уверенности.
+
 ## Local verification and safety
 
 - Локальные build, deterministic/unit tests и application runtime ожидаются, когда они нужны
@@ -39,6 +52,7 @@ Challenge task
 - Secrets нельзя печатать, логировать или добавлять в Git.
 - Destructive infrastructure operations требуют отдельной owner-авторизации.
 - Commit/push выполняются только после явного owner approval.
+- Merge/rebase и удаление веток также требуют отдельной явной owner-авторизации.
 - Если более высокий execution policy запрещает запуск, project docs не обходят запрет: агент
   фиксирует непроверенное и передаёт точные команды владельцу.
 
@@ -63,6 +77,7 @@ Challenge task
 
 - `main` — стабильные завершённые Challenge increments;
 - `developer` — integration branch;
-- `day_N` — ветка очередного Challenge Day, создаваемая от `developer`.
+- `day_N` — ветка очередного Challenge Day, обычно создаваемая от integration baseline; точный
+  base задаётся текущим task/owner decision и проверяется до создания.
 
-Текущая рабочая ветка Day 1 — `day_1`.
+Текущая branch/state информация хранится только в `docs/CURRENT-STATE.md`.
