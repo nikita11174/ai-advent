@@ -112,8 +112,7 @@ entrypoint и не предполагает заранее следующую а
   секрета.
 - **Repository/code link:** `https://github.com/nikita11174/ai-advent`.
 
-Target repository URL предоставлен владельцем. Evidence считается завершённым после фактической
-публикации текущего кода. Web demo video ещё не записано.
+Текущий код опубликован во всех трёх согласованных ветках GitHub. Web demo video ещё не записано.
 
 Day 1 реализован в `day_1`, созданной от integration branch `developer`; завершённый increment
 продвигается в stable branch `main`.
@@ -187,7 +186,8 @@ Package, unit tests и реальный DeepSeek API call проверены п�
   читаемее, user/Mentor bubbles компактнее, фон визуально отступает перед сообщениями.
 - Fresh final browser smoke на `:4201`: два `/api/review` request — HTTP 200; loading, русский
   Markdown, порядок exchanges, overflow, удержание низа после ответа и ручной scroll/return — PASS.
-- Target repository URL зафиксирован; публикация текущего кода и web demo video ещё не подтверждены.
+- Repository/code опубликован: `https://github.com/nikita11174/ai-advent`.
+- Web demo video ещё не подготовлено.
 
 ## 12. Submission checklist
 
@@ -195,4 +195,4 @@ Package, unit tests и реальный DeepSeek API call проверены п�
 - [x] Current build/tests after latest UI changes
 - [x] Current real web smoke after latest UI changes
 - [ ] Demo video
-- [ ] Repository/code link
+- [x] Repository/code link
