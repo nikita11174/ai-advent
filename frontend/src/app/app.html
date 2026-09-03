@@ -1,0 +1,76 @@
+<mat-toolbar class="topbar">
+  <div class="brand">
+    <span class="brand-mark">ERM</span>
+    <span>Engineering Review Mentor</span>
+  </div>
+  <div class="context">
+    <span>AI Advent · День 1</span>
+    <span class="model-badge">DeepSeek V4 Flash</span>
+  </div>
+</mat-toolbar>
+
+<main class="chat-shell">
+  <section #conversation class="conversation" aria-live="polite" (scroll)="handleConversationScroll()">
+    <div class="conversation-content">
+      @if (exchanges().length === 0) {
+        <div class="empty-state">
+          <h1>Развивайте инженерное мышление</h1>
+          <p>Вставьте Java-код или задайте инженерный вопрос</p>
+        </div>
+      }
+
+      @for (exchange of exchanges(); track exchange.id) {
+        <article class="message-row user-row">
+          <div class="message user-message">
+            <span class="message-label">Вы</span>
+            <pre>{{ exchange.input }}</pre>
+          </div>
+        </article>
+
+        <article class="message-row mentor-row">
+          <div class="message mentor-message" [class.error-message]="exchange.error">
+            <span class="message-label">Ментор</span>
+            @if (exchange.loading) {
+              <div class="mentor-loading">
+                <span>Ментор анализирует...</span>
+                <mat-progress-bar mode="indeterminate" aria-label="Выполняется анализ"></mat-progress-bar>
+              </div>
+            } @else if (exchange.analysis) {
+              <div class="analysis-text" [innerHTML]="renderMarkdown(exchange.analysis)"></div>
+            } @else if (exchange.error) {
+              <div role="alert">{{ exchange.error }}</div>
+            }
+          </div>
+        </article>
+      }
+    </div>
+  </section>
+
+  @if (showLatestButton()) {
+    <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">
+      К последнему сообщению
+    </button>
+  }
+
+  <section class="composer-wrap">
+    <div class="composer">
+      <textarea
+        #composerInput
+        matInput
+        [(ngModel)]="input"
+        (input)="resizeComposer($event)"
+        (keydown)="handleKeyboard($event)"
+        rows="3"
+        spellcheck="false"
+        placeholder="Вставьте Java-код или задайте инженерный вопрос"
+        aria-label="Java-код или инженерный вопрос"
+      ></textarea>
+      <div class="composer-actions">
+        <span>Enter — новая строка · Ctrl+Enter — отправить</span>
+        <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading()">
+          Проанализировать
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
