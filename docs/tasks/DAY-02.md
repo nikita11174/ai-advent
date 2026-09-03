@@ -1,6 +1,10 @@
 # Day 2 — Управление форматом ответа
 
-Статус: **READY_FOR_IMPLEMENTATION**
+Статус: **SUBMISSION_PENDING**
+
+- Day 2 implementation: **DONE**
+- Day 2 verification: **DONE**
+- Day 2 submission: **PENDING**
 
 Product direction: **Engineering Review Mentor**
 
@@ -313,5 +317,62 @@ instruction. Закрывающая фигурная скобка небезоп
 Все решения, необходимые до implementation, закрыты. Блокирующих неизвестностей нет.
 **Open product decisions: NONE.**
 
-Day 2: **PLANNED / READY_FOR_IMPLEMENTATION**. Реализация, tests, runtime evidence и submission ещё
-не выполнены.
+## 13. Implementation and verification evidence
+
+Реализовано:
+
+- backward-compatible FREE (`mode` отсутствует или равен `FREE`) без JSON controls;
+- CONTROLLED request с per-request settings, JSON Output и `max_tokens` из snapshot;
+- Jackson parsing и строгая shape/severity/cardinality/word-limit validation;
+- raw DeepSeek content в success/error contract без retry, repair или fallback;
+- русский mode/settings UI, structured review, escaped raw JSON toggle и reset defaults;
+- frontend comparison orchestration с одной user bubble, независимыми сторонами и immutable
+  settings metadata.
+
+Deterministic verification 2026-09-03:
+
+- JDK 21 `mvn clean package`: PASS; **24 tests**, 0 failures, 0 errors, 0 skipped.
+- Node 22.22.3 `npm test -- --watch=false`: PASS; **11 tests**.
+- Angular production build: PASS; output `frontend/dist/frontend`. Осталось non-blocking budget
+  warning: component SCSS 5.90 kB при configured budget 4.00 kB.
+- FREE compatibility покрывает legacy request без mode, explicit FREE, неизменённый Day 1 DeepSeek
+  request и русский safe Markdown frontend path.
+
+Real DeepSeek verification 2026-09-03 на одном Java snippet:
+
+- три CONTROLLED calls с defaults (`600 / 3 / 30 / 30 / 30`) — HTTP PASS 3/3, raw content
+  non-empty 3/3, valid JSON 3/3, exact root schema `summary/findings/recommendation` 3/3,
+  backend contract validation PASS 3/3; каждый ответ содержал 2 findings;
+- customized call (`maxTokens=400`, `maxFindings=1`, word limits 12) — PASS: 1 finding,
+  summary 10 слов, maximum reason 9 слов, recommendation 8 слов;
+- negative case с tight `maxFindings` — модель вернула лишние findings, backend корректно
+  отклонил contract; UI сохранил успешную FREE-сторону, показал controlled error и raw response.
+
+Fresh Chrome browser smoke 2026-09-03:
+
+- FREE single Russian Markdown, CONTROLLED single structured result и raw JSON show/hide — PASS;
+- comparison с snapshot `maxTokens=500`, `maxFindings=3`, word limits 20 — обе стороны PASS,
+  одна user bubble, desktop side-by-side layout;
+- reset вернул `600 / 3 / 30 / 30 / 30`, старая metadata осталась `500 / 3` — PASS;
+- independent partial failure, escaped raw output, conversation overflow, scroll-to-latest,
+  composer availability и loading states — PASS;
+- Ctrl+Enter и Markdown/unsafe HTML/URL sanitization подтверждены automated frontend tests.
+
+Security/publish safety:
+
+- `.env.local`, `target/`, `frontend/node_modules/`, `frontend/dist/`, `frontend/.angular/` и
+  `tmp/` исключены; API key не печатался и не находится в tracked/staged files.
+
+Known limitations: settings/history очищаются при refresh; calls не имеют conversation memory;
+model contract violations намеренно видны пользователю и не исправляются автоматически.
+
+## 14. Submission checklist
+
+- [x] Implementation
+- [x] Backend/frontend tests and production builds
+- [x] Three default and one customized real CONTROLLED verification
+- [x] Real browser FREE/CONTROLLED/comparison smoke
+- [ ] Demo video
+- [ ] Repository/code publication through the approved branch flow
+
+Day 2: **IMPLEMENTATION DONE / VERIFICATION DONE / SUBMISSION PENDING**.

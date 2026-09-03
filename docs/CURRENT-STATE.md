@@ -9,16 +9,16 @@
 | Product direction | Engineering Review Mentor |
 | Current milestone | Week 1 / Day 2 |
 | Current executor | Codex |
-| Status | DAY_2_READY_FOR_IMPLEMENTATION |
+| Status | DAY_2_SUBMISSION_PENDING |
 | Day 1 implementation | DONE |
 | Day 1 verification | DONE |
 | Day 1 submission | PENDING |
 | Day 2 planning | DONE / READY_FOR_IMPLEMENTATION |
-| Day 2 implementation | NOT_STARTED |
-| Day 2 verification | NOT_STARTED |
-| Day 2 submission | NOT_STARTED |
-| Next action | Реализовать `docs/tasks/DAY-02.md` в ветке `day_2` |
-| Blockers | Для Day 2 нет; отдельный Day 1 demo video ещё не записан |
+| Day 2 implementation | DONE |
+| Day 2 verification | DONE |
+| Day 2 submission | PENDING |
+| Next action | Owner review, Day 2 demo video и отдельная авторизация publication/merge flow |
+| Blockers | Day 2 demo/publication и отдельный Day 1 demo video ещё не завершены |
 | Submission evidence | Repository/code link: DONE — `https://github.com/nikita11174/ai-advent`; demo video: PENDING |
 
 Текущая ветка: `day_2`, создана от актуальной `developer`. Branch workflow: `main` (stable) ←
@@ -46,7 +46,22 @@ Day 2 сравнивает один exact developer input в режимах FREE
 `max_tokens`, `stop` и `finish_reason`. Блокирующих решений нет; полный acceptance и план — в
 `docs/tasks/DAY-02.md`.
 
-Open product decisions: **NONE**. Day 2: **READY_FOR_IMPLEMENTATION**.
+Open product decisions: **NONE**. Day 2: **IMPLEMENTATION DONE / VERIFICATION DONE /
+SUBMISSION PENDING**.
+
+## Day 2 verification evidence — 2026-09-03
+
+- JDK 21 `mvn clean package`: PASS; 24 tests, 0 failures/errors/skipped.
+- Node 22.22.3 frontend tests: PASS, 11/11; Angular production build: PASS.
+- Real CONTROLLED defaults: 3/3 HTTP, non-empty JSON, exact schema and backend validation PASS.
+- Real custom controls: PASS (`400` tokens, 1 finding, word limits 12); actual response respected
+  1 / 10 / 9 / 8 observed finding/summary/reason/recommendation limits.
+- Browser: FREE, CONTROLLED structured/raw, successful comparison, reset, immutable snapshot
+  metadata, partial failure, overflow/scroll/composer — PASS.
+- Negative controlled validation: extra model findings were rejected and shown without retry,
+  repair, truncation or Markdown fallback; successful comparison side remained visible.
+- `.env.local` and generated/local artifacts remain ignored; secret was not printed or tracked.
+- Non-blocking known warning: Angular component SCSS exceeds configured 4 kB budget by 1.90 kB.
 
 ## Current architecture
 
@@ -127,6 +142,6 @@ Browser :4200
 
 ## Scope boundary
 
-Не выходить за scope `docs/tasks/DAY-02.md`: не добавлять persistence, conversation backend state,
+Не выходить за завершённый scope `docs/tasks/DAY-02.md`: не добавлять persistence, conversation backend state,
 user-first learning loop, scoring, skill tracking, heuristics, RAG, MCP product integration,
 agents, database, authentication или Day 3 reasoning strategies.

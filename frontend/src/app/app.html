@@ -1,75 +1,123 @@
 <mat-toolbar class="topbar">
-  <div class="brand">
-    <span class="brand-mark">ERM</span>
-    <span>Engineering Review Mentor</span>
-  </div>
-  <div class="context">
-    <span>AI Advent · День 1</span>
-    <span class="model-badge">DeepSeek V4 Flash</span>
-  </div>
+  <div class="brand"><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
+  <div class="context"><span>AI Advent · День 2</span><span class="model-badge">DeepSeek V4 Flash</span></div>
 </mat-toolbar>
 
 <main class="chat-shell">
   <section #conversation class="conversation" aria-live="polite" (scroll)="handleConversationScroll()">
     <div class="conversation-content">
       @if (exchanges().length === 0) {
-        <div class="empty-state">
-          <h1>Развивайте инженерное мышление</h1>
-          <p>Вставьте Java-код или задайте инженерный вопрос</p>
-        </div>
+        <div class="empty-state"><h1>Развивайте инженерное мышление</h1><p>Вставьте Java-код или задайте инженерный вопрос</p></div>
       }
 
       @for (exchange of exchanges(); track exchange.id) {
         <article class="message-row user-row">
-          <div class="message user-message">
-            <span class="message-label">Вы</span>
-            <pre>{{ exchange.input }}</pre>
-          </div>
+          <div class="message user-message"><span class="message-label">Вы</span><pre>{{ exchange.input }}</pre></div>
         </article>
 
-        <article class="message-row mentor-row">
-          <div class="message mentor-message" [class.error-message]="exchange.error">
-            <span class="message-label">Ментор</span>
-            @if (exchange.loading) {
-              <div class="mentor-loading">
-                <span>Ментор анализирует...</span>
-                <mat-progress-bar mode="indeterminate" aria-label="Выполняется анализ"></mat-progress-bar>
-              </div>
-            } @else if (exchange.analysis) {
-              <div class="analysis-text" [innerHTML]="renderMarkdown(exchange.analysis)"></div>
-            } @else if (exchange.error) {
-              <div role="alert">{{ exchange.error }}</div>
-            }
-          </div>
-        </article>
+        @if (exchange.mode === 'COMPARE') {
+          <article class="comparison">
+            <section class="comparison-side">
+              <span class="message-label">Ментор · Свободный</span>
+              @if (exchange.free?.loading) {
+                <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div>
+              } @else if (exchange.free?.analysis) {
+                <div class="analysis-text" [innerHTML]="renderMarkdown(exchange.free!.analysis!)"></div>
+              } @else if (exchange.free?.error) {
+                <div class="inline-error" role="alert">{{ exchange.free!.error }}</div>
+              }
+            </section>
+            <section class="comparison-side">
+              <span class="message-label">Ментор · Контролируемый</span>
+              <span class="control-metadata">{{ controlsMetadata(exchange.controls!) }}</span>
+              <ng-container [ngTemplateOutlet]="controlledResult" [ngTemplateOutletContext]="{ exchange: exchange }" />
+            </section>
+          </article>
+        } @else {
+          <article class="message-row mentor-row">
+            <div class="message mentor-message">
+              <span class="message-label">Ментор · {{ exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
+              @if (exchange.mode === 'FREE') {
+                @if (exchange.free?.loading) {
+                  <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div>
+                } @else if (exchange.free?.analysis) {
+                  <div class="analysis-text" [innerHTML]="renderMarkdown(exchange.free!.analysis!)"></div>
+                } @else if (exchange.free?.error) {
+                  <div class="inline-error" role="alert">{{ exchange.free!.error }}</div>
+                }
+              } @else {
+                <span class="control-metadata">{{ controlsMetadata(exchange.controls!) }}</span>
+                <ng-container [ngTemplateOutlet]="controlledResult" [ngTemplateOutletContext]="{ exchange: exchange }" />
+              }
+            </div>
+          </article>
+        }
       }
     </div>
   </section>
 
-  @if (showLatestButton()) {
-    <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">
-      К последнему сообщению
-    </button>
-  }
+  <ng-template #controlledResult let-exchange="exchange">
+    @if (exchange.controlled?.loading) {
+      <div class="mentor-loading"><span>Ментор формирует JSON...</span><mat-progress-bar mode="indeterminate" /></div>
+    } @else if (exchange.controlled?.review) {
+      <div class="structured-review">
+        <section><h3>Краткое резюме</h3><p>{{ exchange.controlled.review.summary }}</p></section>
+        <section>
+          <h3>Замечания</h3>
+          @if (exchange.controlled.review.findings.length === 0) {
+            <p class="no-findings">Существенных рисков не найдено.</p>
+          } @else {
+            @for (finding of exchange.controlled.review.findings; track $index) {
+              <div class="finding">
+                <span class="severity" [attr.data-severity]="finding.severity">{{ finding.severity }}</span>
+                <strong>{{ finding.title }}</strong><p>{{ finding.reason }}</p>
+              </div>
+            }
+          }
+        </section>
+        <section><h3>Рекомендация</h3><p>{{ exchange.controlled.review.recommendation }}</p></section>
+      </div>
+    } @else if (exchange.controlled?.error) {
+      <div class="inline-error" role="alert">{{ exchange.controlled.error }}</div>
+    }
+    @if (exchange.controlled?.rawResponse) {
+      <button class="raw-toggle" mat-stroked-button (click)="toggleRaw(exchange.id)">{{ exchange.controlled.showRaw ? 'Скрыть JSON' : 'Показать JSON' }}</button>
+      @if (exchange.controlled.showRaw) { <pre class="raw-json"><code>{{ exchange.controlled.rawResponse }}</code></pre> }
+    }
+  </ng-template>
+
+  @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
 
   <section class="composer-wrap">
     <div class="composer">
-      <textarea
-        #composerInput
-        matInput
-        [(ngModel)]="input"
-        (input)="resizeComposer($event)"
-        (keydown)="handleKeyboard($event)"
-        rows="3"
-        spellcheck="false"
-        placeholder="Вставьте Java-код или задайте инженерный вопрос"
-        aria-label="Java-код или инженерный вопрос"
-      ></textarea>
+      <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
+        <label><input type="radio" name="mode" value="FREE" [(ngModel)]="selectedMode" /> Свободный</label>
+        <label><input type="radio" name="mode" value="CONTROLLED" [(ngModel)]="selectedMode" /> Контролируемый</label>
+      </div>
+
+      @if (selectedMode === 'CONTROLLED') {
+        <details class="controls-panel" open>
+          <summary>Настройки контролируемого ответа</summary>
+          <div class="controls-grid">
+            <label>Формат ответа<input value="JSON" readonly /></label>
+            <label>maxTokens<input type="number" min="100" max="2000" [(ngModel)]="controls.maxTokens" /></label>
+            <label>maxFindings<input type="number" min="0" max="10" [(ngModel)]="controls.maxFindings" /></label>
+            <label>Слов в резюме<input type="number" min="1" max="100" [(ngModel)]="controls.summaryMaxWords" /></label>
+            <label>Слов в причине<input type="number" min="1" max="100" [(ngModel)]="controls.reasonMaxWords" /></label>
+            <label>Слов в рекомендации<input type="number" min="1" max="100" [(ngModel)]="controls.recommendationMaxWords" /></label>
+          </div>
+          <label class="termination">Инструкция завершения<textarea rows="2" [(ngModel)]="controls.terminationInstruction"></textarea></label>
+          <button mat-button type="button" (click)="resetControls()">Сбросить настройки</button>
+        </details>
+      }
+
+      <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос" aria-label="Java-код или инженерный вопрос"></textarea>
       <div class="composer-actions">
         <span>Enter — новая строка · Ctrl+Enter — отправить</span>
-        <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading()">
-          Проанализировать
-        </button>
+        <div class="action-buttons">
+          <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading()">Сравнить режимы</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading()">Проанализировать</button>
+        </div>
       </div>
     </div>
   </section>
