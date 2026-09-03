@@ -1,6 +1,6 @@
 # Day 3 — Разные подходы к рассуждению
 
-Статус: **PLANNING / OWNER_DECISIONS_REQUIRED**
+Статус: **READY_FOR_IMPLEMENTATION**
 
 Product direction: **Engineering Review Mentor**
 
@@ -61,7 +61,7 @@ experiments.
 Reference findings используются только для evaluation после получения ответов и не передаются в
 prompts моделей.
 
-### Candidate A — повторная доставка события оплаты (RECOMMENDED, not owner-approved)
+### Final benchmark — повторная доставка события оплаты (OWNER-APPROVED)
 
 ```java
 @Transactional
@@ -72,18 +72,19 @@ public void handle(PaymentReceived event) {
 }
 ```
 
-Reference findings:
+Фиксированный reference checklist:
 
 1. Нет idempotency/deduplication: повторная доставка может повторно выполнить side effects.
 2. Email и DB transaction не атомарны: email может уйти, а transaction затем откатиться.
-3. Ошибка email откатывает DB change и провоцирует повторную обработку/повторные попытки.
-4. Concurrent delivery одного события/order может дать race и duplicate email.
-5. Не определена проверка допустимого state transition перед `markPaid()`.
+3. Concurrent delivery одного события/order создаёт race между проверкой/изменением состояния и
+   допускает повторный внешний side effect.
+4. Ошибка email внутри transaction откатывает DB change, после чего повторная доставка может
+   снова выполнить обработку и внешний side effect.
 
-Почему подходит: короткий код, но затрагивает transaction boundary, idempotency, concurrency и
-external side effects — центральные области Engineering Review Mentor. Первые четыре findings
-объективно следуют из кода; пятый зависит от неизвестной реализации `markPaid()` и должен быть
-помечен как conditional, а не безусловный defect.
+Почему подходит: короткий код, но объективно показывает transaction boundary, idempotency,
+concurrency и external side effects — центральные области Engineering Review Mentor. Проверка
+допустимости state transition не включена в reference checklist: реализация `markPaid()` не дана,
+поэтому такой finding может быть только условным extra, а не ожидаемым дефектом.
 
 Ambiguity risks: framework delivery guarantees, transaction semantics repository и реализация
 `markPaid()` не показаны. Ответы, которые утверждают конкретную гарантию без условия, считаются
@@ -140,8 +141,8 @@ Reference findings:
 Ambiguity risks: требует знания Spring/JPA; конкретный repository/provider и размер input не
 показаны. Для короткого публичного demo задача менее доступна, чем Candidate A.
 
-Codex recommendation: **Candidate A** — лучший баланс понятности, объективных invariants и
-глубины. Owner approval: **OPEN**, потому что benchmark определяет reference truth и winner.
+Candidates B/C сохранены как история рассмотренных вариантов. Owner выбрал Candidate A; exact
+snippet и четыре пункта checklist фиксируются до evaluation и не передаются модели.
 
 ## 6. Four reasoning strategies
 
@@ -192,7 +193,7 @@ Call 2 — solution:
 
 Candidate expert sets:
 
-1. **RECOMMENDED, not owner-approved:** Java correctness reviewer;
+1. **OWNER-APPROVED:** Java correctness reviewer;
    reliability/idempotency/concurrency reviewer;
    architecture critic. Покрывает local code, runtime/system risks и assumptions без дублирования.
 2. Application developer; QA/edge-case analyst; operations/SRE reviewer. Доступнее, но слабее
@@ -244,8 +245,7 @@ Backend compare mode не добавляется. Frontend запускает pa
 | C. LLM-as-a-judge | Да, но не требуется | Потенциально удобно | Judge bias, position/style bias, может предпочесть уверенный/длинный ответ | Дополнительные calls/prompt/schema; результат нельзя считать ground truth |
 | D. Text/keyword matching | Формально частично | Низкая | Низкая: не распознаёт paraphrase и поощряет keywords | Просто, но даёт ложную точность |
 
-Codex recommendation: **B** (owner approval remains OPEN), с human classification каждого
-результата:
+Owner decision: **B**, с explicit human classification каждого результата:
 
 - expected findings found;
 - expected findings missed;
@@ -280,7 +280,7 @@ reasoning с output control. Evaluation выполняется против refe
 Даёт матрицу `4 × 2 × editable settings`, усложняет UX и нарушает experimental invariant без
 требования challenge.
 
-Codex recommendation: **B**; owner approval remains **OPEN**. В UI Day 2 остаётся отдельным
+Owner decision: **B**. В UI Day 2 остаётся отдельным
 experiment `Формат ответа`, Day 3 —
 `Стратегия анализа`; внутри Day 3 output всегда FREE Markdown. Model, original task и presentation
 фиксированы, меняется только reasoning prompt.
@@ -298,8 +298,11 @@ experiment `Формат ответа`, Day 3 —
 - EXPERTS показывает три Markdown sections с явными role labels/conclusions.
 - Comparison metadata хранит strategy names, benchmark identity/version (если выбран predefined
   task) и не меняется после изменения текущего UI state.
-- Для approved benchmark после ответов показать collapsible reference checklist для ручной оценки;
-  для arbitrary free input accuracy остаётся осознанной human assessment без псевдоскоров.
+- Для approved benchmark после ответов показать reference checklist и явные поля ручной
+  классификации `found / missed / questionable`; winner выбирается человеком с объяснением по
+  reference evidence, без псевдоскоров и unreliable keyword matching.
+- Добавить локальные файловые диалоги: `Новый диалог`, список по времени обновления и восстановление
+  выбранного диалога. Это visual/application history; сохранённые сообщения не отправляются LLM.
 
 ## 11. Planned backend changes
 
@@ -323,10 +326,12 @@ experiment `Формат ответа`, Day 3 —
 3. Добавить selected-strategy и compare-all actions без backend compare endpoint.
 4. Переиспользовать safe Markdown renderer; generated prompt показывать escaped text, не innerHTML.
 5. Добавить optional predefined benchmark loader/reference panel после owner choice.
-6. Сохранить session-only history, sticky composer, Ctrl+Enter, smart scroll и immutable old
-   exchanges.
+6. Сохранить sticky composer, Ctrl+Enter, smart scroll и immutable old exchanges; заменить
+   session-only history на backend file persistence под `docs/local/mentor-dialogs/`.
 7. Targeted tests selector, exact identical input, 1/1/2/1 call topology, four results,
    generated-prompt toggle, expert sections, partial failure и Day 1/2 regression.
+8. Добавить минимальные create/list/load/update dialog API и сохранять complete exchanges без
+   transient loading state. ID генерируется приложением, title выводится из первого input.
 
 ## 13. Verification plan
 
@@ -377,42 +382,17 @@ reference findings и questionable extras по runs; identical wording не ож
 - LLM-as-a-judge как обязательный component;
 - generic multi-agent/council architecture или отдельные expert network calls;
 - матрица reasoning strategy × FREE/CONTROLLED/settings;
-- persistent history, localStorage, database или authentication;
+- database, authentication, cloud persistence или отправка persisted history модели;
 - user-first review comparison, skill scoring/profile или long-term heuristics;
 - RAG или MCP product functionality;
 - automatic code fixes;
 - Day 4+ functionality, generic provider abstraction или prompt playground.
 
-## 16. Open owner decisions
+## 16. Owner-approved decisions and blockers
 
-Статус всех четырёх решений: **OPEN / OWNER-APPROVAL_REQUIRED**. Метка **RECOMMENDED** ниже
-фиксирует предложение Codex, а не принятое решение. **OWNER-APPROVED: NONE**.
+**OWNER-APPROVED:** PaymentReceived benchmark; curated reference checklist + transparent human
+classification; отдельный Day 3 experiment с fixed FREE Markdown; council из Java Correctness,
+Reliability / Concurrency / Idempotency и Architecture perspectives; real SELF_PROMPT two-call
+flow; отдельный 3-runs-per-strategy verification harness; local file-backed dialog history.
 
-### Decision 1 — benchmark
-
-- A: payment event handler — strongest transaction/idempotency product fit; **RECOMMENDED**.
-- B: local cache — проще, но reference сильнее зависит от runtime assumptions.
-- C: parallel transaction — глубже, но менее доступен для короткого demo.
-
-### Decision 2 — evaluation
-
-- A: manual only — минимально, но слабо воспроизводимо.
-- B: approved reference checklist + human found/missed/questionable classification — **RECOMMENDED**.
-- C: LLM judge — дополнительная недетерминированность и scope, не рекомендуется для Day 3.
-
-### Decision 3 — Day 3 output and Day 2 coexistence
-
-- A: новый fixed structured contract — выше complexity.
-- B: fixed FREE Markdown в отдельном `Стратегия анализа` experiment — **RECOMMENDED**.
-- C: reuse CONTROLLED schema — не выражает per-expert results.
-- D: combinatorial modes — не рекомендуется.
-
-### Decision 4 — expert council
-
-- A: Java correctness + reliability/idempotency/concurrency + architecture critic —
-  **RECOMMENDED**.
-- B: developer + QA + SRE — проще, но менее точно для product direction.
-- C: transaction + distributed systems + maintainability — слишком специализировано.
-
-После owner choice по этим четырём связанным decisions Day 3 можно перевести в
-`READY_FOR_IMPLEMENTATION`. Других блокирующих product/architecture decisions нет.
+Open product decisions: **NONE**. Implementation blockers: **NONE**.
