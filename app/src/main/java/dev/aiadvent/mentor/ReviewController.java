@@ -9,8 +9,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/review")
 public class ReviewController {
@@ -21,31 +19,47 @@ public class ReviewController {
     }
 
     @PostMapping
-    ReviewResponse review(@RequestBody ReviewRequest request) throws DeepSeekException {
+    Object review(@RequestBody ReviewRequest request) throws DeepSeekException {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
-        return new ReviewResponse(deepSeekClient.analyze(request.input()));
+        ReviewMode mode = request.mode() == null ? ReviewMode.FREE : request.mode();
+        if (mode == ReviewMode.FREE) {
+            if (request.controls() != null) {
+                throw new IllegalArgumentException("controls are only allowed in CONTROLLED mode.");
+            }
+            return new FreeReviewResponse(deepSeekClient.analyze(request.input()));
+        }
+
+        ReviewControls controls = (request.controls() == null ? ReviewControls.defaults() : request.controls()).validated();
+        ControlledAnalysis analysis = deepSeekClient.analyzeControlled(request.input(), controls);
+        return new ControlledReviewResponse(analysis.review(), analysis.rawResponse());
     }
 
-    record ReviewRequest(String input) {
+    record ReviewRequest(String input, ReviewMode mode, ReviewControls controls) {
     }
 
-    record ReviewResponse(String analysis) {
+    record FreeReviewResponse(String analysis) {
+    }
+
+    record ControlledReviewResponse(ControlledReview review, String rawResponse) {
+    }
+
+    record ApiError(String error, String rawResponse) {
     }
 
     @RestControllerAdvice
     static class ApiExceptionHandler {
         @ExceptionHandler(IllegalArgumentException.class)
         @ResponseStatus(HttpStatus.BAD_REQUEST)
-        Map<String, String> invalidInput(IllegalArgumentException exception) {
-            return Map.of("error", exception.getMessage());
+        ApiError invalidInput(IllegalArgumentException exception) {
+            return new ApiError(exception.getMessage(), null);
         }
 
         @ExceptionHandler(DeepSeekException.class)
         @ResponseStatus(HttpStatus.BAD_GATEWAY)
-        Map<String, String> deepSeekFailure(DeepSeekException exception) {
-            return Map.of("error", exception.getMessage());
+        ApiError deepSeekFailure(DeepSeekException exception) {
+            return new ApiError(exception.getMessage(), exception.rawResponse());
         }
     }
 }
