@@ -61,5 +61,11 @@ public class ReviewController {
         ApiError deepSeekFailure(DeepSeekException exception) {
             return new ApiError(exception.getMessage(), exception.rawResponse());
         }
+
+        @ExceptionHandler(java.io.IOException.class)
+        @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+        ApiError storageFailure(java.io.IOException exception) {
+            return new ApiError("Local dialog storage is unavailable.", null);
+        }
     }
 }

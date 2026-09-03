@@ -1,6 +1,6 @@
 # Day 3 — Разные подходы к рассуждению
 
-Статус: **READY_FOR_IMPLEMENTATION**
+Статус: **IMPLEMENTED / TECHNICALLY_VERIFIED / SUBMISSION_PENDING**
 
 Product direction: **Engineering Review Mentor**
 
@@ -396,3 +396,58 @@ Reliability / Concurrency / Idempotency и Architecture perspectives; real SELF_
 flow; отдельный 3-runs-per-strategy verification harness; local file-backed dialog history.
 
 Open product decisions: **NONE**. Implementation blockers: **NONE**.
+
+## 17. Implementation evidence
+
+- `POST /api/reasoning-review` принимает exact `input` и одну strategy. DIRECT, STEP_BY_STEP и
+  EXPERTS выполняют по одному DeepSeek call; SELF_PROMPT возвращает неизменённый generated prompt
+  и final analysis после второго call.
+- EXPERTS system prompt требует отдельный Markdown conclusion от Java Correctness Reviewer,
+  Reliability / Concurrency / Idempotency Reviewer и Architecture Critic.
+- Angular отделяет Day 2 `Формат ответа` от Day 3 `Стратегия анализа`, показывает selected strategy
+  или four-way grid, сохраняет partial successes и раскрывает SELF_PROMPT prompt как escaped text.
+- PaymentReceived benchmark и четыре reference findings встроены как фиксированный demo snapshot.
+  Пользователь явно записывает found/missed/questionable и winner rationale; semantic auto-matching
+  и fake accuracy score отсутствуют.
+- Local dialog API `create/list/load/update` хранит JSON в `docs/local/mentor-dialogs/`, сортирует
+  список по `updatedAt`, использует UUID filenames и atomic replace. UI сохраняет complete
+  FREE/CONTROLLED/comparison/reasoning exchanges, raw JSON, prompts, errors и evaluation evidence.
+- Persisted dialogs — только UI/application history. Ни один старый exchange не добавляется в
+  следующий DeepSeek request.
+
+## 18. Verification evidence — 2026-09-03
+
+- Backend: `mvn clean package` — PASS; **33 tests**, failures 0, errors 0, skipped 0.
+- Frontend: `npm test -- --watch=false` — PASS; **9 tests**. Проверены Day 1 safe Markdown,
+  Day 2 CONTROLLED/raw JSON/snapshot, Day 3 selected/four-way/partial failure/prompt reveal,
+  dialog create/restore и Ctrl+Enter.
+- Frontend production build — PASS. Angular сообщает non-blocking component-style budget warning;
+  bundle создан.
+- Real harness: три независимых run каждой strategy — PASS. Получено 12 endpoint responses и
+  **15 DeepSeek calls** (`1/1/2/1` на run); SELF_PROMPT prompt присутствует, EXPERTS во всех runs
+  вернул три отдельные expert sections.
+- Human reference review: **EXPERTS был наиболее стабильным на этом PaymentReceived benchmark** —
+  во всех runs явно покрыл четыре reference risks. Это локальный результат, не универсальное
+  превосходство. Встречались conditional extras; SELF_PROMPT в одном run потерял русскоязычное
+  ограничение и ответил по-английски. Ответ сохранён без repair/retry как evidence weakness.
+- Web path `Angular :4201 -> /api proxy -> Spring Boot :18080 -> DeepSeek` — PASS для FREE и
+  CONTROLLED. Dialog create/update/list/load через proxy восстановил exact saved response; после
+  остановки и повторного запуска backend тот же dialog снова загрузился без потери данных.
+- Интерактивный Chrome DOM walkthrough не выполнен: Chrome/IDE browser MCP отсутствует в текущей
+  tool session. UI behavior покрыт frontend tests; owner visual smoke остаётся перед видео.
+- `.env.local`, `docs/local/mentor-dialogs/`, `docs/local/agent-sessions/`, build output и logs
+  игнорируются Git. API key не хранится в dialog/evidence data и не выводился.
+
+## 19. Submission status
+
+- [x] implementation
+- [x] backend/frontend automated verification and production builds
+- [x] real four-strategy API verification
+- [ ] owner visual browser review / demo video
+- [ ] repository/code publication for Day 3
+
+DAY 3 IMPLEMENTATION = **DONE**
+
+DAY 3 VERIFICATION = **DONE**, кроме owner visual acceptance перед записью
+
+DAY 3 SUBMISSION = **PENDING**

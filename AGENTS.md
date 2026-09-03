@@ -28,6 +28,10 @@
   и unrelated cleanup.
 - Существенные решения и изменения scope фиксировать в текущем task document; актуальный итог и
   следующий шаг — в `docs/CURRENT-STATE.md`.
+- После substantial planning/implementation/review сохранить concise run evidence в
+  `docs/agent-runs/DAY-XX.md`. Детальный prompt/final report при наличии сохранять только в
+  ignored `docs/local/agent-sessions/`; local history не является canonical truth и не содержит
+  secrets.
 - Тестировать изменённое подходящими targeted checks. Не объявлять DONE без evidence; явно
   указывать, что не проверено.
 - Не выполнять commit, push, merge, rebase или удаление веток без явной команды владельца.

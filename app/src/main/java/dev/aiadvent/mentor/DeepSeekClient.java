@@ -36,8 +36,12 @@ public class DeepSeekClient {
     }
 
     public String analyze(String input) throws DeepSeekException {
+        return analyzeWithSystem(SYSTEM_PROMPT, input);
+    }
+
+    String analyzeWithSystem(String systemPrompt, String input) throws DeepSeekException {
         try {
-            return send(input, buildFreeRequestBody(input)).content();
+            return send(input, buildFreeRequestBody(systemPrompt, input)).content();
         } catch (JsonProcessingException e) {
             throw new DeepSeekException("Could not create the DeepSeek request.", e);
         }
@@ -95,13 +99,17 @@ public class DeepSeekClient {
     }
 
     String buildFreeRequestBody(String input) throws JsonProcessingException {
+        return buildFreeRequestBody(SYSTEM_PROMPT, input);
+    }
+
+    String buildFreeRequestBody(String systemPrompt, String input) throws JsonProcessingException {
         ObjectNode root = json.createObjectNode();
         root.put("model", MODEL);
         root.put("stream", false);
         root.putObject("thinking").put("type", "disabled");
 
         ArrayNode messages = root.putArray("messages");
-        messages.addObject().put("role", "system").put("content", SYSTEM_PROMPT);
+        messages.addObject().put("role", "system").put("content", systemPrompt);
         messages.addObject().put("role", "user").put("content", input);
         return json.writeValueAsString(root);
     }
