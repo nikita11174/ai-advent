@@ -2,6 +2,8 @@
 
 Чистый sandbox-проект для последовательного выполнения заданий AI Advent Challenge 9.
 
+Repository: https://github.com/nikita11174/ai-advent
+
 Проект содержит только учебный код AI Advent, без данных внешних проектов.
 
 Это один развивающийся проект для ежедневных заданий challenge. Первый baseline — Java 21,
