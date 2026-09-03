@@ -15,4 +15,5 @@
   exposed a language-constraint omission. Chrome MCP unavailable; owner visual acceptance remains.
 - Planning commit: `ebe6e6ca8c465899008eb305f3ca147dc271643e`.
 - Implementation commit: `897ca53dd355a4df754e8c02e45e1feb8c956c47`.
+- Evidence checkpoint: `4f61e21a417441481ad702f5a71b57fc5952fdad`.
 - Remaining: browser review, demo video, separately authorized publication.

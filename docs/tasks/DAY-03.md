@@ -1,6 +1,6 @@
 # Day 3 — Разные подходы к рассуждению
 
-Статус: **IMPLEMENTED / TECHNICALLY_VERIFIED / SUBMISSION_PENDING**
+Статус: **IMPLEMENTED / OWNER_VISUAL_VERIFICATION_PENDING / SUBMISSION_PENDING**
 
 Product direction: **Engineering Review Mentor**
 
@@ -448,6 +448,8 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
 
 DAY 3 IMPLEMENTATION = **DONE**
 
-DAY 3 VERIFICATION = **DONE**, кроме owner visual acceptance перед записью
+DAY 3 TECHNICAL VERIFICATION = **DONE**
+
+DAY 3 OWNER VISUAL VERIFICATION = **PENDING**
 
 DAY 3 SUBMISSION = **PENDING**
