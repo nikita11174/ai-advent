@@ -10,7 +10,8 @@
 | Current milestone | Week 1 / Day 3 |
 | Current branch | `day_3` |
 | Day 3 base | `da103f54ac0e2ce4d3e258da04ca2b0d3bee04fb` — verified Day 2 |
-| Status | Implementation and technical verification DONE; submission PENDING |
+| Day 3 implementation/evidence checkpoint | `4f61e21a417441481ad702f5a71b57fc5952fdad` |
+| Status | Implementation and technical verification DONE; owner visual verification and submission PENDING |
 | Next action | Owner visual review, demo video, then separately authorized publication flow |
 
 ## Challenge days
@@ -19,13 +20,14 @@
 |---|---|---|---|
 | Day 1 | DONE | DONE | Repository link DONE; demo video PENDING |
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
-| Day 3 | DONE | DONE; owner visual acceptance pending | Demo video and publication PENDING |
+| Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
 
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.
 
 Day 3 planning commit: `ebe6e6ca8c465899008eb305f3ca147dc271643e`. Day 3 implementation
-commit: `897ca53dd355a4df754e8c02e45e1feb8c956c47`.
+commit: `897ca53dd355a4df754e8c02e45e1feb8c956c47`. Evidence checkpoint:
+`4f61e21a417441481ad702f5a71b57fc5952fdad`.
 
 ## Current architecture
 

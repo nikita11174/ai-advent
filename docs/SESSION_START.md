@@ -25,8 +25,9 @@
 ## Current task
 
 Активен **Week 1 / Day 3** в ветке `day_3`, созданной от verified Day 2 commit `da103f5`.
-Implementation и technical verification выполнены; exact evidence и оставшийся visual/submission
-flow — в `docs/tasks/DAY-03.md`. Day 1 и Day 2 имеют отдельные pending submission items.
+Implementation и automated/API/persistence verification выполнены. Owner visual browser review,
+demo и publication остаются pending; exact evidence — в `docs/tasks/DAY-03.md`. Day 1 и Day 2
+имеют отдельные pending submission items.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.
