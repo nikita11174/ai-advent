@@ -2,6 +2,8 @@
 
 Чистый sandbox-проект для последовательного выполнения заданий AI Advent Challenge 9.
 
+Repository: https://github.com/nikita11174/ai-advent
+
 Проект независим от рабочих PSP, LK и UCS репозиториев. Сюда нельзя переносить их бизнес-код,
 историю задач, credentials, локальные базы данных или company-specific данные.
 
