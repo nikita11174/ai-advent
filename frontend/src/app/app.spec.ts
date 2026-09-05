@@ -14,16 +14,19 @@ interface TestApp {
   compare(): void;
   compareStrategies(): void;
   compareTemperatures(): void;
+  updateTemperatureConclusion(id: number, field: 'accuracy' | 'creativity' | 'diversity' | 'taskFit', value: string): void;
+  saveEvaluation(): void;
   resetControls(): void;
   toggleRaw(id: number): void;
   togglePrompt(id: number, strategy: 'SELF_PROMPT'): void;
   newDialog(): void;
   openDialog(id: string): void;
+  exchanges(): readonly { temperatureConclusion?: unknown }[];
 }
 
 const now = '2026-09-03T10:00:00Z';
-const dialog = (id = '11111111-1111-1111-1111-111111111111', exchanges: unknown[] = []) => ({
-  id, title: 'Новый диалог', createdAt: now, updatedAt: now, state: { exchanges },
+const dialog = (id = '11111111-1111-1111-1111-111111111111', exchanges: unknown[] = [], ui?: unknown) => ({
+  id, title: 'Новый диалог', createdAt: now, updatedAt: now, state: { exchanges, ui },
 });
 const controlled = (rawResponse = '{"summary":"Резюме","findings":[],"recommendation":"Проверить"}') => ({
   review: { summary: 'Резюме', findings: [], recommendation: 'Проверить' }, rawResponse,
@@ -135,12 +138,38 @@ describe('App', () => {
     requests[0].flush({ temperature: 0, analysis: 'zero' });
     requests[1].flush({ error: 'failure' }, { status: 502, statusText: 'Bad Gateway' });
     requests[2].flush({ temperature: 1.2, analysis: 'high' });
-    flushSave(); fixture.detectChanges();
+    const save = http.expectOne(request => request.url.startsWith('/api/dialogs/'));
+    expect(save.request.body.state.ui.experiment).toBe('TEMPERATURE');
+    save.flush(dialog()); fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.user-message')).toHaveLength(1);
     expect(fixture.nativeElement.querySelectorAll('.temperature-comparison .strategy-card')).toHaveLength(3);
     expect(fixture.nativeElement.textContent).toContain('zero');
     expect(fixture.nativeElement.textContent).toContain('failure');
     expect(fixture.nativeElement.textContent).toContain('high');
+  });
+
+  it('restores the Day 4 experiment and four human evaluation fields', () => {
+    const exchange = { id: 4, input: 'benchmark', mode: 'TEMPERATURE_COMPARE',
+      temperatureResults: { 0: { loading: false, analysis: 'zero' }, 0.7: { loading: false, analysis: 'balanced' }, 1.2: { loading: false, analysis: 'creative' } },
+      temperatureConclusion: { accuracy: 'Точно', creativity: 'Полезные идеи', diversity: 'Разные ответы', taskFit: 'Code review' } };
+    component.openDialog('22222222-2222-2222-2222-222222222222');
+    http.expectOne('/api/dialogs/22222222-2222-2222-2222-222222222222').flush(dialog(
+      '22222222-2222-2222-2222-222222222222', [exchange],
+      { experiment: 'TEMPERATURE', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 1.2 }));
+    fixture.detectChanges();
+
+    expect(component.experiment).toBe('TEMPERATURE');
+    expect(component.selectedTemperature).toBe(1.2);
+    expect(component.exchanges()[0].temperatureConclusion).toEqual(exchange.temperatureConclusion);
+    const fields = [...fixture.nativeElement.querySelectorAll('.conclusion-grid textarea')] as HTMLTextAreaElement[];
+    expect(fields.map(field => field.value)).toEqual(['Точно', 'Полезные идеи', 'Разные ответы', 'Code review']);
+
+    component.updateTemperatureConclusion(4, 'accuracy', 'Обновлено'); component.saveEvaluation();
+    const save = http.expectOne('/api/dialogs/22222222-2222-2222-2222-222222222222');
+    expect(save.request.body.state.ui.experiment).toBe('TEMPERATURE');
+    expect(save.request.body.state.ui.selectedTemperature).toBe(1.2);
+    expect(save.request.body.state.exchanges[0].temperatureConclusion.accuracy).toBe('Обновлено');
+    save.flush(dialog());
   });
 
   it('creates and restores dialogs with completed exchanges', () => {

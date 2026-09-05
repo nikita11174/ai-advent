@@ -30,16 +30,22 @@ interface ResultState {
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
+interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
   id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE';
   controls?: ReviewControls; free?: ResultState; controlled?: ResultState;
   strategy?: ReasoningStrategy; reasoning?: Partial<Record<ReasoningStrategy, ResultState>>;
   winner?: ReasoningStrategy; winnerReason?: string;
   temperature?: Temperature; temperatureResults?: Partial<Record<Temperature, ResultState>>;
-  temperatureEvaluations?: Partial<Record<Temperature, TemperatureEvaluation>>; temperatureConclusion?: string;
+  temperatureEvaluations?: Partial<Record<Temperature, TemperatureEvaluation>>;
+  temperatureConclusion?: TemperatureConclusion | string;
 }
 interface DialogSummary { id: string; title: string; createdAt: string; updatedAt: string; }
-interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[] }; }
+interface DialogUiState {
+  experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
+  selectedTemperature: Temperature;
+}
+interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
@@ -67,6 +73,7 @@ const defaultControls = (): ReviewControls => ({ maxTokens: 600, maxFindings: 3,
   reasonMaxWords: 30, recommendationMaxWords: 30, terminationInstruction: DEFAULT_TERMINATION });
 const blankEvaluation = (): Evaluation => ({ found: '', missed: '', questionable: '' });
 const blankTemperatureEvaluation = (): TemperatureEvaluation => ({ found: '', missed: '', questionable: '', creativity: '', diversity: '', suitableTasks: '' });
+const blankTemperatureConclusion = (): TemperatureConclusion => ({ accuracy: '', creativity: '', diversity: '', taskFit: '' });
 const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
@@ -98,6 +105,7 @@ export class App implements OnInit {
   protected readonly currentDialogId = signal<string | null>(null);
   protected readonly loading = signal(false);
   protected readonly showLatestButton = signal(false);
+  protected readonly sidebarOpen = signal(false);
 
   ngOnInit(): void { this.loadDialogList(); }
 
@@ -110,6 +118,8 @@ export class App implements OnInit {
     if (this.loading() || id === this.currentDialogId()) return;
     this.http.get<DialogDocument>(`/api/dialogs/${id}`).subscribe({ next: dialog => this.activateDialog(dialog) });
   }
+
+  protected toggleSidebar(): void { this.sidebarOpen.update(open => !open); }
 
   protected useBenchmark(): void { this.input = BENCHMARK; }
 
@@ -185,7 +195,17 @@ export class App implements OnInit {
     this.updateExchange(id, { temperatureEvaluations: { ...exchange.temperatureEvaluations, [temperature]: { ...current, [field]: value } } }, false);
   }
 
-  protected updateTemperatureConclusion(id: number, value: string): void { this.updateExchange(id, { temperatureConclusion: value }, false); }
+  protected updateTemperatureConclusion(id: number, field: keyof TemperatureConclusion, value: string): void {
+    const exchange = this.exchange(id); const conclusion = this.temperatureConclusion(exchange);
+    this.updateExchange(id, { temperatureConclusion: { ...conclusion, [field]: value } }, false);
+  }
+
+  protected temperatureConclusion(exchange: Exchange): TemperatureConclusion {
+    if (typeof exchange.temperatureConclusion === 'string') {
+      return { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion };
+    }
+    return exchange.temperatureConclusion ?? blankTemperatureConclusion();
+  }
 
   protected handleKeyboard(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); this.analyze(); }
@@ -211,11 +231,17 @@ export class App implements OnInit {
     }});
   }
   private activateDialog(dialog: DialogDocument): void {
-    const exchanges = dialog.state?.exchanges ?? [];
+    const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
+      ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
+      : exchange);
+    const ui = dialog.state?.ui;
+    this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
+    this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
     this.nextExchangeId = Math.max(0, ...exchanges.map(exchange => exchange.id)) + 1;
     this.loading.set(false); this.pendingRequests = 0;
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
+    this.sidebarOpen.set(false);
     this.requestScrollToLatest();
   }
   private analyzeReasoning(input: string): void {
@@ -291,7 +317,9 @@ export class App implements OnInit {
     const id = this.currentDialogId(); if (!id) return;
     const completed = this.exchanges().map(exchange => this.withoutLoading(exchange));
     const title = this.dialogTitle(completed);
-    this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed } }).subscribe({
+    const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
+      selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature };
+    this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });
   }
