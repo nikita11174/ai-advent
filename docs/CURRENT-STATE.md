@@ -12,8 +12,9 @@
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
-| Status | Day 4 implementation and technical verification DONE; submission PENDING |
-| Next action | Owner visual acceptance, demo video and repository publication for Day 4 |
+| Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
+| Status | Day 4 implementation/verification/owner UX acceptance DONE; submission PENDING |
+| Next action | Day 4 demo video and publication (separate owner authorization) |
 
 ## Challenge days
 
@@ -22,10 +23,9 @@
 | Day 1 | DONE | DONE | Repository link DONE; demo video PENDING |
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
-| Day 4 | DONE | Automated/build/API/browser-proxy/persistence DONE; owner visual acceptance PENDING | Demo video and publication PENDING |
+| Day 4 | DONE | Technical verification DONE; UX/responsive owner acceptance DONE | Demo video and publication PENDING |
 
-Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) опубликован, но не
-планировался и не реализовывался.
+Day 4 завершён; Day 5 опубликован и известен, но не активен на этой ветке.
 
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.
@@ -54,11 +54,12 @@ Angular 22 :4201
   fake scores.
 - Dialog JSON находится в ignored `docs/local/mentor-dialogs/`. История восстанавливает UI, но
   **никогда не отправляется DeepSeek как conversation memory**.
-- Concise run evidence — tracked `docs/agent-runs/DAY-03.md`; detailed local evidence — ignored
+- Concise run evidence — tracked `docs/agent-runs/DAY-XX.md`; detailed local evidence — ignored
   `docs/local/agent-sessions/`.
 - `DEEPSEEK_API_KEY` доступен только backend environment; `.env.local` игнорируется Git.
 - Day 4 сравнивает один immutable input при fixed prompt/configuration; отличается только
-  temperature. Backend 36 tests, frontend 11 tests, builds PASS, 9/9 real experiment calls PASS и
-  Chrome web comparison PASS.
+  temperature. Backend baseline: 36 tests PASS; latest UX frontend: 12 tests and production build
+  PASS. 9/9 real experiment calls and Chrome web comparison PASS; responsive checks at
+  1440×1000, 1024×768, 768×1024 and 500×844 PASS. Detailed evidence — Day 4 task.
 
 Фактические counts, real API evidence, ограничения и acceptance — `docs/tasks/DAY-04.md`.

@@ -1,6 +1,6 @@
 # Day 4 — Temperature
 
-Статус: **IMPLEMENTED / VERIFIED; OWNER VISUAL ACCEPTANCE PENDING**
+Статус: **IMPLEMENTED / VERIFIED / OWNER UX ACCEPTED; SUBMISSION PENDING**
 
 ## 1. Original challenge requirement
 
@@ -50,10 +50,16 @@ POST /api/temperature-review
 - Experiment tabs: `Формат ответа`, `Стратегия анализа`, `Температура`.
 - Selector: `0`, `0.7`, `1.2`.
 - Actions: `Проанализировать`, `Сравнить температуры`.
-- Compare result: три independently loading/error/result cards; desktop — три columns, narrow —
-  stack. Partial failure не скрывает successful cards.
+- Compare result: три independently loading/error/result cards; адаптивные 3/2/1 columns по
+  доступной ширине. Partial failure не скрывает successful cards.
 - Exchange сохраняет immutable input, temperature/results и human observations в существующем
   local dialog store. Persisted dialog — UI history, не LLM conversation memory.
+- `state.ui` сохраняет active experiment, output mode, reasoning strategy и selected temperature
+  только как presentation state. Эти данные не добавляются к model requests.
+- Sidebar скрываемый при ширине ≤900 px; composer и jump-to-last не перекрываются.
+- Общий вывод редактируется четырьмя полями: «Точность», «Креативность», «Разнообразие»,
+  «Для каких задач подходит», с одной кнопкой сохранения. Старый строковый вывод сохраняется
+  целиком в поле «Точность»; автоматического смыслового разделения нет.
 
 ## 7. Evaluation
 
@@ -103,7 +109,7 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
 - Frontend: отдельный experiment `Температура`, selected run и independent three-card comparison.
   Human observations и conclusion входят в persisted exchange.
 - Backend `mvn clean package`: PASS, 36 tests, failures/errors/skipped = `0/0/0`.
-- Frontend: PASS, 11 tests; production build PASS. Component-style warning остаётся ниже `9 kB`
+- Initial implementation frontend: PASS, 11 tests; production build PASS. Component-style warning остаётся ниже `9 kB`
   error budget (`8.16 kB`). IntelliJ project build: PASS, problems = 0.
 - 9-call harness: PASS для трёх independent runs на каждой temperature; все ответы non-empty и
   endpoint возвращал requested temperature. Raw evidence:
@@ -126,14 +132,40 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
   последующие model requests.
 - Day 1–3 regressions покрыты полными backend/frontend suites; existing FREE, CONTROLLED,
   reasoning и persistence tests прошли.
-- Owner visual acceptance/demo recording: PENDING.
+- Initial owner visual acceptance was pending; the accepted UX checkpoint below supersedes it.
+
+### Accepted UX/responsive checkpoint — 2026-09-05
+
+- Commit: `aacbbf32701a5107b6afb81178d637cafb6d00a4` — `Polish AI Advent Day 4 UX`.
+  Owner accepted the UX/responsive implementation for commit. No backend/API/DeepSeek changes.
+- Latest frontend verification: `npm test -- --watch=false` — 12/12 PASS;
+  `npm run build` — PASS. CSS duplication removed; error budget retained at 9 kB, stylesheet
+  reported as 9.00 kB (rounded). Only the existing non-blocking 4 kB style warning remains.
+  Backend tests were not rerun for CSS/presentation-only changes; 36-test baseline above remains.
+- Chrome MCP: 1440×1000 — 3 comparison columns, visible sidebar; 1024×768 — 2 columns,
+  visible sidebar; 768×1024 — 2 columns, collapsible sidebar; 500×844 — 1 column, hidden sidebar.
+  All PASS for selected result, comparison, selector, evaluation fields, composer, benchmark
+  action and scrolling/jump-to-last. Narrow-column and long-inline-code overflow defects fixed.
+- Saved Temperature experiment, three comparison results and all four evaluation fields restore
+  after refresh. Existing legacy conclusion text is preserved. History remains independent of
+  subsequent LLM calls.
+- Targeted shared-shell regression PASS: dialog navigation, composer, scroll/jump-to-last,
+  Day 1 real FREE Russian Markdown response, Day 2 format controls and Day 3 strategy controls.
+  No repeat of the 9-call experiment was needed for this presentation-only checkpoint.
+- Screenshots (ignored): `docs/local/screenshots/day-04-after-ux/`:
+  `01-desktop-temperature-screen.png`, `02-compare-all.png`, `03-human-evaluation-fields.png`,
+  `04-mobile-layout.png`, `05-restored-temperature-dialog.png`,
+  `06-small-laptop-1024x768.png`, `07-tablet-768x1024.png`.
+- Publish safety: screenshots, dialog/session data and `.env.local` ignored; generated/local
+  artifacts not tracked. Commit contains only frontend presentation/tests and `.gitignore`.
 
 ## 12. Submission status
 
 - [x] implementation
 - [x] automated tests/builds
 - [x] 9-call real experiment
-- [ ] owner visual browser review / demo video
+- [x] owner UX/responsive acceptance
+- [ ] demo video
 - [ ] repository/code publication
 
 DAY 4 IMPLEMENTATION = **DONE**
