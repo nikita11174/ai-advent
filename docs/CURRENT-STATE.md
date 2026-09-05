@@ -22,6 +22,9 @@
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
 
+Официальные Day 4 и Day 5 уже опубликованы (Telegram messages `1642` и `1798`), но не
+планировались и не реализовывались. Активным остаётся завершение submission flow Day 3.
+
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.
 
