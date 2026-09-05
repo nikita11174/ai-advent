@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Week 1 / Day 4 |
-| Current branch | `day_4` |
+| Current milestone | Week 1 / Day 5 — design finalized; implementation not started |
+| Current branch | `day_5` |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Day 4 implementation/verification/owner UX acceptance DONE; submission PENDING |
-| Next action | Day 4 demo video and publication (separate owner authorization) |
+| Status | Day 5 READY_FOR_IMPLEMENTATION; Day 4 accepted, submission PENDING |
+| Next action | Implement approved Day 5; deterministic verification, then one Luna smoke only if key available |
 
 ## Challenge days
 
@@ -24,8 +24,13 @@
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
 | Day 4 | DONE | Technical verification DONE; UX/responsive owner acceptance DONE | Demo video and publication PENDING |
+| Day 5 | NOT STARTED — design finalized | NOT RUN; official API facts checked 2026-09-05 | Report and code publication PENDING |
 
-Day 4 завершён; Day 5 опубликован и известен, но не активен на этой ветке.
+Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
+`docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,
+9 sequential calls with rotating order, budget ≤USD 5. Open product decisions NONE;
+Owner confirmed key created and prepaid balance USD 5; application credential/model access unverified. Day 5 branch created from `9ff5b296b692266cde73701bc250c3aed7b5351d`; no code yet. Current architecture below is Day 1–4,
+not the planned OpenAI implementation. Day 4 video/publication remain separately pending.
 
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.

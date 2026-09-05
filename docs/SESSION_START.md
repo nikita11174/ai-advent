@@ -24,9 +24,10 @@
 
 ## Current task
 
-Активен **Week 1 / Day 4** в ветке `day_4`. Contract/evidence — `docs/tasks/DAY-04.md`.
-Implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
-Day 5 известен, но не активен на этой ветке.
+Активен **Week 1 / Day 5 — design finalized, implementation not started**.
+Canonical contract — `docs/tasks/DAY-05.md`; исторический анализ — `docs/agent-runs/DAY-05-ANALYSIS.md`.
+Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation authorized, code not started.
+Day 4 implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
 Day 1–3 visual/submission items остаются отдельными pending действиями.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
