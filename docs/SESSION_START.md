@@ -24,9 +24,9 @@
 
 ## Current task
 
-Активен **Week 1 / Day 4** в ветке `day_4`, созданной от completed Day 3 knowledge checkpoint
-`0271bf8`. Exact contract/evidence — `docs/tasks/DAY-04.md`. Day 4 implementation и technical
-verification завершены; owner visual acceptance, demo video и publication остаются pending.
+Активен **Week 1 / Day 4** в ветке `day_4`. Contract/evidence — `docs/tasks/DAY-04.md`.
+Implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
+Day 5 известен, но не активен на этой ветке.
 Day 1–3 visual/submission items остаются отдельными pending действиями.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
