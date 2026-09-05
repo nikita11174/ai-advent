@@ -7,12 +7,12 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Week 1 / Day 3 |
-| Current branch | `day_3` |
+| Current milestone | Week 1 / Day 4 |
+| Current branch | `day_4` |
 | Day 3 base | `da103f54ac0e2ce4d3e258da04ca2b0d3bee04fb` — verified Day 2 |
 | Day 3 implementation/evidence checkpoint | `4f61e21a417441481ad702f5a71b57fc5952fdad` |
-| Status | Implementation and technical verification DONE; owner visual verification and submission PENDING |
-| Next action | Owner visual review, demo video, then separately authorized publication flow |
+| Status | Day 4 planned / ready for implementation |
+| Next action | Implement `docs/tasks/DAY-04.md` from clean Day 3 knowledge checkpoint |
 
 ## Challenge days
 
@@ -21,9 +21,10 @@
 | Day 1 | DONE | DONE | Repository link DONE; demo video PENDING |
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
+| Day 4 | NOT_STARTED | NOT_STARTED | PENDING |
 
-Официальные Day 4 и Day 5 уже опубликованы (Telegram messages `1642` и `1798`), но не
-планировались и не реализовывались. Активным остаётся завершение submission flow Day 3.
+Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) опубликован, но не
+планировался и не реализовывался.
 
 Day 2 planning commit: `58f1ae4`. Day 1 repository:
 `https://github.com/nikita11174/ai-advent`.
