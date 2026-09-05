@@ -5,13 +5,15 @@ import { App } from './app';
 
 interface TestApp {
   input: string;
-  experiment: 'FORMAT' | 'REASONING';
+  experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE';
   selectedMode: 'FREE' | 'CONTROLLED';
   selectedStrategy: 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
+  selectedTemperature: 0 | 0.7 | 1.2;
   controls: { maxTokens: number; maxFindings: number };
   analyze(): void;
   compare(): void;
   compareStrategies(): void;
+  compareTemperatures(): void;
   resetControls(): void;
   toggleRaw(id: number): void;
   togglePrompt(id: number, strategy: 'SELF_PROMPT'): void;
@@ -112,6 +114,33 @@ describe('App', () => {
     flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('success');
     expect(fixture.nativeElement.textContent).toContain('failure');
+  });
+
+  it('runs the selected Day 4 temperature with the exact input', () => {
+    component.experiment = 'TEMPERATURE'; component.selectedTemperature = 0.7; component.input = 'exact task'; component.analyze();
+    const request = http.expectOne('/api/temperature-review');
+    expect(request.request.body).toEqual({ input: 'exact task', temperature: 0.7 });
+    request.flush({ temperature: 0.7, analysis: '## Ответ' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Temperature 0.7');
+    expect(fixture.nativeElement.querySelector('.analysis-text h2')?.textContent).toBe('Ответ');
+  });
+
+  it('compares all Day 4 temperatures independently with one input', () => {
+    component.experiment = 'TEMPERATURE'; component.input = 'same task'; component.compareTemperatures();
+    const requests = http.match('/api/temperature-review');
+    expect(requests).toHaveLength(3);
+    expect(requests.map(request => request.request.body.temperature)).toEqual([0, 0.7, 1.2]);
+    expect(requests.every(request => request.request.body.input === 'same task')).toBe(true);
+    requests[0].flush({ temperature: 0, analysis: 'zero' });
+    requests[1].flush({ error: 'failure' }, { status: 502, statusText: 'Bad Gateway' });
+    requests[2].flush({ temperature: 1.2, analysis: 'high' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.user-message')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('.temperature-comparison .strategy-card')).toHaveLength(3);
+    expect(fixture.nativeElement.textContent).toContain('zero');
+    expect(fixture.nativeElement.textContent).toContain('failure');
+    expect(fixture.nativeElement.textContent).toContain('high');
   });
 
   it('creates and restores dialogs with completed exchanges', () => {

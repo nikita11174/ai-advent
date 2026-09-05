@@ -9,8 +9,9 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { marked, Renderer } from 'marked';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
-type Experiment = 'FORMAT' | 'REASONING';
+type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
+type Temperature = 0 | 0.7 | 1.2;
 
 interface ReviewControls {
   maxTokens: number; maxFindings: number; summaryMaxWords: number;
@@ -21,22 +22,27 @@ interface ControlledReview { summary: string; findings: Finding[]; recommendatio
 interface FreeResponse { analysis: string; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
+interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
   evaluation?: Evaluation;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
+interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
 interface Exchange {
-  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE';
+  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE';
   controls?: ReviewControls; free?: ResultState; controlled?: ResultState;
   strategy?: ReasoningStrategy; reasoning?: Partial<Record<ReasoningStrategy, ResultState>>;
   winner?: ReasoningStrategy; winnerReason?: string;
+  temperature?: Temperature; temperatureResults?: Partial<Record<Temperature, ResultState>>;
+  temperatureEvaluations?: Partial<Record<Temperature, TemperatureEvaluation>>; temperatureConclusion?: string;
 }
 interface DialogSummary { id: string; title: string; createdAt: string; updatedAt: string; }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[] }; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
+const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
 const STRATEGY_LABELS: Record<ReasoningStrategy, string> = {
   DIRECT: 'Прямой', STEP_BY_STEP: 'Пошаговый', SELF_PROMPT: 'Самопромпт', EXPERTS: 'Эксперты',
 };
@@ -60,6 +66,7 @@ const REFERENCE_FINDINGS = [
 const defaultControls = (): ReviewControls => ({ maxTokens: 600, maxFindings: 3, summaryMaxWords: 30,
   reasonMaxWords: 30, recommendationMaxWords: 30, terminationInstruction: DEFAULT_TERMINATION });
 const blankEvaluation = (): Evaluation => ({ found: '', missed: '', questionable: '' });
+const blankTemperatureEvaluation = (): TemperatureEvaluation => ({ found: '', missed: '', questionable: '', creativity: '', diversity: '', suitableTasks: '' });
 const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
@@ -81,8 +88,10 @@ export class App implements OnInit {
   protected experiment: Experiment = 'FORMAT';
   protected selectedMode: ReviewMode = 'FREE';
   protected selectedStrategy: ReasoningStrategy = 'DIRECT';
+  protected selectedTemperature: Temperature = 0;
   protected controls = defaultControls();
   protected readonly strategies = STRATEGIES;
+  protected readonly temperatures = TEMPERATURES;
   protected readonly referenceFindings = REFERENCE_FINDINGS;
   protected readonly exchanges = signal<readonly Exchange[]>([]);
   protected readonly dialogs = signal<readonly DialogSummary[]>([]);
@@ -108,6 +117,7 @@ export class App implements OnInit {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId()) return;
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
+    if (this.experiment === 'TEMPERATURE') { this.analyzeTemperature(input); return; }
     const controls = this.selectedMode === 'CONTROLLED' ? this.controlsSnapshot() : undefined;
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: this.selectedMode, controls,
       [this.selectedMode === 'FREE' ? 'free' : 'controlled']: { loading: true } });
@@ -131,6 +141,16 @@ export class App implements OnInit {
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'REASONING_COMPARE', reasoning });
     this.prepareAfterSubmit(); this.pendingRequests += STRATEGIES.length; this.loading.set(true);
     for (const strategy of STRATEGIES) this.requestReasoning(id, input, strategy);
+  }
+
+  protected compareTemperatures(): void {
+    const input = this.input;
+    if (!input.trim() || this.loading() || !this.currentDialogId()) return;
+    const temperatureResults = Object.fromEntries(TEMPERATURES.map(value => [value, { loading: true }])) as Record<Temperature, ResultState>;
+    const temperatureEvaluations = Object.fromEntries(TEMPERATURES.map(value => [value, blankTemperatureEvaluation()])) as Record<Temperature, TemperatureEvaluation>;
+    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'TEMPERATURE_COMPARE', temperatureResults, temperatureEvaluations });
+    this.prepareAfterSubmit(); this.pendingRequests += TEMPERATURES.length; this.loading.set(true);
+    for (const temperature of TEMPERATURES) this.requestTemperature(id, input, temperature);
   }
 
   protected resetControls(): void { this.controls = defaultControls(); }
@@ -159,6 +179,13 @@ export class App implements OnInit {
   }
 
   protected saveEvaluation(): void { this.persistDialog(); }
+
+  protected updateTemperatureEvaluation(id: number, temperature: Temperature, field: keyof TemperatureEvaluation, value: string): void {
+    const exchange = this.exchange(id); const current = exchange.temperatureEvaluations?.[temperature] ?? blankTemperatureEvaluation();
+    this.updateExchange(id, { temperatureEvaluations: { ...exchange.temperatureEvaluations, [temperature]: { ...current, [field]: value } } }, false);
+  }
+
+  protected updateTemperatureConclusion(id: number, value: string): void { this.updateExchange(id, { temperatureConclusion: value }, false); }
 
   protected handleKeyboard(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); this.analyze(); }
@@ -197,11 +224,23 @@ export class App implements OnInit {
       reasoning: { [strategy]: { loading: true } } });
     this.prepareAfterSubmit(); this.startRequest(); this.requestReasoning(id, input, strategy);
   }
+  private analyzeTemperature(input: string): void {
+    const temperature = this.selectedTemperature;
+    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'TEMPERATURE', temperature,
+      temperatureResults: { [temperature]: { loading: true } }, temperatureEvaluations: { [temperature]: blankTemperatureEvaluation() } });
+    this.prepareAfterSubmit(); this.startRequest(); this.requestTemperature(id, input, temperature);
+  }
   private requestReasoning(id: number, input: string, strategy: ReasoningStrategy): void {
     this.http.post<ReasoningResponse>('/api/reasoning-review', { input, strategy }).subscribe({
       next: response => this.finishReasoning(id, strategy, { loading: false, analysis: response.analysis,
         generatedPrompt: response.generatedPrompt, evaluation: blankEvaluation() }),
       error: (error: HttpErrorResponse) => this.finishReasoning(id, strategy, { loading: false, error: this.errorMessage(error, false) }),
+    });
+  }
+  private requestTemperature(id: number, input: string, temperature: Temperature): void {
+    this.http.post<TemperatureResponse>('/api/temperature-review', { input, temperature }).subscribe({
+      next: response => this.finishTemperature(id, temperature, { loading: false, analysis: response.analysis }),
+      error: (error: HttpErrorResponse) => this.finishTemperature(id, temperature, { loading: false, error: this.errorMessage(error, false) }),
     });
   }
   private requestFree(id: number, input: string): void {
@@ -218,6 +257,11 @@ export class App implements OnInit {
   }
   private finishReasoning(id: number, strategy: ReasoningStrategy, result: ResultState): void {
     this.updateReasoning(id, strategy, result); this.completeRequest();
+  }
+  private finishTemperature(id: number, temperature: Temperature, result: ResultState): void {
+    const exchange = this.exchange(id);
+    this.updateExchange(id, { temperatureResults: { ...exchange.temperatureResults, [temperature]: result } });
+    this.completeRequest();
   }
   private finishResult(id: number, side: 'free' | 'controlled', result: ResultState): void {
     this.updateExchange(id, { [side]: result }); this.completeRequest();
@@ -254,7 +298,8 @@ export class App implements OnInit {
   private withoutLoading(exchange: Exchange): Exchange {
     const clear = (result?: ResultState) => result ? { ...result, loading: false } : result;
     return { ...exchange, free: clear(exchange.free), controlled: clear(exchange.controlled),
-      reasoning: exchange.reasoning ? Object.fromEntries(Object.entries(exchange.reasoning).map(([key, value]) => [key, clear(value)])) : undefined };
+      reasoning: exchange.reasoning ? Object.fromEntries(Object.entries(exchange.reasoning).map(([key, value]) => [key, clear(value)])) : undefined,
+      temperatureResults: exchange.temperatureResults ? Object.fromEntries(Object.entries(exchange.temperatureResults).map(([key, value]) => [key, clear(value)])) : undefined };
   }
   private dialogTitle(exchanges: readonly Exchange[]): string {
     const source = exchanges[0]?.input.trim().replace(/\s+/g, ' ') || 'Новый диалог';

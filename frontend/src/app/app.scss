@@ -59,7 +59,9 @@
   border-color: rgba(79, 70, 229, 0.18); border-bottom-left-radius: 6px;
 }
 .comparison { display: grid; width: 100%; grid-template-columns: 1fr 1fr; gap: 14px; }
-.reasoning-comparison { display: grid; width: 100%; grid-template-columns: 1fr 1fr; gap: 14px; }
+.reasoning-comparison, .temperature-comparison { display: grid; width: 100%; gap: 14px; }
+.reasoning-comparison { grid-template-columns: 1fr 1fr; }
+.temperature-comparison { grid-template-columns: repeat(3, 1fr); }
 .strategy-card, .reference-card {
   min-width: 0; padding: 16px; background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(79, 70, 229, 0.18); border-radius: 16px;
@@ -69,8 +71,8 @@
 .reference-card li { margin-bottom: 7px; line-height: 1.45; }
 .evaluation-panel { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e5eaf3; }
 .evaluation-panel summary { cursor: pointer; font-size: 12px; font-weight: 650; }
-.evaluation-panel label, .winner-row label { display: grid; margin-top: 9px; gap: 4px; color: #59667e; font-size: 11px; }
-.evaluation-panel textarea, .winner-row textarea, .winner-row select {
+.evaluation-panel label, .winner-row label, .experiment-conclusion { display: grid; margin-top: 9px; gap: 4px; color: #59667e; font-size: 11px; }
+.evaluation-panel textarea, .winner-row textarea, .winner-row select, .experiment-conclusion textarea {
   box-sizing: border-box; width: 100%; padding: 7px 9px; color: #17223b; background: #fff;
   border: 1px solid #cbd5e1; border-radius: 7px; font: 13px/1.4 inherit;
 }
@@ -146,7 +148,7 @@
   .composer-actions span { display: none; }
   .composer-actions { justify-content: flex-end; }
   .comparison { grid-template-columns: 1fr; }
-  .reasoning-comparison, .winner-row { grid-template-columns: 1fr; }
+  .reasoning-comparison, .temperature-comparison, .winner-row { grid-template-columns: 1fr; }
   .controls-grid { grid-template-columns: repeat(2, 1fr); }
   .action-buttons { width: 100%; }
   .action-buttons button { min-width: 0; flex: 1; }

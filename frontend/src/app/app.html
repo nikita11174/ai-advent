@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
   <div class="brand"><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
-  <div class="context"><span>AI Advent · День 3</span><span class="model-badge">DeepSeek V4 Flash</span></div>
+  <div class="context"><span>AI Advent · День 4</span><span class="model-badge">DeepSeek V4 Flash</span></div>
 </mat-toolbar>
 
 <div class="workspace">
@@ -69,6 +69,27 @@
               <span class="message-label">Ментор · {{ strategyLabel(exchange.strategy!) }}</span>
               <ng-container [ngTemplateOutlet]="reasoningResult" [ngTemplateOutletContext]="{ exchange: exchange, strategy: exchange.strategy }" />
             </div></article>
+          } @else if (exchange.mode === 'TEMPERATURE_COMPARE') {
+            <article class="temperature-comparison">
+              @for (temperature of temperatures; track temperature) {
+                <section class="strategy-card">
+                  <span class="message-label">Temperature {{ temperature }}</span>
+                  <ng-container [ngTemplateOutlet]="temperatureResult" [ngTemplateOutletContext]="{ exchange: exchange, temperature: temperature }" />
+                </section>
+              }
+            </article>
+            <section class="reference-card">
+              <h3>Вывод по эксперименту</h3>
+              <label class="experiment-conclusion">Точность, креативность, разнообразие и подходящие типы задач
+                <textarea rows="3" [ngModel]="exchange.temperatureConclusion" (ngModelChange)="updateTemperatureConclusion(exchange.id, $event)"></textarea>
+              </label>
+              <button mat-stroked-button (click)="saveEvaluation()">Сохранить наблюдения</button>
+            </section>
+          } @else if (exchange.mode === 'TEMPERATURE') {
+            <article class="message-row mentor-row"><div class="message mentor-message">
+              <span class="message-label">Ментор · Temperature {{ exchange.temperature }}</span>
+              <ng-container [ngTemplateOutlet]="temperatureResult" [ngTemplateOutletContext]="{ exchange: exchange, temperature: exchange.temperature }" />
+            </div></article>
           } @else {
             <article class="message-row mentor-row"><div class="message mentor-message">
               <span class="message-label">Ментор · {{ exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
@@ -88,6 +109,24 @@
       @if (result?.loading) { <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div> }
       @else if (result?.analysis) { <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div> }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
+    </ng-template>
+
+    <ng-template #temperatureResult let-exchange="exchange" let-temperature="temperature">
+      @if (exchange.temperatureResults?.[temperature]?.loading) {
+        <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div>
+      } @else if (exchange.temperatureResults?.[temperature]?.analysis) {
+        <div class="analysis-text" [innerHTML]="renderMarkdown(exchange.temperatureResults[temperature].analysis)"></div>
+        <details class="evaluation-panel"><summary>Зафиксировать наблюдения</summary>
+          <label>Ожидаемые риски найдены<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.found" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'found', $event)"></textarea></label>
+          <label>Ожидаемые риски пропущены<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.missed" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'missed', $event)"></textarea></label>
+          <label>Спорные утверждения<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.questionable" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'questionable', $event)"></textarea></label>
+          <label>Полезные / новые идеи<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.creativity" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'creativity', $event)"></textarea></label>
+          <label>Значимые отличия<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.diversity" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'diversity', $event)"></textarea></label>
+          <label>Подходящие типы задач<textarea rows="2" [ngModel]="exchange.temperatureEvaluations?.[temperature]?.suitableTasks" (ngModelChange)="updateTemperatureEvaluation(exchange.id, temperature, 'suitableTasks', $event)"></textarea></label>
+        </details>
+      } @else if (exchange.temperatureResults?.[temperature]?.error) {
+        <div class="inline-error" role="alert">{{ exchange.temperatureResults[temperature].error }}</div>
+      }
     </ng-template>
 
     <ng-template #reasoningResult let-exchange="exchange" let-strategy="strategy">
@@ -134,6 +173,7 @@
       <div class="experiment-selector">
         <button [class.active]="experiment === 'FORMAT'" (click)="experiment = 'FORMAT'">Формат ответа</button>
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
+        <button [class.active]="experiment === 'TEMPERATURE'" (click)="experiment = 'TEMPERATURE'">Температура</button>
       </div>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
@@ -154,10 +194,17 @@
             <button mat-button type="button" (click)="resetControls()">Сбросить настройки</button>
           </details>
         }
-      } @else {
+      } @else if (experiment === 'REASONING') {
         <div class="reasoning-controls">
           <div class="mode-selector" role="radiogroup" aria-label="Стратегия рассуждения">
             @for (strategy of strategies; track strategy) { <label><input type="radio" name="strategy" [value]="strategy" [(ngModel)]="selectedStrategy" /> {{ strategyLabel(strategy) }}</label> }
+          </div>
+          <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
+        </div>
+      } @else {
+        <div class="reasoning-controls">
+          <div class="mode-selector" role="radiogroup" aria-label="Температура">
+            @for (temperature of temperatures; track temperature) { <label><input type="radio" name="temperature" [value]="temperature" [(ngModel)]="selectedTemperature" /> {{ temperature }}</label> }
           </div>
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
@@ -165,7 +212,8 @@
       <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>
       <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">
         @if (experiment === 'FORMAT') { <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить режимы</button> }
-        @else { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
+        @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
+        @else { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
         <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId()">Проанализировать</button>
       </div></div>
     </div></section>
