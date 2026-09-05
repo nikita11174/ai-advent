@@ -33,6 +33,31 @@ Required result: несколько решений одной задачи и и
 - Hidden chain-of-thought не требуется и не должен быть product dependency. STEP_BY_STEP меняет
   инструкцию анализа, но продукт показывает только итоговый ответ.
 
+### Telegram export provenance — 2026-09-05
+
+Локальный export из `docs/REFERENCES.md` подтвердил provenance решений:
+
+- исходное задание — message `1474`;
+- для существующего chat application допустимы prompt-based strategies; Алексей отдельно советует
+  влиять также через system prompt (`1501`);
+- council/consilium особенно уместно задавать в system prompt (`1502`);
+- способ выбора исходной задачи не предписан: Алексей разрешил делать как удобно в ответ на варианты
+  hardcoded/predefined/free input (`1514–1515`);
+- LLM-as-a-judge распознан как возможный подход (`1520`), но отсутствует в исходном задании и
+  остаётся optional evaluation variant;
+- модель сама не помнит прошлые API-вызовы (`1399–1403`); continuity создаёт приложение, повторно
+  передавая context (`1318`, `1479`). Поэтому persisted dialogs восстанавливают UI, но не становятся
+  LLM memory без отдельного будущего решения.
+
+Community evidence, не organizer requirements:
+
+- разные задачи дали разных победителей: SELF_PROMPT, EXPERTS и STEP_BY_STEP (`1560–1565`,
+  `1638–1639`), поэтому универсального winner объявлять нельзя;
+- SELF_PROMPT реально потерял обязательный output constraint (`1577`); deterministic application
+  validator предложен как надёжная проверка формата (`1584`);
+- repeated runs полезны для оценки стабильности и стоимости, но не обязаны быть частью main UI
+  (`1563`, `1638`). Это согласуется с нашим отдельным 3-run harness.
+
 ## 3. Product fit
 
 Day 3 использует небольшую аналитическую code-review задачу. Один Java snippet анализируется
