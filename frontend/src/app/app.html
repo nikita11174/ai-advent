@@ -1,10 +1,10 @@
 <mat-toolbar class="topbar">
-  <div class="brand"><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
+  <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
   <div class="context"><span>AI Advent · День 4</span><span class="model-badge">DeepSeek V4 Flash</span></div>
 </mat-toolbar>
 
 <div class="workspace">
-  <aside class="dialog-sidebar">
+  <aside class="dialog-sidebar" [class.open]="sidebarOpen()">
     <button mat-flat-button (click)="newDialog()" [disabled]="loading()">Новый диалог</button>
     <nav aria-label="История диалогов">
       @for (dialog of dialogs(); track dialog.id) {
@@ -80,9 +80,12 @@
             </article>
             <section class="reference-card">
               <h3>Вывод по эксперименту</h3>
-              <label class="experiment-conclusion">Точность, креативность, разнообразие и подходящие типы задач
-                <textarea rows="3" [ngModel]="exchange.temperatureConclusion" (ngModelChange)="updateTemperatureConclusion(exchange.id, $event)"></textarea>
-              </label>
+              <div class="conclusion-grid">
+                <label>Точность<textarea rows="2" [value]="temperatureConclusion(exchange).accuracy" (input)="updateTemperatureConclusion(exchange.id, 'accuracy', $any($event.target).value)"></textarea></label>
+                <label>Креативность<textarea rows="2" [value]="temperatureConclusion(exchange).creativity" (input)="updateTemperatureConclusion(exchange.id, 'creativity', $any($event.target).value)"></textarea></label>
+                <label>Разнообразие<textarea rows="2" [value]="temperatureConclusion(exchange).diversity" (input)="updateTemperatureConclusion(exchange.id, 'diversity', $any($event.target).value)"></textarea></label>
+                <label>Для каких задач подходит<textarea rows="2" [value]="temperatureConclusion(exchange).taskFit" (input)="updateTemperatureConclusion(exchange.id, 'taskFit', $any($event.target).value)"></textarea></label>
+              </div>
               <button mat-stroked-button (click)="saveEvaluation()">Сохранить наблюдения</button>
             </section>
           } @else if (exchange.mode === 'TEMPERATURE') {
@@ -167,9 +170,9 @@
       }
     </ng-template>
 
-    @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
-
-    <section class="composer-wrap"><div class="composer">
+    <section class="composer-wrap">
+      @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
+      <div class="composer">
       <div class="experiment-selector">
         <button [class.active]="experiment === 'FORMAT'" (click)="experiment = 'FORMAT'">Формат ответа</button>
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
@@ -203,8 +206,8 @@
         </div>
       } @else {
         <div class="reasoning-controls">
-          <div class="mode-selector" role="radiogroup" aria-label="Температура">
-            @for (temperature of temperatures; track temperature) { <label><input type="radio" name="temperature" [value]="temperature" [(ngModel)]="selectedTemperature" /> {{ temperature }}</label> }
+          <div class="temperature-selector" role="radiogroup" aria-label="Температура">
+            @for (temperature of temperatures; track temperature) { <label><input type="radio" name="temperature" [value]="temperature" [(ngModel)]="selectedTemperature" /><span>{{ temperature }}</span></label> }
           </div>
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
