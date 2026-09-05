@@ -1,6 +1,6 @@
 # Day 4 — Temperature
 
-Статус: **READY_FOR_IMPLEMENTATION**
+Статус: **IMPLEMENTED / VERIFIED; OWNER VISUAL ACCEPTANCE PENDING**
 
 ## 1. Original challenge requirement
 
@@ -96,18 +96,48 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
 
 ## 11. Implementation and verification evidence
 
-Заполняется только фактическими результатами implementation round.
+- Backend: `POST /api/temperature-review`; передаёт approved temperature, fixed Day 4 system
+  prompt, exact input, `stream=false` и `thinking.type=disabled`. Остальные sampling controls не
+  добавляются.
+- Implementation checkpoint: `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820`.
+- Frontend: отдельный experiment `Температура`, selected run и independent three-card comparison.
+  Human observations и conclusion входят в persisted exchange.
+- Backend `mvn clean package`: PASS, 36 tests, failures/errors/skipped = `0/0/0`.
+- Frontend: PASS, 11 tests; production build PASS. Component-style warning остаётся ниже `9 kB`
+  error budget (`8.16 kB`). IntelliJ project build: PASS, problems = 0.
+- 9-call harness: PASS для трёх independent runs на каждой temperature; все ответы non-empty и
+  endpoint возвращал requested temperature. Raw evidence:
+  `docs/local/agent-sessions/day4-temperature-20260905-100605.json` (ignored).
+- Accuracy: все девять ответов стабильно нашли idempotency и transaction/external-side-effect
+  boundary. `0` наиболее последовательно держался основных рисков; в одном из трёх ответов `0.7`
+  concurrency/race был выражен лишь косвенно. `1.2` давал широкое покрытие, но чаще добавлял
+  недоказанные детали.
+- Creativity: `0.7` и `1.2` чаще предлагали разные defensible remediation options (outbox,
+  after-commit event, unique event key, locking). У `1.2` вместе с этим выросла доля speculative
+  claims; они не засчитаны как полезная креативность.
+- Diversity: `0` дал наиболее похожие reviews; `0.7` — умеренную вариативность; `1.2` —
+  максимальную вариативность формулировок и дополнительных идей.
+- Вывод для этого benchmark: `0` лучше для repeatable review по known invariants; `0.7` — наиболее
+  сбалансирован для exploratory review; `1.2` полезен для controlled brainstorming с последующей
+  human-проверкой предположений.
+- Web path `Angular :4201 -> proxy -> Spring :18080 -> DeepSeek`: PASS. Chrome comparison:
+  3 cards, 3 results, 0 errors, 1 user message; narrow viewport stacks to one column.
+- Dialog create/save/load и restore после backend restart: PASS. Dialog history не включается в
+  последующие model requests.
+- Day 1–3 regressions покрыты полными backend/frontend suites; existing FREE, CONTROLLED,
+  reasoning и persistence tests прошли.
+- Owner visual acceptance/demo recording: PENDING.
 
 ## 12. Submission status
 
-- [ ] implementation
-- [ ] automated tests/builds
-- [ ] 9-call real experiment
+- [x] implementation
+- [x] automated tests/builds
+- [x] 9-call real experiment
 - [ ] owner visual browser review / demo video
 - [ ] repository/code publication
 
-DAY 4 IMPLEMENTATION = **NOT_STARTED**
+DAY 4 IMPLEMENTATION = **DONE**
 
-DAY 4 VERIFICATION = **NOT_STARTED**
+DAY 4 VERIFICATION = **DONE**
 
 DAY 4 SUBMISSION = **PENDING**
