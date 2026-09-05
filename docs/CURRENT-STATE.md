@@ -9,10 +9,11 @@
 | Product | Engineering Review Mentor |
 | Current milestone | Week 1 / Day 4 |
 | Current branch | `day_4` |
-| Day 3 base | `da103f54ac0e2ce4d3e258da04ca2b0d3bee04fb` — verified Day 2 |
-| Day 3 implementation/evidence checkpoint | `4f61e21a417441481ad702f5a71b57fc5952fdad` |
-| Status | Day 4 planned / ready for implementation |
-| Next action | Implement `docs/tasks/DAY-04.md` from clean Day 3 knowledge checkpoint |
+| Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
+| Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
+| Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
+| Status | Day 4 implementation and technical verification DONE; submission PENDING |
+| Next action | Owner visual acceptance, demo video and repository publication for Day 4 |
 
 ## Challenge days
 
@@ -21,7 +22,7 @@
 | Day 1 | DONE | DONE | Repository link DONE; demo video PENDING |
 | Day 2 | DONE (`da103f54`) | DONE | Demo video and `day_2` publication PENDING |
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
-| Day 4 | NOT_STARTED | NOT_STARTED | PENDING |
+| Day 4 | DONE | Automated/build/API/browser-proxy/persistence DONE; owner visual acceptance PENDING | Demo video and publication PENDING |
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) опубликован, но не
 планировался и не реализовывался.
@@ -41,6 +42,7 @@ Angular 22 :4201
   -> Spring Boot 3.5.5 / Java 21 :18080
        -> /api/review (Day 1/2 FREE or CONTROLLED)
        -> /api/reasoning-review (Day 3 DIRECT/STEP_BY_STEP/SELF_PROMPT/EXPERTS)
+       -> /api/temperature-review (Day 4 temperature 0/0.7/1.2)
        -> /api/dialogs (local JSON create/list/load/update)
   -> DeepSeek deepseek-v4-flash
 ```
@@ -55,5 +57,8 @@ Angular 22 :4201
 - Concise run evidence — tracked `docs/agent-runs/DAY-03.md`; detailed local evidence — ignored
   `docs/local/agent-sessions/`.
 - `DEEPSEEK_API_KEY` доступен только backend environment; `.env.local` игнорируется Git.
+- Day 4 сравнивает один immutable input при fixed prompt/configuration; отличается только
+  temperature. Backend 36 tests, frontend 11 tests, builds PASS, 9/9 real experiment calls PASS и
+  Chrome web comparison PASS.
 
-Фактические counts, real API evidence, ограничения и acceptance — `docs/tasks/DAY-03.md`.
+Фактические counts, real API evidence, ограничения и acceptance — `docs/tasks/DAY-04.md`.
