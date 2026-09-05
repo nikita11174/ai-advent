@@ -77,8 +77,9 @@ nvm use 22.22.3
 npm start
 ```
 
-4. Открыть `http://localhost:4200`. Angular dev proxy направляет `/api` на backend без CORS и
-hardcoded backend URL в application code.
+4. Открыть `http://localhost:4200`. Если порт занят другим sandbox-проектом, запустить frontend
+на `4201` командой `npm start -- --port 4201` и открыть `http://localhost:4201`. Angular dev proxy
+направляет `/api` на backend без CORS и hardcoded backend URL в application code.
 
 Первоначальный CLI остаётся доступен через `.\scripts\run.ps1`, но основной demo — web UI.
 
@@ -116,3 +117,18 @@ Codex CLI `0.151.0` не предоставляет документирован
 
 Результат записывается в ignored `docs/local/agent-sessions/`. Helper блокирует несколько явных
 форматов secrets, но входные файлы всё равно нужно проверить вручную.
+
+## Day 4
+
+Эксперимент `Температура` запускает один и тот же input с `0`, `0.7` или `1.2`. Действие
+`Сравнить температуры` создаёт один exchange и три независимые карточки; model, prompt, input,
+thinking mode и остальные sampling-параметры остаются неизменными. Наблюдения по точности,
+креативности, разнообразию и подходящим типам задач сохраняются в локальном диалоге.
+
+Для воспроизводимого девяти-вызовного evidence при запущенном backend:
+
+```powershell
+.\scripts\verify-day4.ps1
+```
+
+Raw results сохраняются только в ignored `docs/local/agent-sessions/`.

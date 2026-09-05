@@ -47,6 +47,14 @@ public class DeepSeekClient {
         }
     }
 
+    String analyzeAtTemperature(String systemPrompt, String input, double temperature) throws DeepSeekException {
+        try {
+            return send(input, buildTemperatureRequestBody(systemPrompt, input, temperature)).content();
+        } catch (JsonProcessingException e) {
+            throw new DeepSeekException("Could not create the temperature DeepSeek request.", e);
+        }
+    }
+
     ControlledAnalysis analyzeControlled(String input, ReviewControls controls) throws DeepSeekException {
         ReviewControls validatedControls = controls.validated();
         Completion completion = send(input, buildControlledRequestBody(input, validatedControls));
@@ -111,6 +119,13 @@ public class DeepSeekClient {
         ArrayNode messages = root.putArray("messages");
         messages.addObject().put("role", "system").put("content", systemPrompt);
         messages.addObject().put("role", "user").put("content", input);
+        return json.writeValueAsString(root);
+    }
+
+    String buildTemperatureRequestBody(String systemPrompt, String input, double temperature)
+            throws JsonProcessingException {
+        ObjectNode root = (ObjectNode) json.readTree(buildFreeRequestBody(systemPrompt, input));
+        root.put("temperature", temperature);
         return json.writeValueAsString(root);
     }
 

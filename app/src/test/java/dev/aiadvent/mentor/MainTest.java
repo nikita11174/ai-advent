@@ -71,6 +71,26 @@ class MainTest {
     }
 
     @Test
+    void buildsTemperatureRequestWithOnlyTemperatureAsSamplingControl() throws Exception {
+        String input = "exact input";
+        String systemPrompt = "fixed system";
+
+        for (double temperature : new double[]{0.0, 0.7, 1.2}) {
+            JsonNode request = JSON.readTree(client.buildTemperatureRequestBody(systemPrompt, input, temperature));
+
+            assertEquals(temperature, request.path("temperature").doubleValue());
+            assertEquals("deepseek-v4-flash", request.path("model").textValue());
+            assertEquals("disabled", request.path("thinking").path("type").textValue());
+            assertEquals(false, request.path("stream").booleanValue());
+            assertEquals(systemPrompt, request.path("messages").path(0).path("content").textValue());
+            assertEquals(input, request.path("messages").path(1).path("content").textValue());
+            assertTrue(request.path("top_p").isMissingNode());
+            assertTrue(request.path("frequency_penalty").isMissingNode());
+            assertTrue(request.path("presence_penalty").isMissingNode());
+        }
+    }
+
+    @Test
     void parsesValidControlledResponseIncludingEmptyFindings() throws Exception {
         String raw = "{\"summary\":\"Рисков нет\",\"findings\":[],\"recommendation\":\"Продолжить проверку\"}";
 
