@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
-  <div class="context"><span>AI Advent · День 4</span><span class="model-badge">DeepSeek V4 Flash</span></div>
+  <div class="context"><span>AI Advent · День 5</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span></div>
 </mat-toolbar>
 
 <div class="workspace">
@@ -27,7 +27,29 @@
             <div class="message user-message"><span class="message-label">Вы</span><pre>{{ exchange.input }}</pre></div>
           </article>
 
-          @if (exchange.mode === 'COMPARE') {
+          @if (exchange.mode === 'MODELS') {
+            <article class="temperature-comparison">
+              @for (model of exchange.models; track model.key) {
+                <section class="strategy-card">
+                  <app-model-result [profile]="model" [result]="exchange.modelResults?.[model.key]" />
+                  <details class="evaluation-panel"><summary>Оценка по reference evidence</summary>
+                    <label>Найдено<textarea rows="2" [value]="exchange.modelEvaluations?.[model.key]?.found ?? ''" (input)="updateModelEvaluation(exchange.id, model.key, 'found', $any($event.target).value)"></textarea></label>
+                    <label>Пропущено<textarea rows="2" [value]="exchange.modelEvaluations?.[model.key]?.missed ?? ''" (input)="updateModelEvaluation(exchange.id, model.key, 'missed', $any($event.target).value)"></textarea></label>
+                    <label>Спорные / дополнительные замечания<textarea rows="2" [value]="exchange.modelEvaluations?.[model.key]?.questionable ?? ''" (input)="updateModelEvaluation(exchange.id, model.key, 'questionable', $any($event.target).value)"></textarea></label>
+                  </details>
+                </section>
+              }
+            </article>
+            <section class="reference-card">
+              @if (exchange.benchmarkReference; as reference) {
+                <h3>PaymentReceived · Reference checklist</h3>
+                <ol>@for (finding of reference.findings; track finding) { <li>{{ finding }}</li> }</ol>
+                <p>Учитывайте неизвестные delivery/rollback гарантии. Ничья допустима.</p>
+              } @else { <p>Произвольный input: reference checklist PaymentReceived не применяется.</p> }
+              <div class="conclusion-grid"><label>Вывод: качество, скорость, ресурсы<textarea rows="3" [value]="exchange.modelConclusion ?? ''" (input)="updateModelConclusion(exchange.id, $any($event.target).value)"></textarea></label></div>
+              <button mat-stroked-button (click)="saveEvaluation()" [disabled]="loading()">Сохранить оценку</button>
+            </section>
+          } @else if (exchange.mode === 'COMPARE') {
             <article class="comparison">
               <section class="comparison-side">
                 <span class="message-label">Ментор · Свободный</span>
@@ -177,6 +199,7 @@
         <button [class.active]="experiment === 'FORMAT'" (click)="experiment = 'FORMAT'">Формат ответа</button>
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
         <button [class.active]="experiment === 'TEMPERATURE'" (click)="experiment = 'TEMPERATURE'">Температура</button>
+        <button [class.active]="experiment === 'MODELS'" (click)="selectModels()">Модели</button>
       </div>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
@@ -204,6 +227,15 @@
           </div>
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
+      } @else if (experiment === 'MODELS') {
+        <div class="reasoning-controls">
+          <label>Модель <select [(ngModel)]="selectedModelKey" aria-label="Модель">
+            @for (model of modelOptions(); track model.key) { <option [value]="model.key">{{ model.label }}</option> }
+          </select></label>
+          <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
+        </div>
+        <small>Уровни относительны внутри GPT-5.6; качество оценивается по ответу.</small>
+        @if (modelOptionsError()) { <p class="inline-error">{{ modelOptionsError() }}</p> }
       } @else {
         <div class="reasoning-controls">
           <div class="temperature-selector" role="radiogroup" aria-label="Температура">
@@ -216,6 +248,7 @@
       <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">
         @if (experiment === 'FORMAT') { <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить режимы</button> }
         @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
+        @else if (experiment === 'MODELS') { <button mat-stroked-button (click)="compareModels()" [disabled]="!input.trim() || loading() || !currentDialogId() || !modelOptions().length">Сравнить модели</button> }
         @else { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
         <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId()">Проанализировать</button>
       </div></div>
