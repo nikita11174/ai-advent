@@ -7,9 +7,10 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { marked, Renderer } from 'marked';
+import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './model-result';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
-type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE';
+type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
 
@@ -32,7 +33,10 @@ interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
 interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
-  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE';
+  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS';
+  models?: ModelProfile[]; modelResults?: Record<string, ModelResultState>;
+  modelEvaluations?: Record<string, Evaluation>; modelConclusion?: string;
+  benchmarkReference?: { id: string; findings: string[] };
   controls?: ReviewControls; free?: ResultState; controlled?: ResultState;
   strategy?: ReasoningStrategy; reasoning?: Partial<Record<ReasoningStrategy, ResultState>>;
   winner?: ReasoningStrategy; winnerReason?: string;
@@ -44,6 +48,7 @@ interface DialogSummary { id: string; title: string; createdAt: string; updatedA
 interface DialogUiState {
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
+  selectedModelKey?: string;
 }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
 
@@ -78,7 +83,7 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule],
+  imports: [FormsModule, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit {
@@ -96,6 +101,9 @@ export class App implements OnInit {
   protected selectedMode: ReviewMode = 'FREE';
   protected selectedStrategy: ReasoningStrategy = 'DIRECT';
   protected selectedTemperature: Temperature = 0;
+  protected selectedModelKey = 'WEAK';
+  protected readonly modelOptions = signal<ModelProfile[]>([]);
+  protected readonly modelOptionsError = signal('');
   protected controls = defaultControls();
   protected readonly strategies = STRATEGIES;
   protected readonly temperatures = TEMPERATURES;
@@ -121,11 +129,56 @@ export class App implements OnInit {
 
   protected toggleSidebar(): void { this.sidebarOpen.update(open => !open); }
 
+  protected selectModels(): void {
+    this.experiment = 'MODELS';
+    if (this.modelOptions().length) return;
+    this.http.get<ModelProfile[]>('/api/model-options').subscribe({
+      next: profiles => { this.modelOptions.set(profiles); this.modelOptionsError.set(''); },
+      error: () => this.modelOptionsError.set('Не удалось загрузить модели. Проверьте backend и откройте вкладку снова.'),
+    });
+  }
+
+  protected compareModels(): void { this.runModels(this.modelOptions()); }
+
+  private runModels(models: ModelProfile[]): void {
+    const input = this.input;
+    if (!input.trim() || !models.length || this.loading() || !this.currentDialogId()) return;
+    const snapshot = structuredClone(models);
+    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'MODELS', models: snapshot,
+      modelResults: Object.fromEntries(snapshot.map(model => [model.key, { loading: true }])),
+      modelEvaluations: Object.fromEntries(snapshot.map(model => [model.key, blankEvaluation()])),
+      benchmarkReference: input === BENCHMARK ? { id: 'payment-received-v1', findings: [...REFERENCE_FINDINGS] } : undefined });
+    this.prepareAfterSubmit(); this.pendingRequests += snapshot.length; this.loading.set(true);
+    for (const model of snapshot) {
+      this.http.post<ModelResponse>('/api/model-review', { input, modelKey: model.key }).subscribe({
+        next: response => this.finishModel(id, model.key, { loading: false, response }),
+        error: (error: HttpErrorResponse) => this.finishModel(id, model.key, { loading: false,
+          response: error.error?.model ? error.error : undefined, error: this.errorMessage(error, false) }),
+      });
+    }
+  }
+
+  private finishModel(id: number, key: string, result: ModelResultState): void {
+    this.updateExchange(id, { modelResults: { ...this.exchange(id).modelResults, [key]: result } });
+    this.completeRequest();
+  }
+
+  protected updateModelEvaluation(id: number, key: string, field: keyof Evaluation, value: string): void {
+    const exchange = this.exchange(id);
+    this.updateExchange(id, { modelEvaluations: { ...exchange.modelEvaluations,
+      [key]: { ...blankEvaluation(), ...exchange.modelEvaluations?.[key], [field]: value } } }, false);
+  }
+
+  protected updateModelConclusion(id: number, value: string): void {
+    this.updateExchange(id, { modelConclusion: value }, false);
+  }
+
   protected useBenchmark(): void { this.input = BENCHMARK; }
 
   protected analyze(): void {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId()) return;
+    if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
     if (this.experiment === 'TEMPERATURE') { this.analyzeTemperature(input); return; }
     const controls = this.selectedMode === 'CONTROLLED' ? this.controlsSnapshot() : undefined;
@@ -237,6 +290,8 @@ export class App implements OnInit {
     const ui = dialog.state?.ui;
     this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
+    this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
+    if (this.experiment === 'MODELS') this.selectModels();
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
     this.nextExchangeId = Math.max(0, ...exchanges.map(exchange => exchange.id)) + 1;
     this.loading.set(false); this.pendingRequests = 0;
@@ -318,7 +373,7 @@ export class App implements OnInit {
     const completed = this.exchanges().map(exchange => this.withoutLoading(exchange));
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
-      selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature };
+      selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey };
     this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });
@@ -326,6 +381,7 @@ export class App implements OnInit {
   private withoutLoading(exchange: Exchange): Exchange {
     const clear = (result?: ResultState) => result ? { ...result, loading: false } : result;
     return { ...exchange, free: clear(exchange.free), controlled: clear(exchange.controlled),
+      modelResults: exchange.modelResults ? Object.fromEntries(Object.entries(exchange.modelResults).map(([key, value]) => [key, { ...value, loading: false }])) : undefined,
       reasoning: exchange.reasoning ? Object.fromEntries(Object.entries(exchange.reasoning).map(([key, value]) => [key, clear(value)])) : undefined,
       temperatureResults: exchange.temperatureResults ? Object.fromEntries(Object.entries(exchange.temperatureResults).map(([key, value]) => [key, clear(value)])) : undefined };
   }

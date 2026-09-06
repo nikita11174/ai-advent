@@ -1,13 +1,14 @@
 # Day 5 — Model comparison
 
-Статус: **DESIGN FINALIZED / READY_FOR_IMPLEMENTATION**.
-Implementation: **NOT STARTED**. Verification: **NOT RUN**. Submission: **PENDING**.
+Статус: **IMPLEMENTED / REAL EXPERIMENT PARTIAL**.
+Implementation: **DONE в рабочем дереве, commit pending**. Automated verification: **PASS**.
+Real experiment: **7 completed / 9 attempts**; browser replay/refresh: **PASS**. Submission: **PENDING**.
 Дата проверки документации: **2026-09-05**. Ветка `day_5` от finalized Day 4 `9ff5b29`.
 
 Этот документ — canonical Day 5 contract. Owner-approved решения ниже заменяют открытые варианты
 исторического [анализа](../agent-runs/DAY-05-ANALYSIS.md), который сохраняется без переписывания.
 API mapping, output ceiling и детали DTO ниже — engineering baseline, выбранный при финализации,
-не отдельные цитаты/решения владельца. Доступ конкретного OpenAI account ещё не проверялся.
+не отдельные цитаты/решения владельца. Account access всех трёх exact models проверен реальными calls.
 
 ## 1. Original challenge requirement
 
@@ -99,7 +100,8 @@ Unknown key/blank input → 400 без external call. Endpoint/model/pricing н�
 Небольшой concrete OpenAI Responses client (Java HttpClient + Jackson) рядом с Day 5 service/catalog;
 не превращать DeepSeekClient в framework и не менять Day 1–4 response DTO.
 Credential: backend `System.getenv("OPENAI_API_KEY")`, local-only setup по существующему launcher
-паттерну; key не выводится и не входит в dialog, response или tracked docs. Сейчас key не читался.
+паттерну; key не выводится и не входит в dialog, response или tracked docs.
+`scripts/run-backend.ps1` загружает `OPENAI_API_KEY` из ignored `.env.local` в backend environment.
 
 ### OpenAI wire contract
 
@@ -266,7 +268,10 @@ GPU/RAM/energy provider неизвестны и не выдумываются. M
 
 ## 11. Verification plan
 
-Пока не выполнялся. Historical baseline: backend 36 tests, frontend 12 tests PASS для Day 4.
+План ниже выполнен в deterministic части: backend **46 tests / 0 failures/errors/skipped**, Maven
+package PASS; frontend **15 tests PASS**, production build PASS. Day 4 historical baseline: 36/12.
+В экспериментальном запуске 2026-09-05 product code не менялся, tests/builds не повторялись.
+Фактические девять результатов, ограничения и Chrome evidence: [DAY-05 run](../agent-runs/DAY-05.md).
 
 - Backend: allowlist/400-no-call; exact wire messages; effort none/2000/store false; output traversal
   с несколькими items; refusal/incomplete/error; returned metadata, nulls и usage validation.
@@ -319,26 +324,32 @@ automatic fixes, Day 6, migration Day 1–4 to OpenAI, general settings/report d
 Open product decisions: **NONE**. Model/provider/benchmark/budget/round order утверждены владельцем.
 API facts for this baseline verified from official docs. Design blocker: **NONE**.
 Owner confirmed: OpenAI key created, prepaid balance USD 5.
-Runtime prerequisite **UNVERIFIED**: credential works in application environment and access to all three models.
-Документирование не проверяет account access; ключ не читался, платные calls не выполнялись.
+Runtime prerequisite **VERIFIED**: credential works in application environment, все три exact IDs
+вернули реальные ответы/usage/default tier. 9-call experiment owner-authorized и выполнен.
+Результат PARTIAL: Terra #2/#9 `incomplete/max_output_tokens`; остальные семь completed.
+Raw/quality evidence: `docs/agent-runs/DAY-05.md`. Acceptance «три completed на модель» не достигнуто.
+Следующий шаг по этому ограничению и окончательный quality conclusion остаются за владельцем;
+повторов, поднятия потолка и автоматического исправления не было.
 Если реальный API противоречит docs (effort/model access/tier), сохранить факт и остановить
 соответствующий verification path; модели/preset не заменять молча.
-Owner now authorizes local implementation/commits. After deterministic checks: at most one Luna
-smoke if environment key is present; full nine-call experiment awaits separate owner go-ahead.
+Первый Luna smoke был отдельным вызовом (USD 0.0000948); затем owner разрешил ровно девять
+experiment calls. Всего experiment USD 0.1460032, вместе со smoke USD 0.1460980 estimated.
+UI проверен replay сохранённых first-round DTO без новых платных calls, с реальным dialog save/refresh.
 No push/merge/rebase/branch deletion.
 
 ## 15. Submission plan
 
 - [x] Owner decisions and canonical design
-- [ ] Implementation
-- [ ] Automated tests/builds
-- [ ] Nine-call experiment + browser/persistence verification
+- [x] Implementation (working tree; implementation commit pending)
+- [x] Automated tests/builds
+- [x] Nine-attempt protocol + browser replay/persistence verification
+- [ ] Three completed results per model (Terra 1/3; two explicit incomplete outcomes preserved)
 - [ ] Short human/evidence-based report with quality/speed/resources conclusion and model links
 - [ ] Code publication/link for Day 5 (separate owner-authorized Git flow)
 
 Report может заменить video по Day 5 clarification; in-app report generation не требуется.
 Repository: https://github.com/nikita11174/ai-advent — это существующий repo, не evidence публикации
-ещё не реализованного Day 5. Day 1–4 pending submissions не закрываются этим документом.
+ещё не опубликованного Day 5. Day 1–4 pending submissions не закрываются этим документом.
 
 ## 16. Official external references — checked 2026-09-05
 

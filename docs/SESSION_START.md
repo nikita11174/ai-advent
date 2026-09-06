@@ -24,9 +24,10 @@
 
 ## Current task
 
-Активен **Week 1 / Day 5 — design finalized, implementation not started**.
+Активен **Week 1 / Day 5 — implementation в рабочем дереве, automated PASS, API experiment PARTIAL**.
 Canonical contract — `docs/tasks/DAY-05.md`; исторический анализ — `docs/agent-runs/DAY-05-ANALYSIS.md`.
-Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation authorized, code not started.
+Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation commit пока не создан.
+Фактические results и кандидат сравнения — `docs/agent-runs/DAY-05.md`; следующие решения — CURRENT-STATE.
 Day 4 implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
 Day 1–3 visual/submission items остаются отдельными pending действиями.
 
