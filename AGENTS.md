@@ -49,6 +49,14 @@
 - Commit/push и destructive infrastructure operations выполняются только по отдельной явной
   команде владельца.
 
+## Browser verification
+
+- Единственный routine/default viewport — desktop **1440×1000**; сохранять desktop layout.
+- Не выполнять mobile/tablet/responsive проверки и не включать device/mobile emulation по умолчанию.
+- В обычной проверке не уменьшать viewport ниже 1440×1000; завершать работу при 1440×1000.
+- Mobile/responsive проверки и соответствующая эмуляция разрешены только по явному запросу
+  владельца для текущей задачи. После такой проверки восстановить **1440×1000** desktop.
+
 ## Lightweight workflow
 
 Для простой и ясной задачи достаточно: `implement -> verify -> record evidence`. Research,
