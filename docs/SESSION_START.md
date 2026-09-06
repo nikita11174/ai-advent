@@ -24,10 +24,12 @@
 
 ## Current task
 
-Активен **Week 1 / Day 5 — implementation в рабочем дереве, automated PASS, API experiment PARTIAL**.
+**Week 1 / Day 5 финализирован**: implementation DONE, automated PASS, OpenAI access VERIFIED;
+experiment ACCEPTED — 7 completed / 9 attempts, quality OWNER APPROVED. Report READY, publication PENDING.
 Canonical contract — `docs/tasks/DAY-05.md`; исторический анализ — `docs/agent-runs/DAY-05-ANALYSIS.md`.
-Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation commit пока не создан.
-Фактические results и кандидат сравнения — `docs/agent-runs/DAY-05.md`; следующие решения — CURRENT-STATE.
+Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation checkpoint `951e65c`.
+Итог — `docs/DAY-05-REPORT.md`; история — `docs/agent-runs/DAY-05.md`; next action — CURRENT-STATE.
+Day 6 NOT STARTED. Дополнительные calls/retries/изменение ceiling не разрешены текущей задачей.
 Day 4 implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
 Day 1–3 visual/submission items остаются отдельными pending действиями.
 

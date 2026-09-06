@@ -1,5 +1,32 @@
 # Day 5 — implementation / real experiment evidence
 
+## Финальный статус — 2026-09-06
+
+Implementation **DONE**: `951e65c4516c4f01fb3321cbb86dc2574591d911` — implementation/evidence
+checkpoint, не durable current HEAD. Automated **PASS** (46 backend / 15 frontend, builds PASS).
+OpenAI access **VERIFIED**. Real experiment **ACCEPTED — 7 completed / 9 attempts**.
+Quality comparison **OWNER APPROVED**. Submission report **READY**, publication **PENDING**.
+Day 6 **NOT STARTED**. [Утверждённый отчёт](../DAY-05-REPORT.md).
+
+Владелец принял два incomplete Terra как результаты общего ceiling 2000, не дефекты для
+исправления повтором. Ни retry, replacement, ни higher-ceiling runs не выполнялись.
+Вывод владельца: Luna — экономичный первый проход, несколько менее стабильное покрытие;
+Terra — подробное раскрытие, но 1/3 completed и затраты на объём, не надёжное завершение;
+Sol — 3/3 completed и наиболее стабильное раскрытие четырёх областей здесь, когда покрытие
+важнее стоимости. Tier хорошо предсказывал стоимость, частично consistency, но не монотонную
+latency; MEDIUM не гарантирует практический компромисс. Это не universal ranking.
+Числа, ограничения и scope payment-received-v1 / none / 2000 / n=3 — в отчёте.
+
+Финализация: проверены branch/HEAD/diff/untracked, `git diff --check`, исключение local artifacts
+и отсутствие фактических ключей в staged content. Product code не менялся; новые tests/builds,
+browser checks и paid calls не запускались. Создан implementation commit, подготовлен отдельный
+documentation checkpoint `Finalize AI Advent Day 5`. Standing desktop-only правило записано в AGENTS.
+Следующий шаг — отдельно разрешённая публикация/подача отчёта, не Day 6 implementation.
+
+Ниже сохранена история запуска **до** owner acceptance; её PARTIAL/candidate статусы исторические,
+не текущий operational status. Требование «три completed на модель» отменено как acceptance gate
+решением владельца выше, реальные 7/9 не переписаны.
+
 ## Контекст запуска 2026-09-05
 
 Agent: Codex. Ветка `day_5`; planning checkpoint

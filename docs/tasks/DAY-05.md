@@ -1,8 +1,11 @@
 # Day 5 — Model comparison
 
-Статус: **IMPLEMENTED / REAL EXPERIMENT PARTIAL**.
-Implementation: **DONE в рабочем дереве, commit pending**. Automated verification: **PASS**.
-Real experiment: **7 completed / 9 attempts**; browser replay/refresh: **PASS**. Submission: **PENDING**.
+Статус: **FINALIZED — owner acceptance 2026-09-06**.
+Implementation: **DONE**, checkpoint `951e65c4516c4f01fb3321cbb86dc2574591d911`.
+Automated verification: **PASS**. OpenAI access: **VERIFIED**.
+Real experiment: **ACCEPTED — 7 completed / 9 attempts**; browser replay/refresh: **PASS**.
+Quality comparison: **OWNER APPROVED**. Submission report: **READY**. Publication: **PENDING**.
+Day 6: **NOT STARTED**. Отчёт: [DAY-05-REPORT.md](../DAY-05-REPORT.md).
 Дата проверки документации: **2026-09-05**. Ветка `day_5` от finalized Day 4 `9ff5b29`.
 
 Этот документ — canonical Day 5 contract. Owner-approved решения ниже заменяют открытые варианты
@@ -259,7 +262,9 @@ GPU/RAM/energy provider неизвестны и не выдумываются. M
 3. Selector/single/comparison, independent errors, responsive cards работают.
 4. Returned text/status/model/usage и backend latency сохраняются без fabricated values.
 5. Pricing formula покрывает ordinary/cache read/cache write/output; unknowns явны; snapshot immutable.
-6. Девять attempts protocol выполнены; полноценное успешное evidence — три валидных ответа на модель.
+6. Девять attempts protocol выполнены. По owner acceptance 2026-09-06 принимаются семь completed
+   и две Terra incomplete/max_output_tokens; прежняя цель «три completed на модель» не является
+   gate финализации. Нельзя переименовывать это в 9/9 успешных ответов.
    Ошибки не скрываются и не заменяются тайными повторениями.
 7. Reference-based human comparison и вывод записаны; ничья допустима.
 8. Dialog refresh/restart восстанавливает results/metrics/evaluations/UI, без model memory.
@@ -326,10 +331,12 @@ API facts for this baseline verified from official docs. Design blocker: **NONE*
 Owner confirmed: OpenAI key created, prepaid balance USD 5.
 Runtime prerequisite **VERIFIED**: credential works in application environment, все три exact IDs
 вернули реальные ответы/usage/default tier. 9-call experiment owner-authorized и выполнен.
-Результат PARTIAL: Terra #2/#9 `incomplete/max_output_tokens`; остальные семь completed.
-Raw/quality evidence: `docs/agent-runs/DAY-05.md`. Acceptance «три completed на модель» не достигнуто.
-Следующий шаг по этому ограничению и окончательный quality conclusion остаются за владельцем;
-повторов, поднятия потолка и автоматического исправления не было.
+Результат **ACCEPTED — 7 completed / 9 attempts**: Terra #2/#9 `incomplete/max_output_tokens`.
+Owner принял эти incomplete как реальные результаты общего preset, без retries/replacements.
+Изменение ceiling возможно только как отдельно разрешённый будущий эксперимент, не замена этого.
+Quality conclusion утверждён владельцем; [итоговый отчёт](../DAY-05-REPORT.md) — canonical
+shareable conclusion. Подробная классификация и история — `docs/agent-runs/DAY-05.md`.
+Блокеров финализации нет; публикация требует отдельной owner-авторизации.
 Если реальный API противоречит docs (effort/model access/tier), сохранить факт и остановить
 соответствующий verification path; модели/preset не заменять молча.
 Первый Luna smoke был отдельным вызовом (USD 0.0000948); затем owner разрешил ровно девять
@@ -340,11 +347,11 @@ No push/merge/rebase/branch deletion.
 ## 15. Submission plan
 
 - [x] Owner decisions and canonical design
-- [x] Implementation (working tree; implementation commit pending)
+- [x] Implementation (`951e65c4516c4f01fb3321cbb86dc2574591d911`)
 - [x] Automated tests/builds
 - [x] Nine-attempt protocol + browser replay/persistence verification
-- [ ] Three completed results per model (Terra 1/3; two explicit incomplete outcomes preserved)
-- [ ] Short human/evidence-based report with quality/speed/resources conclusion and model links
+- [x] Owner acceptance: 7 completed / 9 attempts, включая два Terra incomplete как valid observations
+- [x] Owner-approved quality/speed/resource conclusion и [готовый report](../DAY-05-REPORT.md)
 - [ ] Code publication/link for Day 5 (separate owner-authorized Git flow)
 
 Report может заменить video по Day 5 clarification; in-app report generation не требуется.
