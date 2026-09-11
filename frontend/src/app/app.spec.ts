@@ -5,7 +5,7 @@ import { App } from './app';
 
 interface TestApp {
   input: string;
-  experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS';
+  experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
   selectModels(): void;
   compareModels(): void;
@@ -66,6 +66,76 @@ describe('App', () => {
   afterEach(() => http.verify());
 
   function flushSave(): void { http.expectOne(request => request.url.startsWith('/api/dialogs/')).flush(dialog()); }
+
+  it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    const agentButton = [...fixture.nativeElement.querySelectorAll('.experiment-selector button')]
+      .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Агент') as HTMLButtonElement;
+    agentButton.click(); fixture.detectChanges();
+    expect(component.experiment).toBe('AGENT');
+    expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.action-buttons').textContent).not.toContain('Сравнить');
+    expect(fixture.nativeElement.textContent).toContain('до перезапуска сервера');
+
+    component.input = 'fact A'; component.analyze(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('mat-progress-bar')).not.toBeNull();
+    component.analyze();
+    const first = http.expectOne(`/api/dialogs/${a}/agent/messages`);
+    expect(first.request.body).toEqual({ input: 'fact A' });
+    first.flush({ analysis: '## Запомнил\n<img src=x onerror=alert(1)>' });
+    const savedFirst = http.expectOne(r => r.method === 'PUT');
+    savedFirst.flush(dialog(a, savedFirst.request.body.state.exchanges, savedFirst.request.body.state.ui));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.analysis-text h2')?.textContent).toBe('Запомнил');
+    expect(fixture.nativeElement.querySelector('.analysis-text img')).toBeNull();
+
+    component.input = 'follow-up A'; component.analyze();
+    const followUp = http.expectOne(`/api/dialogs/${a}/agent/messages`);
+    expect(followUp.request.body).toEqual({ input: 'follow-up A' });
+    followUp.flush({ analysis: 'answer A' });
+    const save = http.expectOne(r => r.method === 'PUT');
+    const archive = structuredClone(save.request.body.state);
+    expect(archive.ui.experiment).toBe('AGENT');
+    expect(archive.exchanges.map((entry: { mode: string }) => entry.mode)).toEqual(['AGENT', 'AGENT']);
+    save.flush(dialog(a, archive.exchanges, archive.ui));
+
+    component.newDialog(); http.expectOne('/api/dialogs').flush(dialog(b));
+    component.experiment = 'AGENT'; component.input = 'question B'; component.analyze();
+    const requestB = http.expectOne(`/api/dialogs/${b}/agent/messages`);
+    expect(requestB.request.body).toEqual({ input: 'question B' });
+    requestB.flush({ analysis: 'no context B' });
+    const saveB = http.expectOne(r => r.method === 'PUT');
+    expect(saveB.request.body.state.exchanges).toHaveLength(1);
+    saveB.flush(dialog(b, saveB.request.body.state.exchanges, saveB.request.body.state.ui));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('fact A');
+
+    component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
+    fixture.detectChanges();
+    expect(component.experiment).toBe('AGENT');
+    expect(fixture.nativeElement.textContent).toContain('fact A');
+    expect(fixture.nativeElement.textContent).not.toContain('question B');
+    component.input = 'back to A'; component.analyze();
+    const returnA = http.expectOne(`/api/dialogs/${a}/agent/messages`);
+    expect(returnA.request.body).toEqual({ input: 'back to A' });
+    returnA.flush({ analysis: 'still A' }); flushSave();
+  });
+
+  it('shows Agent failures and permits the next manual send without retrying', () => {
+    component.experiment = 'AGENT'; component.input = 'failed'; component.analyze();
+    const route = `/api/dialogs/${dialog().id}/agent/messages`;
+    http.expectOne(route).flush({ error: 'Provider unavailable' }, { status: 502, statusText: 'Bad Gateway' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('Provider unavailable');
+    http.expectNone(route);
+    component.input = 'next'; component.analyze();
+    const request = http.expectOne(route);
+    expect(request.request.body).toEqual({ input: 'next' });
+    request.flush({ analysis: 'recovered' }); flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('recovered');
+  });
 
   it('selects the model experiment and sends only the selected model and exact input', () => {
     component.selectModels(); http.expectOne('/api/model-options').flush(profiles);

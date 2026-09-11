@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
-  <div class="context"><span>AI Advent · День 5</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span></div>
+  <div class="context"><span>AI Advent · День 6</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span></div>
 </mat-toolbar>
 
 <div class="workspace">
@@ -117,8 +117,8 @@
             </div></article>
           } @else {
             <article class="message-row mentor-row"><div class="message mentor-message">
-              <span class="message-label">Ментор · {{ exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
-              @if (exchange.mode === 'FREE') {
+              <span class="message-label">Ментор · {{ exchange.mode === 'AGENT' ? 'Агент' : exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
+              @if (exchange.mode === 'FREE' || exchange.mode === 'AGENT') {
                 <ng-container [ngTemplateOutlet]="freeResult" [ngTemplateOutletContext]="{ result: exchange.free }" />
               } @else {
                 <span class="control-metadata">{{ controlsMetadata(exchange.controls!) }}</span>
@@ -200,6 +200,7 @@
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
         <button [class.active]="experiment === 'TEMPERATURE'" (click)="experiment = 'TEMPERATURE'">Температура</button>
         <button [class.active]="experiment === 'MODELS'" (click)="selectModels()">Модели</button>
+        <button [class.active]="experiment === 'AGENT'" (click)="experiment = 'AGENT'">Агент</button>
       </div>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
@@ -236,20 +237,22 @@
         </div>
         <small>Уровни относительны внутри GPT-5.6; качество оценивается по ответу.</small>
         @if (modelOptionsError()) { <p class="inline-error">{{ modelOptionsError() }}</p> }
-      } @else {
+      } @else if (experiment === 'TEMPERATURE') {
         <div class="reasoning-controls">
           <div class="temperature-selector" role="radiogroup" aria-label="Температура">
             @for (temperature of temperatures; track temperature) { <label><input type="radio" name="temperature" [value]="temperature" [(ngModel)]="selectedTemperature" /><span>{{ temperature }}</span></label> }
           </div>
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
+      } @else if (experiment === 'AGENT') {
+        <small>Агент помнит свою переписку до перезапуска сервера. Сохранённые сообщения после перезапуска остаются видимыми, но агент их не помнит.</small>
       }
       <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>
       <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">
         @if (experiment === 'FORMAT') { <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить режимы</button> }
         @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
         @else if (experiment === 'MODELS') { <button mat-stroked-button (click)="compareModels()" [disabled]="!input.trim() || loading() || !currentDialogId() || !modelOptions().length">Сравнить модели</button> }
-        @else { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
+        @else if (experiment === 'TEMPERATURE') { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
         <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId()">Проанализировать</button>
       </div></div>
     </div></section>

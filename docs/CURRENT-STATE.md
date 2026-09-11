@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Week 1 / Day 5 — FINALIZED; Day 6 NOT STARTED |
-| Current branch | `day_5` |
+| Current milestone | Day 6 — implementation DONE; real API PASS; UI 1440×1000 PASS; technically complete; video PENDING |
+| Current branch | `day_6` from `developer` / `06355effc56d60b4d43b58c7e274b0ec20622337`; no new commit |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Implementation DONE; automated PASS; OpenAI access VERIFIED; experiment ACCEPTED — 7 completed / 9 attempts; quality OWNER APPROVED; report READY; publication PENDING |
-| Next action | Owner-authorized Day 5 publication/submission flow; no additional API calls |
+| Status | Day 6 implemented locally; backend 58 / frontend 17 tests and builds PASS; real API 4/4 PASS; UI 1440×1000 PASS; TECHNICALLY COMPLETE |
+| Next action | Day 6 video preparation |
 
 ## Challenge days
 
@@ -25,7 +25,13 @@
 | Day 3 | DONE | Automated/API/persistence DONE; owner visual browser review PENDING | Demo video and publication PENDING |
 | Day 4 | DONE | Technical verification DONE; UX/responsive owner acceptance DONE | Demo video and publication PENDING |
 | Day 5 | DONE (`951e65c`) | Backend 46 / frontend 15 tests + builds PASS; OpenAI access VERIFIED; experiment ACCEPTED — 7 completed / 9 attempts; browser replay/refresh PASS | Quality OWNER APPROVED; report READY; publication PENDING |
-| Day 6 | NOT STARTED | NOT RUN | NOT STARTED |
+| Day 6 | DONE, uncommitted on `day_6` | Backend 58 / frontend 17 tests + builds PASS; real API 4/4 PASS; UI 1440×1000 PASS; TECHNICALLY COMPLETE; video PENDING | NOT PUBLISHED |
+
+Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
+Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
+whole conversation per turn, success-only commit and per-agent tryLock. Fresh backend/service clears
+LLM memory. Existing UI JSON archive does not restore agent context. Days 7–9 not implemented.
+No commit/push/merge or real LLM calls. Frontend build passed with existing app.scss budget warning.
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
 `docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,
@@ -57,6 +63,7 @@ Angular 22 :4201
        -> /api/reasoning-review (Day 3 DIRECT/STEP_BY_STEP/SELF_PROMPT/EXPERTS)
        -> /api/temperature-review (Day 4 temperature 0/0.7/1.2)
        -> /api/model-options + /api/model-review (Day 5 direct OpenAI Responses, Luna/Terra/Sol)
+       -> /api/dialogs/{id}/agent/messages (Day 6 runtime agent, whole message stack)
        -> /api/dialogs (local JSON create/list/load/update)
   -> DeepSeek deepseek-v4-flash (Day 1–4); OpenAI GPT-5.6 family (Day 5)
 ```
@@ -68,6 +75,8 @@ Angular 22 :4201
   fake scores.
 - Dialog JSON находится в ignored `docs/local/mentor-dialogs/`. История восстанавливает UI, но
   **никогда не отправляется DeepSeek/OpenAI как conversation memory**.
+- Day 6 отдельно держит собственные successful turns в памяти backend и отправляет их DeepSeek
+  целиком. UI archive не используется для восстановления этого context; restart очищает память.
 - Concise run evidence — tracked `docs/agent-runs/DAY-XX.md`; detailed local evidence — ignored
   `docs/local/agent-sessions/`.
 - `DEEPSEEK_API_KEY` и `OPENAI_API_KEY` доступны только backend environment; `.env.local` игнорируется Git.

@@ -5,6 +5,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -12,6 +20,47 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class MainTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final DeepSeekClient client = new DeepSeekClient(null, JSON, "test-key");
+
+    @Test
+    void buildsOrderedAgentRequestsWithOnlyConfiguredOptions() throws Exception {
+        var messages = List.of(new ConversationContext.Message("system", "instruction"),
+                new ConversationContext.Message("user", "first"),
+                new ConversationContext.Message("assistant", "answer"),
+                new ConversationContext.Message("user", "follow-up"));
+        JsonNode defaults = JSON.readTree(client.buildConversationRequestBody(messages, "deepseek-v4-flash", null, null));
+        assertEquals(JSON.valueToTree(messages), defaults.path("messages"));
+        assertEquals("deepseek-v4-flash", defaults.path("model").textValue());
+        assertEquals(false, defaults.path("stream").booleanValue());
+        assertEquals("disabled", defaults.path("thinking").path("type").textValue());
+        assertEquals(4, defaults.size());
+        JsonNode configured = JSON.readTree(client.buildConversationRequestBody(messages, "another-model", 0.7, 450));
+        assertEquals(JSON.valueToTree(messages), configured.path("messages"));
+        assertEquals("another-model", configured.path("model").textValue());
+        assertEquals(0.7, configured.path("temperature").doubleValue());
+        assertEquals(450, configured.path("max_tokens").intValue());
+        assertEquals(6, configured.size());
+    }
+
+    @Test
+    void emptyProviderContentDoesNotEnterAgentHistory() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn("{\"choices\":[{\"message\":{\"content\":\" \"}}]}",
+                "{\"choices\":[{\"message\":{\"content\":\"answer\"}}]}");
+        when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+                .thenReturn(response);
+        var transport = spy(new DeepSeekClient(http, JSON, "test-key"));
+        var agent = new EngineeringReviewAgent(AgentConfig.defaults(), transport);
+
+        assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
+        assertEquals("answer", agent.reply("next"));
+
+        verify(transport).complete(List.of(
+                new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
+                new ConversationContext.Message("user", "next")), "deepseek-v4-flash", null, null);
+        verify(http, times(2)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+    }
 
     @Test
     void buildsApprovedDayOneRequest() throws Exception {

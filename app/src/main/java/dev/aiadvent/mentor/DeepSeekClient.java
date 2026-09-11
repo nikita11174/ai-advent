@@ -13,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public class DeepSeekClient {
@@ -73,6 +74,34 @@ public class DeepSeekClient {
 
     private Completion send(String input, String requestBody) throws DeepSeekException {
         requireInput(input);
+        return send(requestBody);
+    }
+
+    String complete(List<ConversationContext.Message> messages, String model, Double temperature, Integer maxTokens)
+            throws DeepSeekException {
+        try {
+            return send(buildConversationRequestBody(messages, model, temperature, maxTokens)).content();
+        } catch (JsonProcessingException e) {
+            throw new DeepSeekException("Could not create the DeepSeek conversation request.", e);
+        }
+    }
+
+    String buildConversationRequestBody(List<ConversationContext.Message> messages, String model,
+                                        Double temperature, Integer maxTokens) throws JsonProcessingException {
+        ObjectNode root = json.createObjectNode();
+        root.put("model", model);
+        root.put("stream", false);
+        root.putObject("thinking").put("type", "disabled");
+        if (temperature != null) root.put("temperature", temperature);
+        if (maxTokens != null) root.put("max_tokens", maxTokens);
+        ArrayNode orderedMessages = root.putArray("messages");
+        for (ConversationContext.Message message : messages) {
+            orderedMessages.addObject().put("role", message.role()).put("content", message.content());
+        }
+        return json.writeValueAsString(root);
+    }
+
+    private Completion send(String requestBody) throws DeepSeekException {
         requireApiKey();
 
         HttpRequest request = HttpRequest.newBuilder(API_URI)

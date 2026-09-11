@@ -10,7 +10,7 @@ import { marked, Renderer } from 'marked';
 import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './model-result';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
-type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS';
+type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
 
@@ -33,7 +33,7 @@ interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
 interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
-  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS';
+  id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS' | 'AGENT';
   models?: ModelProfile[]; modelResults?: Record<string, ModelResultState>;
   modelEvaluations?: Record<string, Evaluation>; modelConclusion?: string;
   benchmarkReference?: { id: string; findings: string[] };
@@ -178,6 +178,7 @@ export class App implements OnInit {
   protected analyze(): void {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId()) return;
+    if (this.experiment === 'AGENT') { this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
     if (this.experiment === 'TEMPERATURE') { this.analyzeTemperature(input); return; }
@@ -298,6 +299,14 @@ export class App implements OnInit {
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
     this.sidebarOpen.set(false);
     this.requestScrollToLatest();
+  }
+  private analyzeAgent(input: string): void {
+    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', free: { loading: true } });
+    this.prepareAfterSubmit(); this.startRequest();
+    this.http.post<FreeResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`, { input }).subscribe({
+      next: response => this.finishResult(id, 'free', { analysis: response.analysis, loading: false }),
+      error: (error: HttpErrorResponse) => this.finishResult(id, 'free', { error: this.errorMessage(error, false), loading: false }),
+    });
   }
   private analyzeReasoning(input: string): void {
     const strategy = this.selectedStrategy;
