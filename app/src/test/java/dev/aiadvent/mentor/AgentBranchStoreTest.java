@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,5 +36,29 @@ class AgentBranchStoreTest {
         assertEquals(branchAHistory, restored.loadBranch(dialogId, branchA.id()));
         assertEquals(base, restored.loadBranch(dialogId, branchB.id()));
         assertEquals(2, restored.branches(dialogId).size());
+        assertEquals(List.of(checkpoint.id()), restored.checkpoints(dialogId).stream().map(AgentBranchStore.Checkpoint::id).toList());
+    }
+
+    @Test
+    void rejectsDuplicateCheckpointOrBranchIdsInPersistedTopology() throws Exception {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        UUID dialogId = UUID.randomUUID();
+        var history = List.of(new ConversationContext.Message("system", "instruction"));
+        var branch = new AgentBranchStore.Branch("branch", "checkpoint", history);
+        var duplicateCheckpoint = new AgentBranchStore.Topology(List.of(
+                new AgentBranchStore.Checkpoint("checkpoint", history, List.of(branch)),
+                new AgentBranchStore.Checkpoint("checkpoint", history, List.of())));
+        json.writeValue(directory.resolve(dialogId + ".json").toFile(), duplicateCheckpoint);
+
+        assertThrows(IOException.class, () -> new AgentBranchStore(directory, json).checkpoints(dialogId));
+
+        var firstCheckpoint = new AgentBranchStore.Checkpoint("first", history,
+                List.of(new AgentBranchStore.Branch("branch", "first", history)));
+        var secondCheckpoint = new AgentBranchStore.Checkpoint("second", history,
+                List.of(new AgentBranchStore.Branch("branch", "second", history)));
+        var duplicateBranch = new AgentBranchStore.Topology(List.of(firstCheckpoint, secondCheckpoint));
+        json.writeValue(directory.resolve(dialogId + ".json").toFile(), duplicateBranch);
+
+        assertThrows(IOException.class, () -> new AgentBranchStore(directory, json).branches(dialogId));
     }
 }

@@ -1,6 +1,7 @@
 package dev.aiadvent.mentor;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,6 +58,19 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
+    @ExceptionHandler(EngineeringReviewAgent.MaintenanceMetricsException.class)
+    ResponseEntity<AgentError> maintenanceFailure(EngineeringReviewAgent.MaintenanceMetricsException exception) {
+        Throwable cause = exception.getCause();
+        HttpStatus status = cause instanceof EngineeringReviewAgent.ContextLimitExceededException
+                ? HttpStatus.PAYLOAD_TOO_LARGE
+                : cause instanceof DeepSeekException ? HttpStatus.BAD_GATEWAY
+                : cause instanceof IOException ? HttpStatus.INTERNAL_SERVER_ERROR
+                : HttpStatus.BAD_REQUEST;
+        String rawResponse = cause instanceof DeepSeekException deepSeekException ? deepSeekException.rawResponse() : null;
+        return ResponseEntity.status(status).body(new AgentError(cause.getMessage(), rawResponse,
+                exception.summaryMetrics(), exception.factsMetrics()));
+    }
+
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId) {
         AgentRequest(String input) {
             this(input, null, null, null);
@@ -65,6 +79,10 @@ class AgentController {
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
                          java.util.List<TokenMetrics> factsMetrics,
-                         ContextMetadata contextMetadata) {
+                          ContextMetadata contextMetadata) {
+    }
+
+    record AgentError(String error, String rawResponse, TokenMetrics summaryMetrics,
+                      java.util.List<TokenMetrics> factsMetrics) {
     }
 }

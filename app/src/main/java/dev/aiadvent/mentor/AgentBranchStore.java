@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,6 +57,10 @@ class AgentBranchStore {
     synchronized List<Branch> branches(UUID dialogId) throws IOException {
         return load(dialogId).orElse(new Topology(List.of())).checkpoints().stream()
                 .flatMap(checkpoint -> checkpoint.branches().stream()).toList();
+    }
+
+    synchronized List<Checkpoint> checkpoints(UUID dialogId) throws IOException {
+        return load(dialogId).orElse(new Topology(List.of())).checkpoints();
     }
 
     synchronized List<ConversationContext.Message> loadBranch(UUID dialogId, String branchId) throws IOException {
@@ -135,10 +140,15 @@ class AgentBranchStore {
         if (topology == null || topology.checkpoints() == null) {
             throw new IllegalArgumentException("Branch topology is empty.");
         }
+        var checkpointIds = new HashSet<String>();
+        var branchIds = new HashSet<String>();
         for (Checkpoint checkpoint : topology.checkpoints()) {
             if (checkpoint == null || checkpoint.id() == null || checkpoint.id().isBlank()
                     || checkpoint.baseHistory() == null || checkpoint.branches() == null) {
                 throw new IllegalArgumentException("Branch checkpoint is invalid.");
+            }
+            if (!checkpointIds.add(checkpoint.id())) {
+                throw new IllegalArgumentException("Branch checkpoint IDs must be unique.");
             }
             ConversationContext.validate(checkpoint.baseHistory());
             for (Branch branch : checkpoint.branches()) {
@@ -147,6 +157,9 @@ class AgentBranchStore {
                         || branch.history().size() < checkpoint.baseHistory().size()
                         || !branch.history().subList(0, checkpoint.baseHistory().size()).equals(checkpoint.baseHistory())) {
                     throw new IllegalArgumentException("Branch continuation is invalid.");
+                }
+                if (!branchIds.add(branch.id())) {
+                    throw new IllegalArgumentException("Branch IDs must be unique.");
                 }
                 ConversationContext.validate(branch.history());
             }

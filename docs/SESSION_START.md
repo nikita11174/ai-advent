@@ -66,16 +66,20 @@ Day 1–4 recording demos выполнены; сохранение/загруз�
 Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом.
 Следующий шаг — Day 10 planning from completed Day 9.
 
-**Day 10 ACCEPTED — automated and controlled real acceptance PASS; uncommitted**: branch `day_10`
+**Day 10 COMMITTED — automated and controlled real acceptance PASS**: branch `day_10`, original feature commit
+`f2db8634453182de927f21412fd069b8e33b8297` (`feat: add context management strategies`),
 создана от Day 9 documentation checkpoint `314c57e`. Sliding Window использует exact latest-N
 linear context без summary; Sticky Facts хранит отдельный LLM-derived key/value state с coverage
 по committed user messages, recovery и отдельными facts metrics; Branching хранит immutable
-checkpoint topology вне `ContextPolicy` и принимает explicit branch ID. Backend 87 tests PASS,
+checkpoint topology вне `ContextPolicy` и принимает explicit branch ID. Independent review ran 89/89 backend tests;
 frontend 20/20 и build PASS с существующими budget warnings. Controlled acceptance использовал
 9 provider calls: Sliding потерял четыре ранних facts, Sticky тремя maintenance calls сохранил
 все четыре, Branching восстановил изолированные PostgreSQL/ClickHouse continuations после
-restart. Desktop UI 1440×1000 PASS. Следующий шаг — owner-authorized Day 10 commit; push/merge
-не выполнялись.
+restart. Desktop UI 1440×1000 PASS. Post-review remediation: backend 96/96, frontend 22/22 и
+build PASS; targeted real acceptance A–E PASS, F/G — AUTOMATED_TEST_EVIDENCE_ONLY. Временный
+branch-UI blocker был 4.042-секундным legitimate provider request, тогда как local harness ждал
+3 секунды; product defect не найден. Day 9 FULL/SUMMARY benchmark повторно не запускать:
+historical metrics сохранены, raw artifact недоступен.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

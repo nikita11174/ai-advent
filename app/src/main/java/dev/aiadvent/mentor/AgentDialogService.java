@@ -94,6 +94,11 @@ class AgentDialogService {
         return branches.branches(dialogId);
     }
 
+    List<AgentBranchStore.Checkpoint> checkpoints(UUID dialogId) throws IOException {
+        dialogs.load(dialogId.toString());
+        return branches.checkpoints(dialogId);
+    }
+
     private record AgentKey(UUID dialogId, String branchId) {
     }
 }

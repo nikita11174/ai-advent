@@ -22,4 +22,12 @@ final class ApproximateTokenEstimator {
                 .mapToLong(message -> estimateText(message.role()) + estimateText(message.content()) + 1)
                 .sum();
     }
+
+    long estimateMessagesWithinLimit(List<ConversationContext.Message> messages, Integer contextTokenLimit) {
+        long tokens = estimateMessages(messages);
+        if (contextTokenLimit != null && tokens > contextTokenLimit) {
+            throw new EngineeringReviewAgent.ContextLimitExceededException(tokens, contextTokenLimit);
+        }
+        return tokens;
+    }
 }

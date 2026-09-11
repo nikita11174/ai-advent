@@ -106,7 +106,8 @@ class AgentControllerTest {
 
     @Test
     void mapsAnEstimatedContextOverflowBeforeCallingTheProvider() throws Exception {
-        when(tokenEstimator.estimateMessages(anyList())).thenReturn(2L);
+        when(tokenEstimator.estimateMessagesWithinLimit(anyList(), eq(1)))
+                .thenThrow(new EngineeringReviewAgent.ContextLimitExceededException(2, 1));
 
         mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
                 .content("{\"input\":\"hello\"}"))
@@ -116,5 +117,21 @@ class AgentControllerTest {
         verifyNoInteractions(client);
         verify(histories).load(any());
         verify(histories, never()).save(any(), anyList());
+    }
+
+    @Test
+    void exposesCompletedFactsMaintenanceMetricsWhenTheMainCallFails() throws Exception {
+        UUID dialogId = UUID.randomUUID();
+        when(factsStore.load(dialogId)).thenReturn(java.util.Optional.empty());
+        var maintenance = new TokenMetrics(2, 3, 4, null);
+        when(factsService.update(any(), eq("hello"), any(), eq(1)))
+                .thenReturn(new StickyFactsGeneration(new StickyFacts(1, java.util.Map.of("project", "Helios")), maintenance));
+        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenThrow(new DeepSeekException("Unavailable"));
+
+        mvc.perform(post("/api/dialogs/" + dialogId + "/agent/messages").contentType("application/json")
+                        .content("{\"input\":\"hello\",\"contextMode\":\"STICKY_FACTS\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Unavailable"))
+                .andExpect(jsonPath("$.factsMetrics[0].contextTokens").value(3));
     }
 }

@@ -34,10 +34,11 @@ class StickyFactsService {
         List<ConversationContext.Message> prompt = List.of(
                 new ConversationContext.Message("system", FACTS_SYSTEM_PROMPT),
                 new ConversationContext.Message("user", request));
+        long contextTokens = estimator.estimateMessagesWithinLimit(prompt, config.contextTokenLimit());
         DeepSeekClient.Completion completion = client.complete(prompt, config.model(), config.temperature(),
                 config.maxTokens());
         StickyFacts facts = parse(completion.content(), coveredCount);
-        TokenMetrics metrics = new TokenMetrics(estimator.estimateText(input), estimator.estimateMessages(prompt),
+        TokenMetrics metrics = new TokenMetrics(estimator.estimateText(input), contextTokens,
                 estimator.estimateText(completion.content()), completion.usage());
         return new StickyFactsGeneration(facts, metrics);
     }

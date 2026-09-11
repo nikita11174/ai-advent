@@ -18,11 +18,11 @@
   <main class="chat-shell">
     <section #conversation class="conversation" aria-live="polite" (scroll)="handleConversationScroll()">
       <div class="conversation-content">
-        @if (exchanges().length === 0) {
+        @if (visibleExchanges().length === 0) {
           <div class="empty-state"><h1>Развивайте инженерное мышление</h1><p>Вставьте Java-код или задайте инженерный вопрос</p></div>
         }
 
-        @for (exchange of exchanges(); track exchange.id) {
+        @for (exchange of visibleExchanges(); track exchange.id) {
           <article class="message-row user-row">
             <div class="message user-message"><span class="message-label">Вы</span><pre>{{ exchange.input }}</pre></div>
           </article>
@@ -272,22 +272,31 @@
         </div>
       } @else if (experiment === 'AGENT') {
         <div class="reasoning-controls">
-          <label>Контекст <select [(ngModel)]="contextMode" aria-label="Режим контекста">
-            <option value="FULL">FULL</option>
-            <option value="SUMMARY_RECENT">SUMMARY + RECENT</option>
-            <option value="SLIDING_WINDOW">SLIDING WINDOW</option>
-            <option value="STICKY_FACTS">STICKY FACTS</option>
-          </select></label>
-          @if (contextMode === 'SUMMARY_RECENT' || contextMode === 'SLIDING_WINDOW' || contextMode === 'STICKY_FACTS') {
+          @if (!branchId) {
+            <label>Контекст <select [ngModel]="linearContextMode" (ngModelChange)="selectLinearContextMode($event)" aria-label="Режим контекста">
+              <option value="FULL">FULL</option>
+              <option value="SUMMARY_RECENT">SUMMARY + RECENT</option>
+              <option value="SLIDING_WINDOW">SLIDING WINDOW</option>
+              <option value="STICKY_FACTS">STICKY FACTS</option>
+            </select></label>
+          } @else {
+            <span>Контекст ветки: FULL</span>
+          }
+          @if (!branchId && (contextMode === 'SUMMARY_RECENT' || contextMode === 'SLIDING_WINDOW' || contextMode === 'STICKY_FACTS')) {
             <label>Последние raw messages <input type="number" min="1" [(ngModel)]="recentMessageCount" /></label>
           }
-          <label>Ветка <select [ngModel]="branchId" (ngModelChange)="switchBranch($event)" aria-label="Ветка">
+          <label>Ветка <select [ngModel]="branchId" (ngModelChange)="switchBranch($event)" [disabled]="topologyBusy()" aria-label="Ветка">
             <option [ngValue]="null">Линейный диалог</option>
             @for (branch of branches(); track branch.id) { <option [ngValue]="branch.id">{{ branch.id.slice(0, 8) }}</option> }
           </select></label>
-          <button mat-button type="button" (click)="createCheckpoint()">Создать checkpoint</button>
-          <button mat-button type="button" [disabled]="!checkpointId" (click)="createBranch()">Создать ветку</button>
+          <label>Checkpoint <select [ngModel]="checkpointId" (ngModelChange)="selectCheckpoint($event)" [disabled]="topologyBusy()" aria-label="Checkpoint">
+            <option [ngValue]="null">Выберите checkpoint</option>
+            @for (checkpoint of checkpoints(); track checkpoint.id) { <option [ngValue]="checkpoint.id">{{ checkpoint.id.slice(0, 8) }}</option> }
+          </select></label>
+          <button mat-button type="button" [disabled]="loading() || topologyBusy()" (click)="createCheckpoint()">Создать checkpoint</button>
+          <button mat-button type="button" [disabled]="loading() || topologyBusy() || !checkpointId" (click)="createBranch()">Создать ветку</button>
         </div>
+        @if (topologyError()) { <p class="inline-error" role="alert">{{ topologyError() }}</p> }
         <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Sticky facts — отдельная производная memory; branching изолирует продолжения. Локальные оценки токенов не являются токенизацией провайдера.</small>
       }
       <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>

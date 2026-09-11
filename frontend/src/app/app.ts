@@ -7,6 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { marked, Renderer } from 'marked';
+import { forkJoin } from 'rxjs';
 import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './model-result';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
@@ -26,7 +27,8 @@ interface ProviderUsage { promptTokens: number | null; completionTokens: number 
 interface TokenMetrics {
   currentRequestTokens: number; contextTokens: number; responseTokens: number; providerUsage: ProviderUsage | null;
 }
-interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: Record<string, string> | null; }
+interface StickyFacts { coveredUserMessageCount: number; facts: Record<string, string>; }
+interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: StickyFacts | null; }
 interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; contextMetadata: ContextMetadata; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
@@ -41,6 +43,7 @@ interface TemperatureEvaluation extends Evaluation { creativity: string; diversi
 interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
   id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS' | 'AGENT';
+  branchId?: string | null;
   models?: ModelProfile[]; modelResults?: Record<string, ModelResultState>;
   modelEvaluations?: Record<string, Evaluation>; modelConclusion?: string;
   benchmarkReference?: { id: string; findings: string[] };
@@ -56,10 +59,13 @@ interface DialogUiState {
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
   selectedModelKey?: string;
-  contextMode?: ContextMode; recentMessageCount?: number; branchId?: string | null;
+  contextMode?: ContextMode; linearContextMode?: ContextMode; recentMessageCount?: number;
+  branchId?: string | null; checkpointId?: string | null;
 }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
-interface AgentBranch { id: string; checkpointId: string; history: unknown[]; }
+interface AgentMessage { role: 'system' | 'user' | 'assistant'; content: string; }
+interface AgentBranch { id: string; checkpointId: string; history: AgentMessage[]; }
+interface AgentCheckpoint { id: string; baseHistory: AgentMessage[]; branches: AgentBranch[]; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
@@ -99,6 +105,7 @@ export class App implements OnInit {
   private readonly http = inject(HttpClient);
   private nextExchangeId = 1;
   private pendingRequests = 0;
+  private topologyRequestGeneration = 0;
   private programmaticScroll = false;
   private shouldFollowLatest = true;
 
@@ -111,10 +118,15 @@ export class App implements OnInit {
   protected selectedStrategy: ReasoningStrategy = 'DIRECT';
   protected selectedTemperature: Temperature = 0;
   protected contextMode: ContextMode = 'FULL';
+  protected linearContextMode: ContextMode = 'FULL';
   protected recentMessageCount = 4;
   protected branchId: string | null = null;
   protected checkpointId: string | null = null;
   protected readonly branches = signal<readonly AgentBranch[]>([]);
+  protected readonly checkpoints = signal<readonly AgentCheckpoint[]>([]);
+  protected readonly branchViews = signal<Record<string, readonly Exchange[]>>({});
+  protected readonly topologyBusy = signal(false);
+  protected readonly topologyError = signal('');
   protected selectedModelKey = 'WEAK';
   protected readonly modelOptions = signal<ModelProfile[]>([]);
   protected readonly modelOptionsError = signal('');
@@ -136,24 +148,56 @@ export class App implements OnInit {
     this.http.post<DialogDocument>('/api/dialogs', {}).subscribe({ next: dialog => this.activateDialog(dialog) });
   }
 
-  protected selectAgent(): void { this.experiment = 'AGENT'; this.loadBranches(); }
+  protected selectAgent(): void { this.experiment = 'AGENT'; this.loadTopology(); }
 
   protected createCheckpoint(): void {
-    const id = this.currentDialogId(); if (!id || this.loading()) return;
+    const id = this.startTopologyOperation(); if (!id) return;
+    const operation = this.topologyRequestGeneration;
     this.http.post<{ id: string }>(`/api/dialogs/${id}/agent/checkpoints`, this.branchId ? { branchId: this.branchId } : {}).subscribe({
-      next: checkpoint => { this.checkpointId = checkpoint.id; this.persistDialog(); },
+      next: checkpoint => {
+        if (!this.isCurrentTopologyOperation(id, operation)) return;
+        this.checkpoints.update(items => [...items, { ...checkpoint, baseHistory: [], branches: [] }]);
+        this.checkpointId = checkpoint.id;
+        this.finishTopologyOperation(id, operation); this.persistDialog();
+      },
+      error: () => this.failTopologyOperation(id, operation, 'Не удалось создать checkpoint.'),
     });
   }
 
   protected createBranch(): void {
-    const id = this.currentDialogId(); if (!id || !this.checkpointId || this.loading()) return;
-    this.http.post<AgentBranch>(`/api/dialogs/${id}/agent/checkpoints/${this.checkpointId}/branches`, {}).subscribe({
-      next: branch => { this.branches.update(items => [...items, branch]); this.branchId = branch.id; this.persistDialog(); },
+    if (!this.checkpointId) return;
+    const id = this.startTopologyOperation(); if (!id) return;
+    const operation = this.topologyRequestGeneration;
+    const checkpointId = this.checkpointId;
+    this.http.post<AgentBranch>(`/api/dialogs/${id}/agent/checkpoints/${checkpointId}/branches`, {}).subscribe({
+      next: branch => {
+        if (!this.isCurrentTopologyOperation(id, operation)) return;
+        this.branches.update(items => [...items, branch]);
+        this.branchViews.update(views => ({ ...views, [branch.id]: this.exchangesFromHistory(branch) }));
+        this.branchId = branch.id; this.contextMode = 'FULL'; this.checkpointId = branch.checkpointId;
+        this.finishTopologyOperation(id, operation); this.persistDialog();
+      },
+      error: () => this.failTopologyOperation(id, operation, 'Не удалось создать ветку.'),
     });
   }
 
   protected switchBranch(branchId: string | null): void {
-    this.branchId = branchId; this.contextMode = 'FULL'; this.persistDialog();
+    if (this.topologyBusy()) return;
+    this.branchId = branchId;
+    if (branchId) {
+      this.contextMode = 'FULL';
+      this.checkpointId = this.branches().find(branch => branch.id === branchId)?.checkpointId ?? this.checkpointId;
+      if (!this.branchViews()[branchId]) this.loadTopology();
+    } else {
+      this.contextMode = this.linearContextMode;
+    }
+    this.persistDialog();
+  }
+
+  protected selectCheckpoint(checkpointId: string | null): void { this.checkpointId = checkpointId; this.persistDialog(); }
+  protected selectLinearContextMode(mode: ContextMode): void {
+    this.linearContextMode = mode; this.contextMode = mode;
+    this.persistDialog();
   }
 
   protected openDialog(id: string): void {
@@ -162,6 +206,9 @@ export class App implements OnInit {
   }
 
   protected toggleSidebar(): void { this.sidebarOpen.update(open => !open); }
+  protected visibleExchanges(): readonly Exchange[] {
+    return this.branchId ? this.branchViews()[this.branchId] ?? [] : this.exchanges().filter(exchange => exchange.branchId == null);
+  }
 
   protected selectModels(): void {
     this.experiment = 'MODELS';
@@ -326,8 +373,11 @@ export class App implements OnInit {
     this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
-    this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : (ui?.contextMode ?? 'FULL');
-    this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = null; this.branches.set([]);
+    this.linearContextMode = ui?.linearContextMode ?? ui?.contextMode ?? 'FULL';
+    this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : this.linearContextMode;
+    this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = ui?.checkpointId ?? null;
+    this.topologyRequestGeneration++; this.branches.set([]); this.checkpoints.set([]); this.branchViews.set({});
+    this.topologyBusy.set(false); this.topologyError.set('');
     if (this.experiment === 'MODELS') this.selectModels();
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
     this.nextExchangeId = Math.max(0, ...exchanges.map(exchange => exchange.id)) + 1;
@@ -335,24 +385,43 @@ export class App implements OnInit {
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
     this.sidebarOpen.set(false);
     this.requestScrollToLatest();
-    if (this.experiment === 'AGENT') this.loadBranches();
+    if (this.experiment === 'AGENT') this.loadTopology();
   }
-  private loadBranches(): void {
-    const id = this.currentDialogId(); if (!id) return;
-    this.http.get<AgentBranch[]>(`/api/dialogs/${id}/agent/branches`).subscribe({ next: branches => {
-      this.branches.set(branches); this.checkpointId = branches[0]?.checkpointId ?? this.checkpointId;
-    } });
+  private loadTopology(): void {
+    const id = this.currentDialogId(); if (!id || this.topologyBusy()) return;
+    const operation = ++this.topologyRequestGeneration;
+    this.topologyBusy.set(true); this.topologyError.set('');
+    forkJoin({
+      branches: this.http.get<AgentBranch[]>(`/api/dialogs/${id}/agent/branches`),
+      checkpoints: this.http.get<AgentCheckpoint[]>(`/api/dialogs/${id}/agent/checkpoints`),
+    }).subscribe({
+      next: topology => {
+        if (!this.isCurrentTopologyOperation(id, operation)) return;
+        this.branches.set(topology.branches); this.checkpoints.set(topology.checkpoints);
+        this.branchViews.set(Object.fromEntries(topology.branches.map(branch => [branch.id, this.exchangesFromHistory(branch)])));
+        if (this.branchId && !topology.branches.some(branch => branch.id === this.branchId)) {
+          this.branchId = null; this.contextMode = this.linearContextMode;
+          this.topologyError.set('Выбранная ветка больше недоступна. Показан линейный диалог.');
+        }
+        if (this.branchId) this.checkpointId = topology.branches.find(branch => branch.id === this.branchId)?.checkpointId ?? this.checkpointId;
+        this.finishTopologyOperation(id, operation);
+      },
+      error: () => this.failTopologyOperation(id, operation, 'Не удалось загрузить topology диалога.'),
+    });
   }
   private analyzeAgent(input: string): void {
-    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', free: { loading: true } });
+    const dialogId = this.currentDialogId(); if (!dialogId) return;
+    const requestBranchId = this.branchId;
+    const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
+      free: { loading: true } });
     this.prepareAfterSubmit(); this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
-      ...(this.branchId ? { branchId: this.branchId } : {}) };
-    this.http.post<AgentResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`,
+      ...(requestBranchId ? { branchId: requestBranchId } : {}) };
+    this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
-      next: response => this.finishResult(id, 'free', { analysis: response.analysis, metrics: response.metrics,
+      next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
         summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, contextMetadata: response.contextMetadata, loading: false }),
-      error: (error: HttpErrorResponse) => this.finishResult(id, 'free', { error: this.errorMessage(error, false), loading: false }),
+      error: (error: HttpErrorResponse) => this.finishAgentResult(dialogId, id, { error: this.errorMessage(error, false), loading: false }),
     });
   }
   private analyzeReasoning(input: string): void {
@@ -403,6 +472,10 @@ export class App implements OnInit {
   private finishResult(id: number, side: 'free' | 'controlled', result: ResultState): void {
     this.updateExchange(id, { [side]: result }); this.completeRequest();
   }
+  private finishAgentResult(dialogId: string, id: number, result: ResultState): void {
+    if (this.currentDialogId() !== dialogId) return;
+    this.updateExchange(id, { free: result }); this.completeRequest();
+  }
   private completeRequest(): void {
     this.pendingRequests--; this.loading.set(this.pendingRequests > 0);
     if (!this.loading()) this.persistDialog(); this.requestScrollToLatest();
@@ -414,14 +487,19 @@ export class App implements OnInit {
   }
   private startRequest(): void { this.pendingRequests++; this.loading.set(true); }
   private appendExchange(exchange: Exchange): number {
-    this.shouldFollowLatest = this.isNearBottom(); this.exchanges.update(items => [...items, exchange]); return exchange.id;
+    this.shouldFollowLatest = this.isNearBottom(); this.exchanges.update(items => [...items, exchange]);
+    if (exchange.branchId) this.branchViews.update(views => ({ ...views, [exchange.branchId!]: [...(views[exchange.branchId!] ?? []), exchange] }));
+    return exchange.id;
   }
   private updateReasoning(id: number, strategy: ReasoningStrategy, result: ResultState, persist = true): void {
     const exchange = this.exchange(id);
     this.updateExchange(id, { reasoning: { ...exchange.reasoning, [strategy]: result } }, persist);
   }
   private updateExchange(id: number, update: Partial<Exchange>, persist = true): void {
-    this.exchanges.update(items => items.map(exchange => exchange.id === id ? { ...exchange, ...update } : exchange));
+    const exchange = this.exchanges().find(item => item.id === id);
+    this.exchanges.update(items => items.map(item => item.id === id ? { ...item, ...update } : item));
+    if (exchange?.branchId) this.branchViews.update(views => ({ ...views, [exchange.branchId!]:
+      (views[exchange.branchId!] ?? []).map(item => item.id === id ? { ...item, ...update } : item) }));
     if (persist && !this.loading()) this.persistDialog();
   }
   private persistDialog(): void {
@@ -430,7 +508,8 @@ export class App implements OnInit {
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
       selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
-      contextMode: this.contextMode, recentMessageCount: this.recentMessageCount, branchId: this.branchId };
+      contextMode: this.contextMode, linearContextMode: this.linearContextMode, recentMessageCount: this.recentMessageCount,
+      branchId: this.branchId, checkpointId: this.checkpointId };
     this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });
@@ -449,6 +528,33 @@ export class App implements OnInit {
   private prepareAfterSubmit(): void { this.input = ''; this.requestScrollToLatest(); this.resetComposerHeight(); }
   private controlsSnapshot(): ReviewControls { return { ...this.controls }; }
   private exchange(id: number): Exchange { return this.exchanges().find(exchange => exchange.id === id)!; }
+  private startTopologyOperation(): string | null {
+    const id = this.currentDialogId();
+    if (!id || this.loading() || this.topologyBusy()) return null;
+    ++this.topologyRequestGeneration; this.topologyBusy.set(true); this.topologyError.set('');
+    return id;
+  }
+  private isCurrentTopologyOperation(dialogId: string, operation: number): boolean {
+    return this.currentDialogId() === dialogId && this.topologyRequestGeneration === operation;
+  }
+  private finishTopologyOperation(dialogId: string, operation: number): void {
+    if (this.isCurrentTopologyOperation(dialogId, operation)) this.topologyBusy.set(false);
+  }
+  private failTopologyOperation(dialogId: string, operation: number, message: string): void {
+    if (!this.isCurrentTopologyOperation(dialogId, operation)) return;
+    this.topologyBusy.set(false); this.topologyError.set(message);
+  }
+  private exchangesFromHistory(branch: AgentBranch): readonly Exchange[] {
+    const turns = branch.history.filter(message => message.role !== 'system');
+    const exchanges: Exchange[] = [];
+    for (let index = 0; index + 1 < turns.length; index += 2) {
+      const user = turns[index]; const assistant = turns[index + 1];
+      if (user.role !== 'user' || assistant.role !== 'assistant') break;
+      exchanges.push({ id: -(index + 1), input: user.content, mode: 'AGENT', branchId: branch.id,
+        free: { loading: false, analysis: assistant.content } });
+    }
+    return exchanges;
+  }
   private requestScrollToLatest(): void { requestAnimationFrame(() => { if (this.shouldFollowLatest) this.scrollToLatest(); }); }
   private isNearBottom(): boolean { const element = this.conversation?.nativeElement; return !element || element.scrollHeight - element.scrollTop - element.clientHeight < 120; }
   private resetComposerHeight(): void { const textarea = this.composerInput?.nativeElement; if (textarea) textarea.style.height = 'auto'; }

@@ -12,7 +12,7 @@
 
 Проверено автоматически:
 
-- `mvn -q test` — 87 backend tests PASS.
+- Independent Week 2 review (`mvn test`, Java 21) — 89/89 backend tests PASS.
 - `npm test -- --watch=false --no-progress` — 20/20 frontend tests PASS.
 - `npm run build` — PASS; сохранены существующие budget warnings для initial bundle и `app.scss`.
 
@@ -53,3 +53,35 @@ controls. Console errors отсутствовали; остался non-blocking
 id/name.
 Evidence: ignored `docs/local/agent-sessions/day10-acceptance/`. Первый Java 17 launcher failure был до
 provider call; повторный старт с Java 21 прошёл. Product code не изменялся во время acceptance.
+
+## Post-independent-review corrections — 2026-09-12
+
+Day 10 уже committed в `f2db8634453182de927f21412fd069b8e33b8297`; прежняя отметка `uncommitted`
+и число 87 backend tests устарели. Исправления по independent review держатся отдельными
+unstaged changes до targeted re-acceptance. Day 9 FULL/SUMMARY real benchmark намеренно не
+повторялся: historical metrics сохранены, однако raw provider artifact для него недоступен.
+
+Проверки post-review fixes (без real provider/browser):
+
+- `JAVA_HOME=C:\Program Files\Java\jdk-21; mvn test` — 96/96 backend tests PASS.
+- Node `22.22.3`: `ng test --watch=false` (эквивалент `npm test -- --watch=false`) — 22/22 PASS.
+- Node `22.22.3`: `npm run build` — PASS; только существующие budget warnings для initial bundle и `app.scss`.
+
+## Targeted post-review real re-acceptance — 2026-09-12
+
+Реальный desktop run на 1440×1000 закрыт PASS без product-code changes. Первое наблюдение о якобы
+зависшем branch UI классифицировано как `TEST/ACCEPTANCE_ENVIRONMENT_ISSUE`: точный UI
+`POST /api/dialogs/{id}/agent/messages` оставался pending 4.042 s, затем вернул HTTP 200 с provider
+usage и разблокировал checkpoint action; старый local harness пытался нажать checkpoint через 3 s.
+
+Две sibling branches от общего checkpoint получили PostgreSQL и ClickHouse соответственно. UI
+показал изолированную visible history при A → B → A, branch requests передавали `branchId` и `FULL`,
+а linear mode восстановил ранее выбранный `STICKY_FACTS`. После реального backend restart/reload UI
+загрузил оба persisted checkpoint и обе ветки. Explicit selection orphan checkpoint создал branch с
+этим, а не inferred, `checkpointId`. Persisted linear history не содержала ClickHouse continuation.
+
+Дополнительный provider accounting: 7 calls, без retry — diagnostic MAIN (1), ошибочная первая
+версия local CDP harness: STICKY_FACTS maintenance (3) + MAIN (1), branch MAIN (2). Это local
+acceptance harness error, а не product regression. Browser console содержала только Vite/Angular
+development messages; application errors и UI alerts не наблюдались. Raw evidence — ignored
+`docs/local/agent-sessions/day10-post-review-acceptance/`.

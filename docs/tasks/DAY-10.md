@@ -1,6 +1,8 @@
 # Day 10 — context-management comparison
 
-Статус: **ACCEPTED — automated and controlled real acceptance PASS; uncommitted**. Branch: `day_10` от
+Статус: **ORIGINAL DAY 10 COMMIT FOLLOWED BY ACCEPTED POST-REVIEW REMEDIATION**. Branch: `day_10`;
+original feature commit `f2db8634453182de927f21412fd069b8e33b8297`
+(`feat: add context management strategies`) от
 Day 9 documentation checkpoint `314c57e`.
 
 ## OFFICIAL REQUIREMENT
@@ -53,7 +55,7 @@ npm test -- --watch=false --no-progress
 npm run build
 ```
 
-Backend: 87 tests PASS. Frontend: 20/20 PASS. Frontend build PASS с существующими budget
+Independent review: backend 89/89 PASS. Historical Day 10 frontend: 20/20 PASS. Frontend build PASS с существующими budget
 warnings для initial bundle и `app.scss`. Реальные provider calls и browser acceptance описаны ниже.
 
 ## CONTROLLED REAL ACCEPTANCE — 2026-09-11
@@ -96,3 +98,25 @@ non-blocking issue о двух form fields без id/name. Raw evidence сохр
 Наблюдённая инфраструктурная ошибка до acceptance: первый launcher унаследовал Java 17 при
 class files Java 21 и завершился без provider call; после запуска с Java 21 backend стартовал.
 Provider retries и product-code changes не потребовались.
+
+## TARGETED POST-REVIEW REAL RE-ACCEPTANCE — 2026-09-12
+
+Проверены только исправленные review-семантики. Sticky Facts success/restart и maintenance context-limit
+PASS; deterministic injected failures derived-store/main-stage и stale topology race остаются
+AUTOMATED_TEST_EVIDENCE_ONLY, как и было разрешено для безопасно невоспроизводимых injection paths.
+
+Первоначальный blocker branch UI не подтвердил product defect. Один новый desktop request
+`POST /api/dialogs/{id}/agent/messages` с `FULL` был pending 4.042 s, затем получил HTTP 200 с provider
+usage; checkpoint button разблокировался. Предыдущий local harness нажимал checkpoint через 3 s, то есть
+до завершения provider call. Это `TEST/ACCEPTANCE_ENVIRONMENT_ISSUE`, не frontend loading-state bug.
+
+На desktop 1440×1000 две ветки от общего checkpoint показали только свои markers PostgreSQL и
+ClickHouse при A → B → A; branch requests использовали explicit `branchId` и `FULL`. В linear mode
+возврат восстановил `STICKY_FACTS`. После реального restart/reload UI заново загрузил оба checkpoint
+и обе ветки; orphan checkpoint был выбран явно и новая ветка получила именно его `checkpointId`.
+Persisted linear history не содержала ClickHouse branch continuation.
+
+Дополнительно выполнены 7 provider calls без retry: 1 diagnostic MAIN; 1 unintended local
+STICKY_FACTS MAIN + 3 maintenance calls из ошибочной первой версии local harness; 2 branch MAIN calls.
+Raw evidence (без credentials) — ignored
+`docs/local/agent-sessions/day10-post-review-acceptance/`. Product code during acceptance не менялся.

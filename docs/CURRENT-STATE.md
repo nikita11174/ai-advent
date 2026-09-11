@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Day 10 accepted; automated and controlled real acceptance PASS; uncommitted |
-| Current branch | `day_10` from Day 9 documentation checkpoint `314c57e`; `developer` remains untouched until the whole week is complete and reviewed |
+| Current milestone | Day 10 committed; post-independent-review fixes verified automatically and targeted real re-acceptance PASS |
+| Current branch | `day_10`; original Day 10 feature commit `f2db8634453182de927f21412fd069b8e33b8297` (`feat: add context management strategies`) followed by accepted post-review remediation; `developer` remains untouched |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 backend 87/frontend 20 tests and builds PASS; 9 real provider calls and desktop acceptance PASS |
-| Next action | Owner-authorized Day 10 commit; no push/merge yet |
+| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 committed; independent review ran 89/89 backend tests and post-review suite 96/96; 9 historical and 7 targeted-re-acceptance real provider calls; desktop 1440×1000 acceptance PASS |
+| Next action | Owner may make the post-review commit decision; no further provider or browser run is required |
 
 ## Challenge days
 
@@ -29,7 +29,7 @@
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | DONE (`e0085941`) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
 | Day 9 | DONE (`4597f3b`) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
-| Day 10 | ACCEPTED (uncommitted) | Backend 87 / frontend 20 tests and builds PASS; 9 real provider calls; controlled linear, branching/restart and desktop 1440×1000 acceptance PASS | READY FOR OWNER COMMIT |
+| Day 10 | DONE (`f2db863`) | Independent review: backend 89/89; post-review backend 96/96, frontend 22/22 and build PASS; targeted real re-acceptance PASS | READY FOR POST-REVIEW COMMIT DECISION |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
@@ -58,12 +58,19 @@ experiments; they are not restructured into the agent flow.
 Day 10 implementation: Sliding Window and Sticky Facts are linear context projections; Branching
 is separate topology with immutable checkpoints and explicit branch IDs. Sticky facts are persisted
 separately from `AgentHistoryStore`; stale or missing facts are rebuilt from canonical user
-messages. Backend 87 tests, frontend 20 tests and frontend build PASS with existing budget warnings.
+messages. The independent review ran 89/89 backend tests; the historical Day 10 frontend suite was
+20/20 and its build passed with existing budget warnings. The Day 9 real FULL/SUMMARY benchmark
+evidence remains historical; its missing raw artifact is documented and is not recreated with new provider calls.
 Controlled real acceptance used exactly 9 successful provider calls, without retries: Sliding lost
 all four early facts at N=2; Sticky used 3 maintenance calls, retained all four facts and persisted
 coverage=3 (total Sticky provider work 896); Branching restored
 two isolated continuations after restart (PostgreSQL / ClickHouse). Desktop UI acceptance passed
-at 1440×1000. Detailed raw evidence remains ignored under `docs/local/agent-sessions/day10-acceptance/`.
+at 1440×1000. Post-review targeted re-acceptance also passed: one initially observed UI wait was a
+test-harness timing error (checkpoint clicked at 3 s while a 4.042 s provider request was still pending),
+not a product loading-state defect. A real restart reloaded two persisted checkpoints, including an
+explicitly selected orphan checkpoint, and created its branch from that selected checkpoint. Seven
+additional provider calls were made without retries; raw evidence remains ignored under
+`docs/local/agent-sessions/day10-post-review-acceptance/`.
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
 `docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,

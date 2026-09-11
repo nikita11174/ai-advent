@@ -39,6 +39,11 @@ class AgentBranchController {
         return agents.branches(id);
     }
 
+    @GetMapping("/checkpoints")
+    List<AgentBranchStore.Checkpoint> checkpoints(@PathVariable UUID id) throws IOException {
+        return agents.checkpoints(id);
+    }
+
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     ReviewController.ApiError dialogNotFound(DialogStore.DialogNotFoundException exception) {

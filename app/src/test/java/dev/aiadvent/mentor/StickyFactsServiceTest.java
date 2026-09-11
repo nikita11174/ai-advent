@@ -36,4 +36,16 @@ class StickyFactsServiceTest {
         assertThrows(DeepSeekException.class, () -> service.update(StickyFacts.empty(), "input",
                 AgentConfig.defaults(), 1));
     }
+
+    @Test
+    void rejectsAnOverLimitExtractionPromptBeforeCallingTheProvider() {
+        DeepSeekClient client = mock(DeepSeekClient.class);
+        var service = new StickyFactsService(client, new ApproximateTokenEstimator(),
+                new ObjectMapper().findAndRegisterModules());
+
+        assertThrows(EngineeringReviewAgent.ContextLimitExceededException.class,
+                () -> service.update(StickyFacts.empty(), "input", new AgentConfig("model", "system", null, null, 1), 1));
+
+        verifyNoInteractions(client);
+    }
 }

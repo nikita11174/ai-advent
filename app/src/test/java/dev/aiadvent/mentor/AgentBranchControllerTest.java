@@ -34,6 +34,7 @@ class AgentBranchControllerTest {
         when(agents.createCheckpoint(eq(dialogId), eq(null))).thenReturn(checkpoint);
         when(agents.createBranch(dialogId, checkpoint.id())).thenReturn(branch);
         when(agents.branches(dialogId)).thenReturn(List.of(branch));
+        when(agents.checkpoints(dialogId)).thenReturn(List.of(checkpoint));
 
         mvc.perform(post("/api/dialogs/{id}/agent/checkpoints", dialogId).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.id").value("checkpoint"));
@@ -42,6 +43,8 @@ class AgentBranchControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.id").value("branch"));
         mvc.perform(get("/api/dialogs/{id}/agent/branches", dialogId))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].checkpointId").value("checkpoint"));
+        mvc.perform(get("/api/dialogs/{id}/agent/checkpoints", dialogId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value("checkpoint"));
     }
 
     @Test

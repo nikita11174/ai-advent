@@ -17,6 +17,8 @@ interface TestApp {
   recentMessageCount: number;
   branchId: string | null;
   checkpointId: string | null;
+  topologyError(): string;
+  selectLinearContextMode(mode: 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS'): void;
   selectAgent(): void;
   createCheckpoint(): void;
   createBranch(): void;
@@ -72,9 +74,13 @@ describe('App', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => http.verify({ ignoreCancelled: true }));
 
   function flushSave(): void { http.expectOne(request => request.url.startsWith('/api/dialogs/')).flush(dialog()); }
+  function flushTopology(id = dialog().id, branches: unknown[] = [], checkpoints: unknown[] = []): void {
+    http.expectOne(`/api/dialogs/${id}/agent/branches`).flush(branches);
+    http.expectOne(`/api/dialogs/${id}/agent/checkpoints`).flush(checkpoints);
+  }
 
   it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {
     const a = dialog().id;
@@ -82,7 +88,7 @@ describe('App', () => {
     const agentButton = [...fixture.nativeElement.querySelectorAll('.experiment-selector button')]
       .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Агент') as HTMLButtonElement;
     agentButton.click(); fixture.detectChanges();
-    http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([]);
+    flushTopology(a);
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
     expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
@@ -129,7 +135,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('fact A');
 
     component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
-    http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([]);
+    flushTopology(a);
     fixture.detectChanges();
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.textContent).toContain('fact A');
@@ -188,7 +194,7 @@ describe('App', () => {
     request.flush({ analysis: 'facts answer', metrics: { currentRequestTokens: 1, contextTokens: 7, responseTokens: 2 },
       summaryMetrics: null, factsMetrics: [{ currentRequestTokens: 2, contextTokens: 4, responseTokens: 3 }],
       contextMetadata: { mode: 'STICKY_FACTS', recentMessageCount: 3, summary: null, summarizedMessageCount: 0,
-        facts: { project: 'Helios' } } });
+        facts: { coveredUserMessageCount: 2, facts: { project: 'Helios' } } } });
     flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('STICKY_FACTS');
     expect(fixture.nativeElement.textContent).toContain('Sticky facts maintenance');
@@ -213,6 +219,51 @@ describe('App', () => {
     component.switchBranch(null);
     const switchSave = http.expectOne(r => r.method === 'PUT'); switchSave.flush(dialog());
     expect(component.branchId).toBeNull();
+  });
+
+  it('renders only the selected branch projection and restores the linear strategy', () => {
+    const id = dialog().id;
+    component.selectAgent();
+    flushTopology(id, [
+      { id: 'branch-a', checkpointId: 'checkpoint-a', history: [
+        { role: 'system', content: 'instruction' }, { role: 'user', content: 'PostgreSQL' }, { role: 'assistant', content: 'answer A' }] },
+      { id: 'branch-b', checkpointId: 'checkpoint-b', history: [
+        { role: 'system', content: 'instruction' }, { role: 'user', content: 'ClickHouse' }, { role: 'assistant', content: 'answer B' }] },
+    ], [
+      { id: 'checkpoint-a', baseHistory: [{ role: 'system', content: 'instruction' }], branches: [] },
+      { id: 'checkpoint-b', baseHistory: [{ role: 'system', content: 'instruction' }], branches: [] },
+    ]);
+    component.selectLinearContextMode('STICKY_FACTS');
+    const strategySave = http.expectOne(r => r.method === 'PUT'); strategySave.flush(dialog());
+    component.switchBranch('branch-a');
+    const branchSave = http.expectOne(r => r.method === 'PUT'); branchSave.flush(dialog()); fixture.detectChanges();
+    expect(component.contextMode).toBe('FULL');
+    expect(fixture.nativeElement.textContent).toContain('PostgreSQL');
+    expect(fixture.nativeElement.textContent).not.toContain('ClickHouse');
+    component.switchBranch('branch-b');
+    const siblingSave = http.expectOne(r => r.method === 'PUT'); siblingSave.flush(dialog()); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('ClickHouse');
+    expect(fixture.nativeElement.textContent).not.toContain('PostgreSQL');
+    component.switchBranch(null);
+    const linearSave = http.expectOne(r => r.method === 'PUT'); linearSave.flush(dialog());
+    expect(component.contextMode).toBe('STICKY_FACTS');
+  });
+
+  it('ignores stale topology after a dialog switch and renders a topology loading error', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.selectAgent();
+    component.openDialog(b);
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], { experiment: 'AGENT', selectedMode: 'FREE',
+      selectedStrategy: 'DIRECT', selectedTemperature: 0 }));
+    http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([{ id: 'old-branch', checkpointId: 'old', history: [] }]);
+    http.expectOne(`/api/dialogs/${a}/agent/checkpoints`).flush([{ id: 'old', baseHistory: [], branches: [] }]);
+    flushTopology(b);
+    expect(component.branchId).toBeNull();
+
+    component.selectAgent();
+    http.expectOne(`/api/dialogs/${b}/agent/branches`).flush({ error: 'unavailable' }, { status: 500, statusText: 'Server Error' });
+    expect(component.topologyError()).toContain('Не удалось загрузить topology');
   });
 
   it('selects the model experiment and sends only the selected model and exact input', () => {

@@ -276,7 +276,7 @@ class EngineeringReviewAgentTest {
     }
 
     @Test
-    void summarySaveFailureLeavesRawHistoryUnchangedAndSkipsMainProvider() throws Exception {
+    void summarySaveFailureAfterCanonicalCommitReturnsTheCommittedTurn() throws Exception {
         AgentConfig config = AgentConfig.defaults();
         UUID id = UUID.randomUUID();
         var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
@@ -290,11 +290,11 @@ class EngineeringReviewAgentTest {
                 new ApproximateTokenEstimator(), summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                 new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
 
-        assertThrows(IOException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
-        verifyNoInteractions(client);
-        verify(histories, never()).save(any(), anyList());
-        assertEquals(3, context.snapshot().size());
+        assertEquals("answer", agent.reply("u2", ContextMode.SUMMARY_RECENT, 1).analysis());
+        verify(histories).save(eq(id), anyList());
+        assertEquals(5, context.snapshot().size());
     }
 
     @Test
@@ -376,14 +376,16 @@ class EngineeringReviewAgentTest {
                 .thenThrow(new DeepSeekException("main unavailable"));
         var agent = agent(id, config);
 
-        assertThrows(DeepSeekException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+        var failure = assertThrows(EngineeringReviewAgent.MaintenanceMetricsException.class,
+                () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
 
+        assertEquals(1, failure.factsMetrics().size());
         verify(histories, never()).save(any(), anyList());
         verify(factsStore, never()).save(any(), any());
     }
 
     @Test
-    void stickyFactsStorageFailureLeavesRawStateRecoverable() throws Exception {
+    void stickyFactsStorageFailureAfterCanonicalCommitReturnsTheCommittedTurn() throws Exception {
         AgentConfig config = AgentConfig.defaults();
         UUID id = UUID.randomUUID();
         StickyFacts candidate = new StickyFacts(1, java.util.Map.of("project", "Helios"));
@@ -398,10 +400,93 @@ class EngineeringReviewAgentTest {
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
                 new StickyFactsContextPolicy(), branches, null);
 
-        assertThrows(IOException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+        assertEquals("answer", agent.reply("pending", ContextMode.STICKY_FACTS, 2).analysis());
 
         verify(histories).save(eq(id), anyList());
         assertEquals(3, context.snapshot().size());
+    }
+
+    @Test
+    void summaryCandidateIsNotPersistedWhenTheLaterMainCallFails() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")));
+        when(summaries.load(id)).thenReturn(java.util.Optional.empty());
+        when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary"), new TokenMetrics(1, 2, 3, null)));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenThrow(new DeepSeekException("main unavailable"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
+
+        var failure = assertThrows(EngineeringReviewAgent.MaintenanceMetricsException.class,
+                () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+
+        assertNotNull(failure.summaryMetrics());
+        verify(summaries, never()).save(any(), any());
+        verify(histories, never()).save(any(), anyList());
+    }
+
+    @Test
+    void summaryCandidateIsNotPersistedWhenTheMainContextOverflows() throws Exception {
+        AgentConfig config = new AgentConfig("model", "system", null, null, 10);
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", "system"),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")));
+        when(summaries.load(id)).thenReturn(java.util.Optional.empty());
+        when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary"), new TokenMetrics(1, 2, 3, null)));
+        var estimator = mock(ApproximateTokenEstimator.class);
+        when(estimator.estimateMessagesWithinLimit(anyList(), eq(10)))
+                .thenThrow(new EngineeringReviewAgent.ContextLimitExceededException(11, 10));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories, estimator, summaries, summaryService,
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
+
+        var failure = assertThrows(EngineeringReviewAgent.MaintenanceMetricsException.class,
+                () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+
+        assertNotNull(failure.summaryMetrics());
+        verify(summaries, never()).save(any(), any());
+        verify(histories, never()).save(any(), anyList());
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void factsCandidateIsNotPersistedWhenTheMainContextOverflows() throws Exception {
+        AgentConfig config = new AgentConfig("model", "system", null, null, 10);
+        UUID id = UUID.randomUUID();
+        StickyFacts candidate = new StickyFacts(1, java.util.Map.of("project", "Helios"));
+        when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
+        when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
+                .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
+        var estimator = mock(ApproximateTokenEstimator.class);
+        when(estimator.estimateMessagesWithinLimit(anyList(), eq(10)))
+                .thenThrow(new EngineeringReviewAgent.ContextLimitExceededException(11, 10));
+        var agent = new EngineeringReviewAgent(id, config, new ConversationContext("system"), client, histories, estimator,
+                summaries, summaryService, factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
+
+        var failure = assertThrows(EngineeringReviewAgent.MaintenanceMetricsException.class,
+                () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+
+        assertEquals(1, failure.factsMetrics().size());
+        verify(factsStore, never()).save(any(), any());
+        verify(histories, never()).save(any(), anyList());
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void rejectsAnOverLimitSummaryPromptBeforeCallingTheProvider() {
+        var service = new ConversationSummaryService(client, new ApproximateTokenEstimator());
+
+        assertThrows(EngineeringReviewAgent.ContextLimitExceededException.class,
+                () -> service.generate(List.of(new ConversationContext.Message("user", "input")), null,
+                        new AgentConfig("model", "system", null, null, 1), 1));
+
+        verifyNoInteractions(client);
     }
 
     @Test
