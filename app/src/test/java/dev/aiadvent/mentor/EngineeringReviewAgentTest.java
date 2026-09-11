@@ -3,7 +3,9 @@ package dev.aiadvent.mentor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -14,13 +16,13 @@ import static org.mockito.Mockito.*;
 
 class EngineeringReviewAgentTest {
     private final DeepSeekClient client = mock(DeepSeekClient.class);
+    private final AgentHistoryStore histories = mock(AgentHistoryStore.class);
 
     @Test
-    void sendsTheWholeConversationAndKeepsRequestSnapshotsImmutable() throws Exception {
+    void sendsTheWholeConversationAndPersistsCompletedSnapshots() throws Exception {
         AgentConfig config = AgentConfig.defaults();
-        var agent = new EngineeringReviewAgent(config, client);
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
-                .thenReturn("answer1", "answer2", "answer3");
+        var agent = agent(UUID.randomUUID(), config);
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn("answer1", "answer2", "answer3");
 
         assertEquals("answer1", agent.reply(" user1\n"));
         assertEquals("answer2", agent.reply("user2"));
@@ -29,26 +31,24 @@ class EngineeringReviewAgentTest {
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(3)).complete(messages.capture(), eq(config.model()), isNull(), isNull());
         var system = new ConversationContext.Message("system", config.systemPrompt());
-        assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n")),
-                messages.getAllValues().get(0));
+        assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n")), messages.getAllValues().get(0));
         assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n"),
-                new ConversationContext.Message("assistant", "answer1"),
-                new ConversationContext.Message("user", "user2")), messages.getAllValues().get(1));
+                new ConversationContext.Message("assistant", "answer1"), new ConversationContext.Message("user", "user2")),
+                messages.getAllValues().get(1));
         assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n"),
-                new ConversationContext.Message("assistant", "answer1"),
-                new ConversationContext.Message("user", "user2"),
-                new ConversationContext.Message("assistant", "answer2"),
-                new ConversationContext.Message("user", "user3")), messages.getAllValues().get(2));
+                new ConversationContext.Message("assistant", "answer1"), new ConversationContext.Message("user", "user2"),
+                new ConversationContext.Message("assistant", "answer2"), new ConversationContext.Message("user", "user3")),
+                messages.getAllValues().get(2));
         assertThrows(UnsupportedOperationException.class, () -> messages.getValue().clear());
+        verify(histories, times(3)).save(any(), anyList());
     }
 
     @Test
-    void providerFailureLeavesHistoryUnchangedAndDoesNotRetry() throws Exception {
+    void providerFailureLeavesRuntimeAndPersistedHistoryUnchanged() throws Exception {
         AgentConfig config = AgentConfig.defaults();
-        var agent = new EngineeringReviewAgent(config, client);
+        var agent = agent(UUID.randomUUID(), config);
         when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn("answer1").thenThrow(new DeepSeekException("Unavailable"))
-                .thenReturn("answer2");
+                .thenReturn("answer1").thenThrow(new DeepSeekException("Unavailable")).thenReturn("answer2");
 
         agent.reply("user1");
         assertThrows(DeepSeekException.class, () -> agent.reply("failed input"));
@@ -57,15 +57,34 @@ class EngineeringReviewAgentTest {
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
         assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
-                new ConversationContext.Message("user", "user1"),
-                new ConversationContext.Message("assistant", "answer1"),
+                new ConversationContext.Message("user", "user1"), new ConversationContext.Message("assistant", "answer1"),
+                new ConversationContext.Message("user", "user2")), messages.getValue());
+        verify(histories, times(2)).save(any(), anyList());
+    }
+
+    @Test
+    void saveFailureDoesNotAdvanceRuntimeHistory() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var agent = agent(id, config);
+        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn("answer1", "lost answer", "answer2");
+        doNothing().doThrow(new IOException("storage unavailable")).doNothing().when(histories).save(eq(id), anyList());
+
+        agent.reply("user1");
+        assertThrows(IOException.class, () -> agent.reply("not saved"));
+        assertEquals("answer2", agent.reply("user2"));
+
+        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
+        verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
+        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "user1"), new ConversationContext.Message("assistant", "answer1"),
                 new ConversationContext.Message("user", "user2")), messages.getValue());
     }
 
     @Test
     void agentsUseTheirOwnConfiguration() throws Exception {
-        var first = new EngineeringReviewAgent(new AgentConfig("model-a", "instruction A", 0.0, 450), client);
-        var second = new EngineeringReviewAgent(new AgentConfig("model-b", "instruction B", 1.2, 900), client);
+        var first = agent(UUID.randomUUID(), new AgentConfig("model-a", "instruction A", 0.0, 450));
+        var second = agent(UUID.randomUUID(), new AgentConfig("model-b", "instruction B", 1.2, 900));
         when(client.complete(anyList(), anyString(), anyDouble(), anyInt())).thenReturn("answer");
 
         first.reply("A");
@@ -79,8 +98,8 @@ class EngineeringReviewAgentTest {
 
     @Test
     void rejectsAnOverlappingTurnButAllowsAnotherAgentAndReleasesTheLock() throws Exception {
-        var first = new EngineeringReviewAgent(AgentConfig.defaults(), client);
-        var second = new EngineeringReviewAgent(AgentConfig.defaults(), client);
+        var first = agent(UUID.randomUUID(), AgentConfig.defaults());
+        var second = agent(UUID.randomUUID(), AgentConfig.defaults());
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
@@ -105,14 +124,13 @@ class EngineeringReviewAgentTest {
         first.reply("A2");
         verify(client, times(3)).complete(anyList(), anyString(), isNull(), isNull());
         verify(client).complete(List.of(new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
-                new ConversationContext.Message("user", "A1"),
-                new ConversationContext.Message("assistant", "answer"),
+                new ConversationContext.Message("user", "A1"), new ConversationContext.Message("assistant", "answer"),
                 new ConversationContext.Message("user", "A2")), AgentConfig.defaults().model(), null, null);
     }
 
     @Test
     void rejectsInvalidInputAndConfigurationWithoutCallingProvider() {
-        var agent = new EngineeringReviewAgent(AgentConfig.defaults(), client);
+        var agent = agent(UUID.randomUUID(), AgentConfig.defaults());
         assertThrows(IllegalArgumentException.class, () -> agent.reply(null));
         assertThrows(IllegalArgumentException.class, () -> agent.reply(" \n"));
         assertThrows(IllegalArgumentException.class, () -> new AgentConfig("", "system", null, null));
@@ -120,6 +138,10 @@ class EngineeringReviewAgentTest {
         assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", Double.NaN, null));
         assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 99));
         assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 2001));
-        verifyNoInteractions(client);
+        verifyNoInteractions(client, histories);
+    }
+
+    private EngineeringReviewAgent agent(UUID id, AgentConfig config) {
+        return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories);
     }
 }

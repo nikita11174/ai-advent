@@ -28,6 +28,8 @@ class AgentControllerTest {
     private DialogStore store;
     @MockitoBean
     private DeepSeekClient client;
+    @MockitoBean
+    private AgentHistoryStore histories;
 
     @Test
     void returnsAnalysisAndRejectsAnOverlappingRequest() throws Exception {

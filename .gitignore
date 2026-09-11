@@ -9,5 +9,6 @@ logs/
 tmp/
 .tmp.driveupload/
 docs/local/mentor-dialogs/
+docs/local/agent-histories/
 docs/local/agent-sessions/
 docs/local/screenshots/

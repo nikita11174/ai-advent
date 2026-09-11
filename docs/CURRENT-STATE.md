@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Day 6 — TECHNICALLY COMPLETE at `2966cbe`; Day 7 planning APPROVED; implementation not started |
+| Current milestone | Day 6 — TECHNICALLY COMPLETE at `2966cbe`; Day 7 — TECHNICALLY COMPLETE; real restart/provider persistence PASS |
 | Current branch | `day_7` from `c0d7363`; `developer` remains untouched until the whole week is complete and reviewed |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 6 committed; backend 58 / frontend 17 tests and builds PASS; real API and desktop UI PASS; 5 total real provider calls |
-| Next action | Implement Day 7 durable raw agent memory from `docs/tasks/DAY-07.md` |
+| Status | Days 1–5 published/integrated; Day 6 committed; Day 7 backend 62 tests and real restart/provider persistence PASS |
+| Next action | Review and commit the completed Day 7 checkpoint before starting Day 8 |
 
 ## Challenge days
 
@@ -26,7 +26,7 @@
 | Day 4 | DONE | Technical verification DONE; UX/responsive owner acceptance DONE; temperature recording demo executed | day_4 PUBLISHED; saved/uploaded video not confirmed |
 | Day 5 | DONE (`951e65c`) | Backend 46 / frontend 15 tests + builds PASS; OpenAI access VERIFIED; experiment ACCEPTED — 7 completed / 9 attempts; browser replay/refresh PASS | Quality OWNER APPROVED; report and day_5 PUBLISHED; organizer submission not confirmed |
 | Day 6 | DONE (`2966cbe`) | Backend 58 / frontend 17 tests + builds PASS; real API and UI 1440×1000 PASS; 5 total real provider calls; TECHNICALLY COMPLETE; video postponed by owner | NOT PUBLISHED |
-| Day 7 | PLANNED | Durable full raw agent memory after restart | NOT STARTED |
+| Day 7 | DONE (uncommitted) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | PLANNED | Token/context observability and overflow demonstration | NOT STARTED |
 | Day 9 | PLANNED | Full versus summary + recent context comparison | NOT STARTED |
 | Day 10 | PLANNED | Sliding Window, Sticky Facts and Branching comparison | NOT STARTED |
@@ -34,7 +34,8 @@
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
 whole conversation per turn, success-only commit and per-agent tryLock. Fresh backend/service clears
-LLM memory. Existing UI JSON archive does not restore agent context. Day 7 implementation has not started.
+LLM memory. Day 7 persists the full raw stack separately under `docs/local/agent-histories/`; existing
+UI JSON archive remains separate. Automated tests and real restart/provider persistence verification pass.
 Commit `2966cbe` contains the Day 6 feature. Real API and desktop UI verification PASS; total 5
 real provider calls. Video is postponed by owner. Frontend build passed with existing app.scss budget warning.
 

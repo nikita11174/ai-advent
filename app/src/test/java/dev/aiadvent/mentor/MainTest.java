@@ -9,6 +9,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -51,7 +52,9 @@ class MainTest {
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(response);
         var transport = spy(new DeepSeekClient(http, JSON, "test-key"));
-        var agent = new EngineeringReviewAgent(AgentConfig.defaults(), transport);
+        var histories = mock(AgentHistoryStore.class);
+        var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
+                new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories);
 
         assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
         assertEquals("answer", agent.reply("next"));
@@ -59,6 +62,7 @@ class MainTest {
         verify(transport).complete(List.of(
                 new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
                 new ConversationContext.Message("user", "next")), "deepseek-v4-flash", null, null);
+        verify(histories).save(any(), anyList());
         verify(http, times(2)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
     }
 
