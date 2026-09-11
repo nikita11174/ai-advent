@@ -86,3 +86,18 @@ prompt/final report — ignored `docs/local/agent-sessions/`, когда он д
   base задаётся текущим task/owner decision и проверяется до создания.
 
 Текущая branch/state информация хранится только в `docs/CURRENT-STATE.md`.
+
+## Agent memory roadmap
+
+Для Days 6–10 различать три уровня: **memory** — canonical conversation state приложения;
+**context** — представление, построенное из memory для одного LLM call; **metrics** — наблюдения
+о request/context/response tokens.
+
+Day 6 владеет runtime raw memory. Day 7 сохраняет и восстанавливает полный raw stack. Day 8
+измеряет полный context, но не сокращает его. Day 9 впервые строит context из memory и сравнивает
+full history с summary + latest N; summary не заменяет raw memory. Day 10 сравнивает Sliding
+Window, Sticky Facts / Key-Value Memory и Branching; branching является topology с checkpoint,
+двумя независимыми continuations и switching, поэтому не обязана совпадать с линейными policies.
+
+Новая context-policy abstraction появляется только при нескольких реальных context-building
+поведениях, не раньше Day 9. Days 1–5 остаются самостоятельными experiments/features.

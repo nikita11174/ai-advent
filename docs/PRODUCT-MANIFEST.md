@@ -54,6 +54,12 @@ Challenge acceptance criteria
 approaches — улучшить поиск проблем. Review agent, repository context через MCP и база heuristics
 через RAG появляются только тогда, когда этого требует соответствующий Day.
 
+Для Week 2 agent evolution сохраняется различие: conversation **memory** — canonical raw state,
+**context** — selected representation for one LLM call, **metrics** — token observations. Durable
+raw memory предшествует context compression: summary, sliding window и facts не должны уничтожать
+source history. Несколько context approaches оправдывают общий policy boundary только когда они
+фактически появляются; branching может требовать отдельной topology model.
+
 ## Decision order
 
 При выборе реализации соблюдать порядок:

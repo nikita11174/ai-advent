@@ -24,12 +24,20 @@
 
 ## Current task
 
-**Day 6 TECHNICALLY COMPLETE**: commit `2966cbe2fec86aceefe42af701cd39b3b4bdc9d1` на `day_6`.
+**Day 6 TECHNICALLY COMPLETE**: feature commit `2966cbe2fec86aceefe42af701cd39b3b4bdc9d1`,
+documentation checkpoint `c0d736369b7bfc033b59f6ee36ab43af5553b658`.
 Canonical — `docs/tasks/DAY-06.md`, фактический отчёт — `docs/agent-runs/DAY-06.md`.
 Backend 58/58, frontend 17/17 и оба builds PASS.
 Runtime agent per UUID отправляет полный собственный stack; restart очищает память.
 Real API PASS; desktop UI 1440×1000 PASS; всего 5 реальных provider calls. Видео отложено владельцем.
-**Следующая задача — Day 7**: создать `day_7` от завершённой `day_6`; `developer` не merge до завершения/review недели.
+**Текущая задача — Day 7**: `day_7` создана от `c0d7363`; implementation ещё не начат.
+Контракт — `docs/tasks/DAY-07.md`. Сохранить полный raw stack как durable canonical memory;
+не добавлять метрики или context reduction. `developer` не merge до завершения/review недели.
+
+Week 2: Day 8 измеряет request/full-context/response tokens без reduction; Day 9 сравнивает full
+history с summary + latest N, не уничтожая raw memory; Day 10 сравнивает Sliding Window, Sticky
+Facts / Key-Value Memory и Branching. Memory — canonical state, context — представление для одного
+LLM call, metrics — token observations.
 
 **Week 1 / Day 5 финализирован**: implementation DONE, automated PASS, OpenAI access VERIFIED;
 experiment ACCEPTED — 7 completed / 9 attempts, quality OWNER APPROVED. Report и day_1–day_5 опубликованы.
@@ -39,7 +47,8 @@ implementation checkpoint Day 5 `951e65c`. `main` не изменялся.
 Итог — `docs/DAY-05-REPORT.md`; история — `docs/agent-runs/DAY-05.md`; next action — CURRENT-STATE.
 Дополнительные реальные calls/retries Day 5 и Day 6 не требуются.
 Day 1–4 recording demos выполнены; сохранение/загрузка OBS-видео и отправка Day 5 report не подтверждены.
-Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом. Day 7 — следующий task; evidence — последний раздел Day 6 task.
+Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом.
+Day 7 implementation ещё не начат; evidence — последний раздел Day 6 task.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

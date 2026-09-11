@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Day 6 — TECHNICALLY COMPLETE at `2966cbe`; Day 7 NEXT; video postponed by owner |
-| Current branch | `day_6` / `2966cbe`; Day 7 will branch from completed `day_6`; `developer` remains untouched until week review |
+| Current milestone | Day 6 — TECHNICALLY COMPLETE at `2966cbe`; Day 7 planning APPROVED; implementation not started |
+| Current branch | `day_7` from `c0d7363`; `developer` remains untouched until the whole week is complete and reviewed |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
 | Status | Days 1–5 published/integrated; Day 6 committed; backend 58 / frontend 17 tests and builds PASS; real API and desktop UI PASS; 5 total real provider calls |
-| Next action | Day 7: branch from completed `day_6`; keep `developer` untouched until the week is complete/reviewed |
+| Next action | Implement Day 7 durable raw agent memory from `docs/tasks/DAY-07.md` |
 
 ## Challenge days
 
@@ -26,13 +26,32 @@
 | Day 4 | DONE | Technical verification DONE; UX/responsive owner acceptance DONE; temperature recording demo executed | day_4 PUBLISHED; saved/uploaded video not confirmed |
 | Day 5 | DONE (`951e65c`) | Backend 46 / frontend 15 tests + builds PASS; OpenAI access VERIFIED; experiment ACCEPTED — 7 completed / 9 attempts; browser replay/refresh PASS | Quality OWNER APPROVED; report and day_5 PUBLISHED; organizer submission not confirmed |
 | Day 6 | DONE (`2966cbe`) | Backend 58 / frontend 17 tests + builds PASS; real API and UI 1440×1000 PASS; 5 total real provider calls; TECHNICALLY COMPLETE; video postponed by owner | NOT PUBLISHED |
+| Day 7 | PLANNED | Durable full raw agent memory after restart | NOT STARTED |
+| Day 8 | PLANNED | Token/context observability and overflow demonstration | NOT STARTED |
+| Day 9 | PLANNED | Full versus summary + recent context comparison | NOT STARTED |
+| Day 10 | PLANNED | Sliding Window, Sticky Facts and Branching comparison | NOT STARTED |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
 whole conversation per turn, success-only commit and per-agent tryLock. Fresh backend/service clears
-LLM memory. Existing UI JSON archive does not restore agent context. Days 7–9 not implemented.
+LLM memory. Existing UI JSON archive does not restore agent context. Day 7 implementation has not started.
 Commit `2966cbe` contains the Day 6 feature. Real API and desktop UI verification PASS; total 5
 real provider calls. Video is postponed by owner. Frontend build passed with existing app.scss budget warning.
+
+## Week 2 agent roadmap
+
+**Memory** — canonical conversation state retained by the application. **Context** — representation
+selected or built from memory for one LLM call. **Metrics** — observations about request, context
+and response token usage.
+
+Day 6 keeps runtime raw memory. Day 7 makes the complete ordered raw message stack durable. Day 8
+observes the unchanged full context without reducing it. Day 9 first derives context from memory:
+full history versus summary plus latest N messages; raw memory remains canonical. Day 10 compares
+Sliding Window, Sticky Facts / Key-Value Memory and Branching. Branching has checkpointed independent
+continuations and switching, and need not share an abstraction with linear context policies.
+
+Branch progression: `day_6` → `day_7` → `day_8` → `day_9` → `day_10`. Days 1–5 remain separate
+experiments; they are not restructured into the agent flow.
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
 `docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,
