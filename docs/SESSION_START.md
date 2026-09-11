@@ -36,7 +36,7 @@ fresh `AgentDialogService` восстанавливает его, а agent со�
 backend 62 tests PASS. Реальный restart/provider smoke PASS: 3 DeepSeek calls; A2 после нового
 backend process получил «Сатурн» из восстановленного JSON, B1 не получил контекст A. Метрики и context
 reduction не добавлены. `developer` не merge до завершения/review недели.
-**Day 8 TECHNICALLY COMPLETE (uncommitted)**: exact full outbound agent stack получает deterministic local estimates request/context/response; provider usage nullable и отображается отдельно. `contextTokenLimit` проверяется до provider/save/runtime commit и возвращает HTTP 413 без mutation canonical memory. Backend 67 и frontend 17 tests, оба builds PASS. Реальная API-приёмка: 4 planned DeepSeek calls; short request после growth сохранил estimate request `26`, а context вырос с `89` до `3426`; overflow `3510 > 1` дал HTTP 413 без provider call и без изменения JSON; recovery сохранил порядок истории и исключил marker. После восстановления Chrome MCP owner авторизовал пятый вызов для desktop UI 1440×1000: loading, Markdown, local metrics `30 / 93 / 161`, provider usage `68 / 121 / 189`, error state и dialog switching PASS; console только с ожидаемым 413 deliberate-overflow.
+**Day 8 TECHNICALLY COMPLETE** (`e0085941`): exact full outbound agent stack получает deterministic local estimates request/context/response; provider usage nullable и отображается отдельно. `contextTokenLimit` проверяется до provider/save/runtime commit и возвращает HTTP 413 без mutation canonical memory. Backend 67 и frontend 17 tests, оба builds PASS. Реальная API-приёмка: 5 успешных DeepSeek calls; short request после growth сохранил estimate request `26`, а context вырос с `89` до `3426`; overflow `3510 > 1` дал HTTP 413 без provider call и без изменения JSON; recovery сохранил порядок истории и исключил marker. Desktop UI 1440×1000 PASS: loading, Markdown, metrics, error state и dialog switching; console только с ожидаемым 413 deliberate-overflow.
 
 **Day 9 TECHNICALLY COMPLETE — automated and targeted restart/reuse PASS**: `FullContextPolicy` сохраняет
 Day 8 full stack, `SummaryRecentContextPolicy` строит `system + summary + latest N + pending user`;
@@ -47,8 +47,8 @@ Targeted real restart/reuse использовал тот же Dialog B и од�
 DeepSeek call: fresh process загрузил raw history 9 сообщений и persisted summary coverage=4,
 summary generation не выполнялся, outbound содержал summary + latest 4 raw + pending user, history
 выросла до 11 на том же пути, summary hash не изменился. Initial contradictory smoke сохранён как
-локальная фактическая запись; persistence defect не воспроизведён. Следующий шаг — Day 9
-implementation checkpoint; FULL/SUMMARY benchmark повторно не запускать.
+локальная фактическая запись; persistence defect не воспроизведён. Следующий шаг — Day 10 planning;
+FULL/SUMMARY benchmark повторно не запускать.
 
 Week 2: Day 8 измеряет request/full-context/response tokens без reduction; Day 9 сравнивает full
 history с summary + latest N, не уничтожая raw memory; Day 10 сравнивает Sliding Window, Sticky
@@ -64,7 +64,7 @@ implementation checkpoint Day 5 `951e65c`. `main` не изменялся.
 Дополнительные реальные calls/retries Day 5 и Day 6 не требуются.
 Day 1–4 recording demos выполнены; сохранение/загрузка OBS-видео и отправка Day 5 report не подтверждены.
 Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом.
-Следующий шаг — Day 9 implementation checkpoint.
+Следующий шаг — Day 10 planning from completed Day 9.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

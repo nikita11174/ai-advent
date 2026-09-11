@@ -13,8 +13,7 @@ failures/errors). `npm test -- --watch=false --no-progress` PASS (18/18), `npm r
 существующим предупреждением budget для `app.scss`; использован Node 22.22.3. Реальные API calls и
 browser acceptance на момент этой записи не выполнялись.
 
-Следующий шаг: real Day 9 acceptance сравнить FULL и SUMMARY_RECENT на одном длинном диалоге,
-включая main context metrics, отдельную summary-generation стоимость и качество ответа.
+Real Day 9 acceptance и targeted restart/reuse завершены; следующий шаг — Day 10 planning.
 
 ## Targeted real restart/reuse re-acceptance — 2026-09-11 17:33 MSK
 

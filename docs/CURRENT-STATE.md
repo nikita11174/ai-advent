@@ -14,7 +14,7 @@
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
 | Status | Days 1–5 published/integrated; Day 8 committed; Day 9 backend 74/frontend 18 tests and build PASS; targeted real restart/reuse PASS with one provider call; initial contradictory smoke preserved as evidence |
-| Next action | Prepare Day 9 implementation checkpoint; do not rerun the FULL vs SUMMARY benchmark |
+| Next action | Start Day 10 planning from completed Day 9; do not rerun the FULL vs SUMMARY benchmark |
 
 ## Challenge days
 
@@ -27,8 +27,8 @@
 | Day 5 | DONE (`951e65c`) | Backend 46 / frontend 15 tests + builds PASS; OpenAI access VERIFIED; experiment ACCEPTED — 7 completed / 9 attempts; browser replay/refresh PASS | Quality OWNER APPROVED; report and day_5 PUBLISHED; organizer submission not confirmed |
 | Day 6 | DONE (`2966cbe`) | Backend 58 / frontend 17 tests + builds PASS; real API and UI 1440×1000 PASS; 5 total real provider calls; TECHNICALLY COMPLETE; video postponed by owner | NOT PUBLISHED |
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
-| Day 8 | DONE (uncommitted) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
-| Day 9 | IMPLEMENTED (uncommitted) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
+| Day 8 | DONE (`e0085941`) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
+| Day 9 | DONE (`4597f3b`) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
 | Day 10 | PLANNED | Sliding Window, Sticky Facts and Branching comparison | NOT STARTED |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
@@ -71,7 +71,7 @@ normally pushed with owner authorization. `developer` fast-forwarded from `c633e
 `06355effc56d60b4d43b58c7e274b0ec20622337` and pushed; origin/developer matched.
 All five day branch heads are ancestors. `main` untouched at `45c62e11d6c8ff36f64579809e59d30db6b148df`.
 No tests or API calls for publication/integration. Local raw evidence/secrets were not published.
-This documentation update is uncommitted on `day_6`; published day branches keep their historical docs.
+The publication/integration update was recorded on `day_6`; published day branches keep their historical docs.
 
 Day 1–4 Chrome demos ran after explicit START with real DeepSeek responses. OBS was owner-controlled;
 agent cannot confirm recording files, uploaded video links or organizer acceptance from UI execution alone.
