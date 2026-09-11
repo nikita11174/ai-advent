@@ -1,5 +1,5 @@
 package dev.aiadvent.mentor;
 
 record ContextMetadata(ContextMode mode, int recentMessageCount, String summary,
-                       int summarizedMessageCount) {
+                       int summarizedMessageCount, StickyFacts facts) {
 }

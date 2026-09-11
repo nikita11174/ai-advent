@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Day 9 technically complete; automated backend and targeted real restart/reuse verification PASS |
-| Current branch | `day_9` from Day 8 commit `e0085941`; `developer` remains untouched until the whole week is complete and reviewed |
+| Current milestone | Day 10 accepted; automated and controlled real acceptance PASS; uncommitted |
+| Current branch | `day_10` from Day 9 documentation checkpoint `314c57e`; `developer` remains untouched until the whole week is complete and reviewed |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 8 committed; Day 9 backend 74/frontend 18 tests and build PASS; targeted real restart/reuse PASS with one provider call; initial contradictory smoke preserved as evidence |
-| Next action | Start Day 10 planning from completed Day 9; do not rerun the FULL vs SUMMARY benchmark |
+| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 backend 87/frontend 20 tests and builds PASS; 9 real provider calls and desktop acceptance PASS |
+| Next action | Owner-authorized Day 10 commit; no push/merge yet |
 
 ## Challenge days
 
@@ -29,7 +29,7 @@
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | DONE (`e0085941`) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
 | Day 9 | DONE (`4597f3b`) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
-| Day 10 | PLANNED | Sliding Window, Sticky Facts and Branching comparison | NOT STARTED |
+| Day 10 | ACCEPTED (uncommitted) | Backend 87 / frontend 20 tests and builds PASS; 9 real provider calls; controlled linear, branching/restart and desktop 1440×1000 acceptance PASS | READY FOR OWNER COMMIT |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
@@ -54,6 +54,16 @@ continuations and switching, and need not share an abstraction with linear conte
 
 Branch progression: `day_6` → `day_7` → `day_8` → `day_9` → `day_10`. Days 1–5 remain separate
 experiments; they are not restructured into the agent flow.
+
+Day 10 implementation: Sliding Window and Sticky Facts are linear context projections; Branching
+is separate topology with immutable checkpoints and explicit branch IDs. Sticky facts are persisted
+separately from `AgentHistoryStore`; stale or missing facts are rebuilt from canonical user
+messages. Backend 87 tests, frontend 20 tests and frontend build PASS with existing budget warnings.
+Controlled real acceptance used exactly 9 successful provider calls, without retries: Sliding lost
+all four early facts at N=2; Sticky used 3 maintenance calls, retained all four facts and persisted
+coverage=3 (total Sticky provider work 896); Branching restored
+two isolated continuations after restart (PostgreSQL / ClickHouse). Desktop UI acceptance passed
+at 1440×1000. Detailed raw evidence remains ignored under `docs/local/agent-sessions/day10-acceptance/`.
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
 `docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,

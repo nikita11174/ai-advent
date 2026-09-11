@@ -142,11 +142,21 @@
         @if (agent && result.contextMetadata) {
           <span class="control-metadata">Контекст: {{ result.contextMetadata.mode }} · последние raw messages: {{ result.contextMetadata.recentMessageCount }} · сжато сообщений: {{ result.contextMetadata.summarizedMessageCount }}</span>
           @if (result.contextMetadata.summary) { <details><summary>Показать summary</summary><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></details> }
+          @if (result.contextMetadata.facts) { <details><summary>Показать sticky facts</summary><pre class="raw-json"><code>{{ result.contextMetadata.facts | json }}</code></pre></details> }
         }
         @if (agent && result.summaryMetrics) {
           <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
             request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
             @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
+        }
+        @if (agent && result.factsMetrics?.length) {
+          <span class="control-metadata">Sticky facts maintenance · calls: {{ result.factsMetrics.length }}</span>
+            @for (metrics of result.factsMetrics; track $index) {
+              <span class="control-metadata">request / context / response: {{ metrics.currentRequestTokens }} / {{ metrics.contextTokens }} / {{ metrics.responseTokens }}</span>
+              @if (metrics.providerUsage) {
+                <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
+              }
+            }
         }
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
@@ -216,7 +226,7 @@
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
         <button [class.active]="experiment === 'TEMPERATURE'" (click)="experiment = 'TEMPERATURE'">Температура</button>
         <button [class.active]="experiment === 'MODELS'" (click)="selectModels()">Модели</button>
-        <button [class.active]="experiment === 'AGENT'" (click)="experiment = 'AGENT'">Агент</button>
+        <button [class.active]="experiment === 'AGENT'" (click)="selectAgent()">Агент</button>
       </div>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
@@ -265,12 +275,20 @@
           <label>Контекст <select [(ngModel)]="contextMode" aria-label="Режим контекста">
             <option value="FULL">FULL</option>
             <option value="SUMMARY_RECENT">SUMMARY + RECENT</option>
+            <option value="SLIDING_WINDOW">SLIDING WINDOW</option>
+            <option value="STICKY_FACTS">STICKY FACTS</option>
           </select></label>
-          @if (contextMode === 'SUMMARY_RECENT') {
+          @if (contextMode === 'SUMMARY_RECENT' || contextMode === 'SLIDING_WINDOW' || contextMode === 'STICKY_FACTS') {
             <label>Последние raw messages <input type="number" min="1" [(ngModel)]="recentMessageCount" /></label>
           }
+          <label>Ветка <select [ngModel]="branchId" (ngModelChange)="switchBranch($event)" aria-label="Ветка">
+            <option [ngValue]="null">Линейный диалог</option>
+            @for (branch of branches(); track branch.id) { <option [ngValue]="branch.id">{{ branch.id.slice(0, 8) }}</option> }
+          </select></label>
+          <button mat-button type="button" (click)="createCheckpoint()">Создать checkpoint</button>
+          <button mat-button type="button" [disabled]="!checkpointId" (click)="createBranch()">Создать ветку</button>
         </div>
-        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Summary — отдельная производная контекста; локальные оценки токенов не являются токенизацией провайдера.</small>
+        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Sticky facts — отдельная производная memory; branching изолирует продолжения. Локальные оценки токенов не являются токенизацией провайдера.</small>
       }
       <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>
       <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">

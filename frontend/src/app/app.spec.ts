@@ -13,8 +13,15 @@ interface TestApp {
   selectedMode: 'FREE' | 'CONTROLLED';
   selectedStrategy: 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
   selectedTemperature: 0 | 0.7 | 1.2;
-  contextMode: 'FULL' | 'SUMMARY_RECENT';
+  contextMode: 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS';
   recentMessageCount: number;
+  branchId: string | null;
+  checkpointId: string | null;
+  selectAgent(): void;
+  createCheckpoint(): void;
+  createBranch(): void;
+  switchBranch(branchId: string | null): void;
+  branches(): readonly { id: string; checkpointId: string; history: unknown[] }[];
   controls: { maxTokens: number; maxFindings: number };
   analyze(): void;
   compare(): void;
@@ -75,6 +82,7 @@ describe('App', () => {
     const agentButton = [...fixture.nativeElement.querySelectorAll('.experiment-selector button')]
       .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Агент') as HTMLButtonElement;
     agentButton.click(); fixture.detectChanges();
+    http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([]);
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
     expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
@@ -121,6 +129,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('fact A');
 
     component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
+    http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([]);
     fixture.detectChanges();
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.textContent).toContain('fact A');
@@ -162,6 +171,48 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).toContain('сжато сообщений: 2');
     expect(fixture.nativeElement.textContent).toContain('old facts');
     expect(fixture.nativeElement.textContent).toContain('Summary generation');
+  });
+
+  it('sends Sliding Window and Sticky Facts strategies with the selected window', () => {
+    component.experiment = 'AGENT'; component.contextMode = 'SLIDING_WINDOW'; component.recentMessageCount = 2;
+    component.input = 'window probe'; component.analyze();
+    let request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toEqual({ input: 'window probe', contextMode: 'SLIDING_WINDOW', recentMessageCount: 2 });
+    request.flush({ analysis: 'window answer', metrics: { currentRequestTokens: 1, contextTokens: 5, responseTokens: 2 },
+      summaryMetrics: null, factsMetrics: [], contextMetadata: { mode: 'SLIDING_WINDOW', recentMessageCount: 2, summary: null, summarizedMessageCount: 0 } });
+    flushSave();
+
+    component.contextMode = 'STICKY_FACTS'; component.recentMessageCount = 3; component.input = 'facts probe'; component.analyze();
+    request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toEqual({ input: 'facts probe', contextMode: 'STICKY_FACTS', recentMessageCount: 3 });
+    request.flush({ analysis: 'facts answer', metrics: { currentRequestTokens: 1, contextTokens: 7, responseTokens: 2 },
+      summaryMetrics: null, factsMetrics: [{ currentRequestTokens: 2, contextTokens: 4, responseTokens: 3 }],
+      contextMetadata: { mode: 'STICKY_FACTS', recentMessageCount: 3, summary: null, summarizedMessageCount: 0,
+        facts: { project: 'Helios' } } });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('STICKY_FACTS');
+    expect(fixture.nativeElement.textContent).toContain('Sticky facts maintenance');
+    expect(fixture.nativeElement.textContent).toContain('Helios');
+  });
+
+  it('creates, lists and switches independent branches', () => {
+    component.experiment = 'AGENT';
+    component.createCheckpoint();
+    const checkpoint = http.expectOne(`/api/dialogs/${dialog().id}/agent/checkpoints`);
+    expect(checkpoint.request.body).toEqual({});
+    checkpoint.flush({ id: 'checkpoint-1' });
+    const checkpointSave = http.expectOne(r => r.method === 'PUT'); checkpointSave.flush(dialog());
+    expect(component.checkpointId).toBe('checkpoint-1');
+
+    component.createBranch();
+    const branchRequest = http.expectOne(`/api/dialogs/${dialog().id}/agent/checkpoints/checkpoint-1/branches`);
+    branchRequest.flush({ id: 'branch-a', checkpointId: 'checkpoint-1', history: [] });
+    const branchSave = http.expectOne(r => r.method === 'PUT'); branchSave.flush(dialog());
+    expect(component.branchId).toBe('branch-a');
+    expect(component.branches()).toHaveLength(1);
+    component.switchBranch(null);
+    const switchSave = http.expectOne(r => r.method === 'PUT'); switchSave.flush(dialog());
+    expect(component.branchId).toBeNull();
   });
 
   it('selects the model experiment and sends only the selected model and exact input', () => {

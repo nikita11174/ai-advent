@@ -27,13 +27,21 @@ class AgentController {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
-        AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount());
-        return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.contextMetadata());
+        AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
+                request.branchId());
+        return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
+                reply.contextMetadata());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     ReviewController.ApiError notFound(DialogStore.DialogNotFoundException exception) {
+        return new ReviewController.ApiError(exception.getMessage(), null);
+    }
+
+    @ExceptionHandler(AgentBranchStore.BranchNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    ReviewController.ApiError branchNotFound(AgentBranchStore.BranchNotFoundException exception) {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
@@ -49,13 +57,14 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
-    record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount) {
+    record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId) {
         AgentRequest(String input) {
-            this(input, null, null);
+            this(input, null, null, null);
         }
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
+                         java.util.List<TokenMetrics> factsMetrics,
                          ContextMetadata contextMetadata) {
     }
 }

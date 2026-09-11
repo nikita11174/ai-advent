@@ -1,7 +1,9 @@
 package dev.aiadvent.mentor;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.List;
@@ -9,16 +11,23 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class EngineeringReviewAgentTest {
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
+    @TempDir
+    Path directory;
     private final DeepSeekClient client = mock(DeepSeekClient.class);
     private final AgentHistoryStore histories = mock(AgentHistoryStore.class);
     private final AgentSummaryStore summaries = mock(AgentSummaryStore.class);
     private final ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
+    private final StickyFactsStore factsStore = mock(StickyFactsStore.class);
+    private final StickyFactsService factsService = mock(StickyFactsService.class);
+    private final AgentBranchStore branches = mock(AgentBranchStore.class);
 
     @Test
     void sendsTheWholeConversationAndPersistsCompletedSnapshots() throws Exception {
@@ -207,7 +216,8 @@ class EngineeringReviewAgentTest {
         when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("a3"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
-                new FullContextPolicy(), new SummaryRecentContextPolicy());
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
 
         AgentReply reply = agent.reply("u3", ContextMode.SUMMARY_RECENT, 3);
 
@@ -235,7 +245,8 @@ class EngineeringReviewAgentTest {
                 .thenThrow(new DeepSeekException("summary unavailable"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
-                new FullContextPolicy(), new SummaryRecentContextPolicy());
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
 
         assertThrows(DeepSeekException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
         verifyNoInteractions(client);
@@ -253,9 +264,10 @@ class EngineeringReviewAgentTest {
         var agent = new EngineeringReviewAgent(id, config,
                 new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
                         new ConversationContext.Message("user", "u1"),
-                        new ConversationContext.Message("assistant", "a1"))), client, histories,
+                new ConversationContext.Message("assistant", "a1"))), client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
-                new FullContextPolicy(), new SummaryRecentContextPolicy());
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
         when(summaries.load(id)).thenThrow(new IOException("Agent summary is malformed."));
 
         assertThrows(IOException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
@@ -276,7 +288,8 @@ class EngineeringReviewAgentTest {
         doThrow(new IOException("summary storage unavailable")).when(summaries).save(eq(id), any());
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
-                new FullContextPolicy(), new SummaryRecentContextPolicy());
+                factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
 
         assertThrows(IOException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
         verifyNoInteractions(client);
@@ -284,10 +297,149 @@ class EngineeringReviewAgentTest {
         assertEquals(3, context.snapshot().size());
     }
 
+    @Test
+    void slidingWindowUsesExactLatestCommittedMessageCountWithoutSummary() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1"),
+                new ConversationContext.Message("user", "u2"), new ConversationContext.Message("assistant", "a2"),
+                new ConversationContext.Message("user", "u3"), new ConversationContext.Message("assistant", "a3")));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        var agent = new EngineeringReviewAgent(UUID.randomUUID(), config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        agent.reply("pending", ContextMode.SLIDING_WINDOW, 2);
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
+        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u3"), new ConversationContext.Message("assistant", "a3"),
+                new ConversationContext.Message("user", "pending")), outbound.getValue());
+        verifyNoInteractions(summaryService, factsService, factsStore);
+    }
+
+    @Test
+    void stickyFactsUpdatesAndOverwritesFactsBeforeTheMainCall() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var store = new StickyFactsStore(directory.resolve("facts"), JSON);
+        store.save(id, new StickyFacts(1, java.util.Map.of("deadline", "old")));
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "deadline changed"),
+                new ConversationContext.Message("assistant", "acknowledged")));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+                .thenReturn(completion("{\"facts\":{\"deadline\":\"31 October\",\"project\":\"Helios\"}}"),
+                        completion("answer"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, store,
+                new StickyFactsService(client, new ApproximateTokenEstimator(), JSON),
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        AgentReply reply = agent.reply("what is the deadline?", ContextMode.STICKY_FACTS, 2);
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client, times(2)).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
+        assertTrue(outbound.getAllValues().get(1).get(1).content().contains("31 October"));
+        assertEquals(1, reply.factsMetrics().size());
+        assertEquals(new StickyFacts(2, java.util.Map.of("deadline", "31 October", "project", "Helios")),
+                store.load(id).orElseThrow());
+    }
+
+    @Test
+    void stickyExtractionFailureDoesNotCallMainProviderOrPersistFacts() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
+        when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
+                .thenThrow(new DeepSeekException("facts unavailable"));
+        var agent = agent(id, config);
+
+        assertThrows(DeepSeekException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+
+        verifyNoInteractions(client);
+        verify(histories, never()).save(any(), anyList());
+        verify(factsStore, never()).save(any(), any());
+    }
+
+    @Test
+    void stickyMainProviderFailureDoesNotCommitCandidateFacts() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        StickyFacts candidate = new StickyFacts(1, java.util.Map.of("project", "Helios"));
+        when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
+        when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
+                .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+                .thenThrow(new DeepSeekException("main unavailable"));
+        var agent = agent(id, config);
+
+        assertThrows(DeepSeekException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+
+        verify(histories, never()).save(any(), anyList());
+        verify(factsStore, never()).save(any(), any());
+    }
+
+    @Test
+    void stickyFactsStorageFailureLeavesRawStateRecoverable() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        StickyFacts candidate = new StickyFacts(1, java.util.Map.of("project", "Helios"));
+        when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
+        when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
+                .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        doThrow(new IOException("facts storage unavailable")).when(factsStore).save(id, candidate);
+        var context = new ConversationContext(config.systemPrompt());
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        assertThrows(IOException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+
+        verify(histories).save(eq(id), anyList());
+        assertEquals(3, context.snapshot().size());
+    }
+
+    @Test
+    void staleFactsAreRebuiltFromCanonicalUserMessagesAndTheirMetricsAreReturned() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "first fact"),
+                new ConversationContext.Message("assistant", "first answer"),
+                new ConversationContext.Message("user", "second fact"),
+                new ConversationContext.Message("assistant", "second answer")));
+        StickyFacts stored = new StickyFacts(1, java.util.Map.of("first", "old"));
+        StickyFacts recovered = new StickyFacts(2, java.util.Map.of("first", "old", "second", "value"));
+        StickyFacts candidate = new StickyFacts(3, java.util.Map.of("first", "old", "second", "value", "third", "value"));
+        when(factsStore.load(id)).thenReturn(java.util.Optional.of(stored));
+        when(factsService.update(any(), eq("second fact"), eq(config), eq(2)))
+                .thenReturn(new StickyFactsGeneration(recovered, new TokenMetrics(1, 2, 3, null)));
+        when(factsService.update(any(), eq("current"), eq(config), eq(3)))
+                .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(4, 5, 6, null)));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        AgentReply reply = agent.reply("current", ContextMode.STICKY_FACTS, 2);
+
+        assertEquals(2, reply.factsMetrics().size());
+        verify(factsService).update(stored, "second fact", config, 2);
+        verify(factsService).update(recovered, "current", config, 3);
+        verify(factsStore).save(id, candidate);
+    }
+
     private EngineeringReviewAgent agent(UUID id, AgentConfig config) {
         return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories,
-                new ApproximateTokenEstimator(), summaries, summaryService,
-                new FullContextPolicy(), new SummaryRecentContextPolicy());
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
     }
 
     private DeepSeekClient.Completion completion(String content) {

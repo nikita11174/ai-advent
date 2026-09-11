@@ -2,6 +2,7 @@ package dev.aiadvent.mentor;
 
 import java.util.concurrent.locks.ReentrantLock;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,14 +15,23 @@ final class EngineeringReviewAgent {
     private final ApproximateTokenEstimator tokenEstimator;
     private final AgentSummaryStore summaries;
     private final ConversationSummaryService summaryService;
+    private final StickyFactsStore factsStore;
+    private final StickyFactsService factsService;
     private final ContextPolicy fullPolicy;
     private final ContextPolicy summaryRecentPolicy;
+    private final ContextPolicy slidingWindowPolicy;
+    private final ContextPolicy stickyFactsPolicy;
+    private final AgentBranchStore branches;
+    private final String branchId;
     private final ReentrantLock turnLock = new ReentrantLock();
 
     EngineeringReviewAgent(UUID dialogId, AgentConfig config, ConversationContext context,
                            DeepSeekClient client, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
                            AgentSummaryStore summaries, ConversationSummaryService summaryService,
-                           ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy) {
+                           StickyFactsStore factsStore, StickyFactsService factsService,
+                           ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
+                           ContextPolicy slidingWindowPolicy, ContextPolicy stickyFactsPolicy,
+                           AgentBranchStore branches, String branchId) {
         this.dialogId = dialogId;
         this.config = config;
         this.context = context;
@@ -30,8 +40,14 @@ final class EngineeringReviewAgent {
         this.tokenEstimator = tokenEstimator;
         this.summaries = summaries;
         this.summaryService = summaryService;
+        this.factsStore = factsStore;
+        this.factsService = factsService;
         this.fullPolicy = fullPolicy;
         this.summaryRecentPolicy = summaryRecentPolicy;
+        this.slidingWindowPolicy = slidingWindowPolicy;
+        this.stickyFactsPolicy = stickyFactsPolicy;
+        this.branches = branches;
+        this.branchId = branchId;
     }
 
     AgentReply reply(String input) throws IOException, DeepSeekException {
@@ -57,6 +73,8 @@ final class EngineeringReviewAgent {
             List<ConversationContext.Message> raw = context.snapshot();
             ConversationSummary summary = null;
             TokenMetrics summaryMetrics = null;
+            var factsMetrics = new ArrayList<TokenMetrics>();
+            StickyFacts facts = null;
             boolean summaryIncluded = false;
             if (mode == ContextMode.SUMMARY_RECENT) {
                 int committedCount = raw.size() - 1;
@@ -76,8 +94,22 @@ final class EngineeringReviewAgent {
                 summary = stored;
                 summaryIncluded = targetCoverage > 0;
             }
-            ContextPolicy policy = mode == ContextMode.SUMMARY_RECENT ? summaryRecentPolicy : fullPolicy;
-            List<ConversationContext.Message> outbound = policy.build(raw, input, summary, recent);
+            if (mode == ContextMode.STICKY_FACTS) {
+                int committedUserMessages = (raw.size() - 1) / 2;
+                StickyFacts stored = factsStore.load(dialogId).orElse(StickyFacts.empty());
+                facts = reconcile(stored, raw, committedUserMessages, factsMetrics);
+                StickyFactsGeneration update = factsService.update(facts, input, config,
+                        committedUserMessages + 1);
+                facts = update.facts();
+                factsMetrics.add(update.metrics());
+            }
+            ContextPolicy policy = switch (mode) {
+                case SUMMARY_RECENT -> summaryRecentPolicy;
+                case SLIDING_WINDOW -> slidingWindowPolicy;
+                case STICKY_FACTS -> stickyFactsPolicy;
+                case FULL -> fullPolicy;
+            };
+            List<ConversationContext.Message> outbound = policy.build(raw, input, summary, facts, recent);
             long contextTokens = tokenEstimator.estimateMessages(outbound);
             if (config.contextTokenLimit() != null && contextTokens > config.contextTokenLimit()) {
                 throw new ContextLimitExceededException(contextTokens, config.contextTokenLimit());
@@ -86,15 +118,37 @@ final class EngineeringReviewAgent {
                     config.temperature(), config.maxTokens());
             String analysis = completion.content();
             List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
-            histories.save(dialogId, completed);
+            if (branchId == null) {
+                histories.save(dialogId, completed);
+            } else {
+                branches.saveBranch(dialogId, branchId, completed);
+            }
             context.commit(completed);
+            if (mode == ContextMode.STICKY_FACTS) {
+                factsStore.save(dialogId, facts);
+            }
             return new AgentReply(analysis, new TokenMetrics(tokenEstimator.estimateText(input), contextTokens,
-                    tokenEstimator.estimateText(analysis), completion.usage()), summaryMetrics,
+                    tokenEstimator.estimateText(analysis), completion.usage()), summaryMetrics, List.copyOf(factsMetrics),
                     new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
-                            summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0));
+                            summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts));
         } finally {
             turnLock.unlock();
         }
+    }
+
+    private StickyFacts reconcile(StickyFacts stored, List<ConversationContext.Message> raw,
+                                  int committedUserMessages, List<TokenMetrics> metrics)
+            throws DeepSeekException {
+        StickyFacts facts = stored.coveredUserMessageCount() <= committedUserMessages
+                ? stored : StickyFacts.empty();
+        int start = facts.coveredUserMessageCount();
+        for (int index = start; index < committedUserMessages; index++) {
+            StickyFactsGeneration update = factsService.update(facts, raw.get(1 + index * 2).content(), config,
+                    index + 1);
+            facts = update.facts();
+            metrics.add(update.metrics());
+        }
+        return facts;
     }
 
     static class BusyException extends RuntimeException {

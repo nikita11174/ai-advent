@@ -3,12 +3,16 @@ package dev.aiadvent.mentor;
 import java.util.ArrayList;
 import java.util.List;
 
-final class FullContextPolicy implements ContextPolicy {
+final class SlidingWindowContextPolicy implements ContextPolicy {
     @Override
     public List<ConversationContext.Message> build(List<ConversationContext.Message> rawMessages,
                                                     String input, ConversationSummary summary, StickyFacts facts,
                                                     int recentMessageCount) {
-        var messages = new ArrayList<>(rawMessages);
+        List<ConversationContext.Message> committed = rawMessages.subList(1, rawMessages.size());
+        int recentStart = Math.max(0, committed.size() - recentMessageCount);
+        var messages = new ArrayList<ConversationContext.Message>();
+        messages.add(rawMessages.getFirst());
+        messages.addAll(committed.subList(recentStart, committed.size()));
         messages.add(new ConversationContext.Message("user", input));
         return List.copyOf(messages);
     }

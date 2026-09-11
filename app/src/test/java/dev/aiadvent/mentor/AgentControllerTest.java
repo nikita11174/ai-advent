@@ -38,6 +38,12 @@ class AgentControllerTest {
     private AgentSummaryStore summaries;
     @MockitoBean
     private ConversationSummaryService summaryService;
+    @MockitoBean
+    private StickyFactsStore factsStore;
+    @MockitoBean
+    private StickyFactsService factsService;
+    @MockitoBean
+    private AgentBranchStore branches;
 
     @Test
     void returnsAnalysisAndRejectsAnOverlappingRequest() throws Exception {

@@ -1,4 +1,4 @@
-import { NgTemplateOutlet } from '@angular/common';
+import { JsonPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -13,7 +13,7 @@ type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
-type ContextMode = 'FULL' | 'SUMMARY_RECENT';
+type ContextMode = 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS';
 
 interface ReviewControls {
   maxTokens: number; maxFindings: number; summaryMaxWords: number;
@@ -26,15 +26,15 @@ interface ProviderUsage { promptTokens: number | null; completionTokens: number 
 interface TokenMetrics {
   currentRequestTokens: number; contextTokens: number; responseTokens: number; providerUsage: ProviderUsage | null;
 }
-interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; }
+interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: Record<string, string> | null; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; contextMetadata: ContextMetadata; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
-  evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
+  evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; contextMetadata?: ContextMetadata;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -56,9 +56,10 @@ interface DialogUiState {
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
   selectedModelKey?: string;
-  contextMode?: ContextMode; recentMessageCount?: number;
+  contextMode?: ContextMode; recentMessageCount?: number; branchId?: string | null;
 }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
+interface AgentBranch { id: string; checkpointId: string; history: unknown[]; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
@@ -91,7 +92,7 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult],
+  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit {
@@ -111,6 +112,9 @@ export class App implements OnInit {
   protected selectedTemperature: Temperature = 0;
   protected contextMode: ContextMode = 'FULL';
   protected recentMessageCount = 4;
+  protected branchId: string | null = null;
+  protected checkpointId: string | null = null;
+  protected readonly branches = signal<readonly AgentBranch[]>([]);
   protected selectedModelKey = 'WEAK';
   protected readonly modelOptions = signal<ModelProfile[]>([]);
   protected readonly modelOptionsError = signal('');
@@ -130,6 +134,26 @@ export class App implements OnInit {
   protected newDialog(): void {
     if (this.loading()) return;
     this.http.post<DialogDocument>('/api/dialogs', {}).subscribe({ next: dialog => this.activateDialog(dialog) });
+  }
+
+  protected selectAgent(): void { this.experiment = 'AGENT'; this.loadBranches(); }
+
+  protected createCheckpoint(): void {
+    const id = this.currentDialogId(); if (!id || this.loading()) return;
+    this.http.post<{ id: string }>(`/api/dialogs/${id}/agent/checkpoints`, this.branchId ? { branchId: this.branchId } : {}).subscribe({
+      next: checkpoint => { this.checkpointId = checkpoint.id; this.persistDialog(); },
+    });
+  }
+
+  protected createBranch(): void {
+    const id = this.currentDialogId(); if (!id || !this.checkpointId || this.loading()) return;
+    this.http.post<AgentBranch>(`/api/dialogs/${id}/agent/checkpoints/${this.checkpointId}/branches`, {}).subscribe({
+      next: branch => { this.branches.update(items => [...items, branch]); this.branchId = branch.id; this.persistDialog(); },
+    });
+  }
+
+  protected switchBranch(branchId: string | null): void {
+    this.branchId = branchId; this.contextMode = 'FULL'; this.persistDialog();
   }
 
   protected openDialog(id: string): void {
@@ -302,7 +326,8 @@ export class App implements OnInit {
     this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
-    this.contextMode = ui?.contextMode ?? 'FULL'; this.recentMessageCount = ui?.recentMessageCount ?? 4;
+    this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : (ui?.contextMode ?? 'FULL');
+    this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = null; this.branches.set([]);
     if (this.experiment === 'MODELS') this.selectModels();
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
     this.nextExchangeId = Math.max(0, ...exchanges.map(exchange => exchange.id)) + 1;
@@ -310,14 +335,23 @@ export class App implements OnInit {
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
     this.sidebarOpen.set(false);
     this.requestScrollToLatest();
+    if (this.experiment === 'AGENT') this.loadBranches();
+  }
+  private loadBranches(): void {
+    const id = this.currentDialogId(); if (!id) return;
+    this.http.get<AgentBranch[]>(`/api/dialogs/${id}/agent/branches`).subscribe({ next: branches => {
+      this.branches.set(branches); this.checkpointId = branches[0]?.checkpointId ?? this.checkpointId;
+    } });
   }
   private analyzeAgent(input: string): void {
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', free: { loading: true } });
     this.prepareAfterSubmit(); this.startRequest();
+    const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
+      ...(this.branchId ? { branchId: this.branchId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`,
-      { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount }).subscribe({
+      request).subscribe({
       next: response => this.finishResult(id, 'free', { analysis: response.analysis, metrics: response.metrics,
-        summaryMetrics: response.summaryMetrics, contextMetadata: response.contextMetadata, loading: false }),
+        summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, contextMetadata: response.contextMetadata, loading: false }),
       error: (error: HttpErrorResponse) => this.finishResult(id, 'free', { error: this.errorMessage(error, false), loading: false }),
     });
   }
@@ -396,7 +430,7 @@ export class App implements OnInit {
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
       selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
-      contextMode: this.contextMode, recentMessageCount: this.recentMessageCount };
+      contextMode: this.contextMode, recentMessageCount: this.recentMessageCount, branchId: this.branchId };
     this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });

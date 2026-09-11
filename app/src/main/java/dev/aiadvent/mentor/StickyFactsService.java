@@ -1,0 +1,66 @@
+package dev.aiadvent.mentor;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+
+@Service
+class StickyFactsService {
+    private static final String FACTS_SYSTEM_PROMPT = """
+            Extract important durable facts from the engineering conversation.
+            Return only one JSON object with a single "facts" object containing concise string values.
+            Preserve existing facts unless the new user message clearly changes them.
+            Do not invent facts or include secrets.
+            """;
+
+    private final DeepSeekClient client;
+    private final ApproximateTokenEstimator estimator;
+    private final ObjectMapper json;
+
+    StickyFactsService(DeepSeekClient client, ApproximateTokenEstimator estimator, ObjectMapper json) {
+        this.client = client;
+        this.estimator = estimator;
+        this.json = json;
+    }
+
+    StickyFactsGeneration update(StickyFacts current, String input, AgentConfig config, int coveredCount)
+            throws DeepSeekException {
+        String existing = json.valueToTree(current.facts()).toString();
+        String request = "Existing facts:\n" + existing + "\n\nNew user message:\n" + input;
+        List<ConversationContext.Message> prompt = List.of(
+                new ConversationContext.Message("system", FACTS_SYSTEM_PROMPT),
+                new ConversationContext.Message("user", request));
+        DeepSeekClient.Completion completion = client.complete(prompt, config.model(), config.temperature(),
+                config.maxTokens());
+        StickyFacts facts = parse(completion.content(), coveredCount);
+        TokenMetrics metrics = new TokenMetrics(estimator.estimateText(input), estimator.estimateMessages(prompt),
+                estimator.estimateText(completion.content()), completion.usage());
+        return new StickyFactsGeneration(facts, metrics);
+    }
+
+    private StickyFacts parse(String content, int coveredCount) throws DeepSeekException {
+        try {
+            JsonNode root = json.readTree(content);
+            JsonNode factsNode = root == null ? null : root.path("facts");
+            if (root == null || !root.isObject() || root.size() != 1 || !factsNode.isObject()) {
+                throw new IllegalArgumentException("unexpected facts shape");
+            }
+            var facts = new LinkedHashMap<String, String>();
+            var fields = factsNode.fields();
+            while (fields.hasNext()) {
+                var field = fields.next();
+                if (!field.getValue().isTextual() || field.getValue().textValue().isBlank()) {
+                    throw new IllegalArgumentException("fact values must be non-empty strings");
+                }
+                facts.put(field.getKey(), field.getValue().textValue());
+            }
+            return new StickyFacts(coveredCount, facts);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw new DeepSeekException("DeepSeek returned malformed sticky facts.", content);
+        }
+    }
+}

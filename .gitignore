@@ -11,5 +11,7 @@ tmp/
 docs/local/mentor-dialogs/
 docs/local/agent-histories/
 docs/local/agent-summaries/
+docs/local/agent-facts/
+docs/local/agent-branches/
 docs/local/agent-sessions/
 docs/local/screenshots/

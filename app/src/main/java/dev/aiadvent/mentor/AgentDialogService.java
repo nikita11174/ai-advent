@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -16,11 +17,16 @@ class AgentDialogService {
     private final AgentConfig defaultConfig;
     private final AgentSummaryStore summaries;
     private final ConversationSummaryService summaryService;
-    private final ConcurrentHashMap<UUID, EngineeringReviewAgent> agents = new ConcurrentHashMap<>();
+    private final StickyFactsStore factsStore;
+    private final StickyFactsService factsService;
+    private final AgentBranchStore branches;
+    private final ConcurrentHashMap<AgentKey, EngineeringReviewAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
                        ApproximateTokenEstimator tokenEstimator,
                        AgentSummaryStore summaries, ConversationSummaryService summaryService,
+                       StickyFactsStore factsStore, StickyFactsService factsService,
+                       AgentBranchStore branches,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
         this.dialogs = dialogs;
         this.client = client;
@@ -28,21 +34,39 @@ class AgentDialogService {
         this.tokenEstimator = tokenEstimator;
         this.summaries = summaries;
         this.summaryService = summaryService;
+        this.factsStore = factsStore;
+        this.factsService = factsService;
+        this.branches = branches;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount)
             throws IOException, DeepSeekException {
-        EngineeringReviewAgent agent = agents.get(dialogId);
+        return reply(dialogId, input, mode, recentMessageCount, null);
+    }
+
+    AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId)
+            throws IOException, DeepSeekException {
+        if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
+            throw new IllegalArgumentException("Branch messages use FULL context only.");
+        }
+        AgentKey key = new AgentKey(dialogId, branchId);
+        EngineeringReviewAgent agent = agents.get(key);
         if (agent == null) {
             dialogs.load(dialogId.toString());
-            ConversationContext context = histories.load(dialogId)
-                    .map(ConversationContext::new)
-                    .orElseGet(() -> new ConversationContext(defaultConfig.systemPrompt()));
+            ConversationContext context;
+            if (branchId == null) {
+                context = histories.load(dialogId)
+                        .map(ConversationContext::new)
+                        .orElseGet(() -> new ConversationContext(defaultConfig.systemPrompt()));
+            } else {
+                context = new ConversationContext(branches.loadBranch(dialogId, branchId));
+            }
             EngineeringReviewAgent created = new EngineeringReviewAgent(dialogId, defaultConfig, context,
                     client, histories, tokenEstimator, summaries, summaryService,
-                    new FullContextPolicy(), new SummaryRecentContextPolicy());
-            EngineeringReviewAgent existing = agents.putIfAbsent(dialogId, created);
+                    factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
+                    new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId);
+            EngineeringReviewAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
         return agent.reply(input, mode, recentMessageCount);
@@ -50,5 +74,26 @@ class AgentDialogService {
 
     AgentReply reply(UUID dialogId, String input) throws IOException, DeepSeekException {
         return reply(dialogId, input, ContextMode.FULL, 4);
+    }
+
+    AgentBranchStore.Checkpoint createCheckpoint(UUID dialogId, String sourceBranchId) throws IOException {
+        dialogs.load(dialogId.toString());
+        List<ConversationContext.Message> history = sourceBranchId == null
+                ? histories.load(dialogId).orElseGet(() -> new ConversationContext(defaultConfig.systemPrompt()).snapshot())
+                : branches.loadBranch(dialogId, sourceBranchId);
+        return branches.createCheckpoint(dialogId, history);
+    }
+
+    AgentBranchStore.Branch createBranch(UUID dialogId, String checkpointId) throws IOException {
+        dialogs.load(dialogId.toString());
+        return branches.createBranch(dialogId, checkpointId);
+    }
+
+    List<AgentBranchStore.Branch> branches(UUID dialogId) throws IOException {
+        dialogs.load(dialogId.toString());
+        return branches.branches(dialogId);
+    }
+
+    private record AgentKey(UUID dialogId, String branchId) {
     }
 }

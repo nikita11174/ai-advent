@@ -57,7 +57,9 @@ class MainTest {
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
                 new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories,
                 new ApproximateTokenEstimator(), mock(AgentSummaryStore.class),
-                mock(ConversationSummaryService.class), new FullContextPolicy(), new SummaryRecentContextPolicy());
+                mock(ConversationSummaryService.class), mock(StickyFactsStore.class), mock(StickyFactsService.class),
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), mock(AgentBranchStore.class), null);
 
         assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
         assertEquals("answer", agent.reply("next").analysis());

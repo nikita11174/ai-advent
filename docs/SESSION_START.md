@@ -66,5 +66,16 @@ Day 1–4 recording demos выполнены; сохранение/загруз�
 Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом.
 Следующий шаг — Day 10 planning from completed Day 9.
 
+**Day 10 ACCEPTED — automated and controlled real acceptance PASS; uncommitted**: branch `day_10`
+создана от Day 9 documentation checkpoint `314c57e`. Sliding Window использует exact latest-N
+linear context без summary; Sticky Facts хранит отдельный LLM-derived key/value state с coverage
+по committed user messages, recovery и отдельными facts metrics; Branching хранит immutable
+checkpoint topology вне `ContextPolicy` и принимает explicit branch ID. Backend 87 tests PASS,
+frontend 20/20 и build PASS с существующими budget warnings. Controlled acceptance использовал
+9 provider calls: Sliding потерял четыре ранних facts, Sticky тремя maintenance calls сохранил
+все четыре, Branching восстановил изолированные PostgreSQL/ClickHouse continuations после
+restart. Desktop UI 1440×1000 PASS. Следующий шаг — owner-authorized Day 10 commit; push/merge
+не выполнялись.
+
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.
