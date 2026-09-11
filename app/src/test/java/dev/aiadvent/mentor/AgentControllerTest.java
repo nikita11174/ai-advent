@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.IOException;
@@ -21,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(AgentController.class)
 @Import(AgentDialogService.class)
+@TestPropertySource(properties = "mentor.agent.context-token-limit=1")
 class AgentControllerTest {
     @Autowired
     private MockMvc mvc;
@@ -30,6 +32,8 @@ class AgentControllerTest {
     private DeepSeekClient client;
     @MockitoBean
     private AgentHistoryStore histories;
+    @MockitoBean
+    private ApproximateTokenEstimator tokenEstimator;
 
     @Test
     void returnsAnalysisAndRejectsAnOverlappingRequest() throws Exception {
@@ -39,7 +43,7 @@ class AgentControllerTest {
         when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
             entered.countDown();
             assertTrue(release.await(5, TimeUnit.SECONDS));
-            return "answer";
+            return new DeepSeekClient.Completion("answer", "stop", null);
         });
         var first = new FutureTask<>(() -> mvc.perform(post(route).contentType("application/json")
                 .content("{\"input\":\"first\"}"))
@@ -88,5 +92,19 @@ class AgentControllerTest {
                 .content("{\"input\":\"hello\"}"))
                 .andExpect(status().isBadGateway())
                 .andExpect(content().json("{\"error\":\"Unavailable\",\"rawResponse\":null}"));
+    }
+
+    @Test
+    void mapsAnEstimatedContextOverflowBeforeCallingTheProvider() throws Exception {
+        when(tokenEstimator.estimateMessages(anyList())).thenReturn(2L);
+
+        mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
+                .content("{\"input\":\"hello\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.error").value("Estimated context limit exceeded: 2 > 1."));
+
+        verifyNoInteractions(client);
+        verify(histories).load(any());
+        verify(histories, never()).save(any(), anyList());
     }
 }

@@ -22,11 +22,12 @@ class EngineeringReviewAgentTest {
     void sendsTheWholeConversationAndPersistsCompletedSnapshots() throws Exception {
         AgentConfig config = AgentConfig.defaults();
         var agent = agent(UUID.randomUUID(), config);
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn("answer1", "answer2", "answer3");
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+                .thenReturn(completion("answer1"), completion("answer2"), completion("answer3"));
 
-        assertEquals("answer1", agent.reply(" user1\n"));
-        assertEquals("answer2", agent.reply("user2"));
-        assertEquals("answer3", agent.reply("user3"));
+        assertEquals("answer1", agent.reply(" user1\n").analysis());
+        assertEquals("answer2", agent.reply("user2").analysis());
+        assertEquals("answer3", agent.reply("user3").analysis());
 
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(3)).complete(messages.capture(), eq(config.model()), isNull(), isNull());
@@ -48,11 +49,12 @@ class EngineeringReviewAgentTest {
         AgentConfig config = AgentConfig.defaults();
         var agent = agent(UUID.randomUUID(), config);
         when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn("answer1").thenThrow(new DeepSeekException("Unavailable")).thenReturn("answer2");
+                .thenReturn(completion("answer1")).thenThrow(new DeepSeekException("Unavailable"))
+                .thenReturn(completion("answer2"));
 
         agent.reply("user1");
         assertThrows(DeepSeekException.class, () -> agent.reply("failed input"));
-        assertEquals("answer2", agent.reply("user2"));
+        assertEquals("answer2", agent.reply("user2").analysis());
 
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
@@ -67,12 +69,13 @@ class EngineeringReviewAgentTest {
         AgentConfig config = AgentConfig.defaults();
         UUID id = UUID.randomUUID();
         var agent = agent(id, config);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn("answer1", "lost answer", "answer2");
+        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+                .thenReturn(completion("answer1"), completion("lost answer"), completion("answer2"));
         doNothing().doThrow(new IOException("storage unavailable")).doNothing().when(histories).save(eq(id), anyList());
 
         agent.reply("user1");
         assertThrows(IOException.class, () -> agent.reply("not saved"));
-        assertEquals("answer2", agent.reply("user2"));
+        assertEquals("answer2", agent.reply("user2").analysis());
 
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
@@ -82,10 +85,53 @@ class EngineeringReviewAgentTest {
     }
 
     @Test
+    void returnsLocalEstimatesAndIndependentProviderUsageForTheActualOutboundStack() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        var agent = agent(UUID.randomUUID(), config);
+        ProviderUsage usage = new ProviderUsage(101L, 23L, 124L);
+        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+                .thenReturn(new DeepSeekClient.Completion("answer", "stop", usage));
+
+        AgentReply reply = agent.reply("request");
+
+        var estimator = new ApproximateTokenEstimator();
+        List<ConversationContext.Message> outbound = List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "request"));
+        assertEquals(new TokenMetrics(estimator.estimateText("request"), estimator.estimateMessages(outbound),
+                estimator.estimateText("answer"), usage), reply.metrics());
+    }
+
+    @Test
+    void contextOverflowDoesNotCallProviderOrPersistTheRejectedInput() throws Exception {
+        var estimator = new ApproximateTokenEstimator();
+        AgentConfig base = AgentConfig.defaults();
+        List<ConversationContext.Message> acceptedNext = List.of(
+                new ConversationContext.Message("system", base.systemPrompt()),
+                new ConversationContext.Message("user", "first"),
+                new ConversationContext.Message("assistant", "answer"),
+                new ConversationContext.Message("user", "next"));
+        AgentConfig config = new AgentConfig(base.model(), base.systemPrompt(), base.temperature(), base.maxTokens(),
+                Math.toIntExact(estimator.estimateMessages(acceptedNext)));
+        var agent = agent(UUID.randomUUID(), config);
+        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+                .thenReturn(completion("answer"), completion("next answer"));
+
+        agent.reply("first");
+        assertThrows(EngineeringReviewAgent.ContextLimitExceededException.class,
+                () -> agent.reply("this input is deliberately too long for the configured limit"));
+        assertEquals("next answer", agent.reply("next").analysis());
+
+        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
+        verify(client, times(2)).complete(messages.capture(), anyString(), isNull(), isNull());
+        assertEquals(acceptedNext, messages.getValue());
+        verify(histories, times(2)).save(any(), anyList());
+    }
+
+    @Test
     void agentsUseTheirOwnConfiguration() throws Exception {
-        var first = agent(UUID.randomUUID(), new AgentConfig("model-a", "instruction A", 0.0, 450));
-        var second = agent(UUID.randomUUID(), new AgentConfig("model-b", "instruction B", 1.2, 900));
-        when(client.complete(anyList(), anyString(), anyDouble(), anyInt())).thenReturn("answer");
+        var first = agent(UUID.randomUUID(), new AgentConfig("model-a", "instruction A", 0.0, 450, null));
+        var second = agent(UUID.randomUUID(), new AgentConfig("model-b", "instruction B", 1.2, 900, null));
+        when(client.complete(anyList(), anyString(), anyDouble(), anyInt())).thenReturn(completion("answer"));
 
         first.reply("A");
         second.reply("B");
@@ -108,19 +154,19 @@ class EngineeringReviewAgentTest {
                 entered.countDown();
                 assertTrue(release.await(5, TimeUnit.SECONDS));
             }
-            return "answer";
+            return completion("answer");
         });
         var inFlight = new FutureTask<>(() -> first.reply("A1"));
         Thread thread = Thread.ofPlatform().start(inFlight);
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS));
             assertThrows(EngineeringReviewAgent.BusyException.class, () -> first.reply("overlap"));
-            assertEquals("answer", second.reply("B1"));
+            assertEquals("answer", second.reply("B1").analysis());
         } finally {
             release.countDown();
             thread.join(5000);
         }
-        assertEquals("answer", inFlight.get(5, TimeUnit.SECONDS));
+        assertEquals("answer", inFlight.get(5, TimeUnit.SECONDS).analysis());
         first.reply("A2");
         verify(client, times(3)).complete(anyList(), anyString(), isNull(), isNull());
         verify(client).complete(List.of(new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
@@ -133,15 +179,21 @@ class EngineeringReviewAgentTest {
         var agent = agent(UUID.randomUUID(), AgentConfig.defaults());
         assertThrows(IllegalArgumentException.class, () -> agent.reply(null));
         assertThrows(IllegalArgumentException.class, () -> agent.reply(" \n"));
-        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("", "system", null, null));
-        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", " ", null, null));
-        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", Double.NaN, null));
-        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 99));
-        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 2001));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("", "system", null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", " ", null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", Double.NaN, null, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 99, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, 2001, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentConfig("model", "system", null, null, 0));
         verifyNoInteractions(client, histories);
     }
 
     private EngineeringReviewAgent agent(UUID id, AgentConfig config) {
-        return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories);
+        return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories,
+                new ApproximateTokenEstimator());
+    }
+
+    private DeepSeekClient.Completion completion(String content) {
+        return new DeepSeekClient.Completion(content, "stop", null);
     }
 }

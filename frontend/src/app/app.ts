@@ -21,13 +21,18 @@ interface ReviewControls {
 interface Finding { severity: 'HIGH' | 'MEDIUM' | 'LOW'; title: string; reason: string; }
 interface ControlledReview { summary: string; findings: Finding[]; recommendation: string; }
 interface FreeResponse { analysis: string; }
+interface ProviderUsage { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; }
+interface TokenMetrics {
+  currentRequestTokens: number; contextTokens: number; responseTokens: number; providerUsage: ProviderUsage | null;
+}
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
-  evaluation?: Evaluation;
+  evaluation?: Evaluation; metrics?: TokenMetrics;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -303,8 +308,8 @@ export class App implements OnInit {
   private analyzeAgent(input: string): void {
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', free: { loading: true } });
     this.prepareAfterSubmit(); this.startRequest();
-    this.http.post<FreeResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`, { input }).subscribe({
-      next: response => this.finishResult(id, 'free', { analysis: response.analysis, loading: false }),
+    this.http.post<AgentResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`, { input }).subscribe({
+      next: response => this.finishResult(id, 'free', { analysis: response.analysis, metrics: response.metrics, loading: false }),
       error: (error: HttpErrorResponse) => this.finishResult(id, 'free', { error: this.errorMessage(error, false), loading: false }),
     });
   }

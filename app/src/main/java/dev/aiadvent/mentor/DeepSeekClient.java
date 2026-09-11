@@ -77,10 +77,10 @@ public class DeepSeekClient {
         return send(requestBody);
     }
 
-    String complete(List<ConversationContext.Message> messages, String model, Double temperature, Integer maxTokens)
+    Completion complete(List<ConversationContext.Message> messages, String model, Double temperature, Integer maxTokens)
             throws DeepSeekException {
         try {
-            return send(buildConversationRequestBody(messages, model, temperature, maxTokens)).content();
+            return send(buildConversationRequestBody(messages, model, temperature, maxTokens));
         } catch (JsonProcessingException e) {
             throw new DeepSeekException("Could not create the DeepSeek conversation request.", e);
         }
@@ -183,13 +183,20 @@ public class DeepSeekClient {
     }
 
     Completion extractCompletion(String responseBody) throws JsonProcessingException, DeepSeekException {
-        JsonNode choice = json.readTree(responseBody).path("choices").path(0);
+        JsonNode root = json.readTree(responseBody);
+        JsonNode choice = root.path("choices").path(0);
         JsonNode content = choice.path("message").path("content");
         if (!content.isTextual() || content.textValue().isBlank()) {
             throw new DeepSeekException("DeepSeek returned an unexpected response without analysis text.");
         }
         JsonNode finishReason = choice.path("finish_reason");
-        return new Completion(content.textValue(), finishReason.isTextual() ? finishReason.textValue() : "stop");
+        JsonNode usage = root.path("usage");
+        ProviderUsage providerUsage = usage.isObject()
+                ? new ProviderUsage(number(usage, "prompt_tokens"), number(usage, "completion_tokens"),
+                number(usage, "total_tokens"))
+                : null;
+        return new Completion(content.textValue(), finishReason.isTextual() ? finishReason.textValue() : "stop",
+                providerUsage);
     }
 
     ControlledReview parseControlledReview(String raw, ReviewControls controls) throws DeepSeekException {
@@ -285,6 +292,11 @@ public class DeepSeekClient {
         }
     }
 
-    record Completion(String content, String finishReason) {
+    private static Long number(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isIntegralNumber() && value.canConvertToLong() ? value.longValue() : null;
+    }
+
+    record Completion(String content, String finishReason, ProviderUsage usage) {
     }
 }

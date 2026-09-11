@@ -27,7 +27,8 @@ class AgentController {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
-        return new AgentResponse(agents.reply(id, request.input()));
+        AgentReply reply = agents.reply(id, request.input());
+        return new AgentResponse(reply.analysis(), reply.metrics());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -42,9 +43,15 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
+    @ExceptionHandler(EngineeringReviewAgent.ContextLimitExceededException.class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    ReviewController.ApiError contextLimit(EngineeringReviewAgent.ContextLimitExceededException exception) {
+        return new ReviewController.ApiError(exception.getMessage(), null);
+    }
+
     record AgentRequest(String input) {
     }
 
-    record AgentResponse(String analysis) {
+    record AgentResponse(String analysis, TokenMetrics metrics) {
     }
 }

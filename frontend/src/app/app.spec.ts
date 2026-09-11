@@ -77,19 +77,25 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
     expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
     expect(fixture.nativeElement.querySelector('.action-buttons').textContent).not.toContain('Сравнить');
-    expect(fixture.nativeElement.textContent).toContain('до перезапуска сервера');
+    expect(fixture.nativeElement.textContent).toContain('восстанавливает его после перезапуска');
 
     component.input = 'fact A'; component.analyze(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('mat-progress-bar')).not.toBeNull();
     component.analyze();
     const first = http.expectOne(`/api/dialogs/${a}/agent/messages`);
     expect(first.request.body).toEqual({ input: 'fact A' });
-    first.flush({ analysis: '## Запомнил\n<img src=x onerror=alert(1)>' });
+    first.flush({ analysis: '## Запомнил\n<img src=x onerror=alert(1)>', metrics: {
+      currentRequestTokens: 2, contextTokens: 12, responseTokens: 5,
+      providerUsage: { promptTokens: 20, completionTokens: 6, totalTokens: 26 },
+    } });
     const savedFirst = http.expectOne(r => r.method === 'PUT');
     savedFirst.flush(dialog(a, savedFirst.request.body.state.exchanges, savedFirst.request.body.state.ui));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.analysis-text h2')?.textContent).toBe('Запомнил');
     expect(fixture.nativeElement.querySelector('.analysis-text img')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('локальная оценка, не токенизация провайдера');
+    expect(fixture.nativeElement.textContent).toContain('2 / 12 / 5');
+    expect(fixture.nativeElement.textContent).toContain('20 / 6 / 26');
 
     component.input = 'follow-up A'; component.analyze();
     const followUp = http.expectOne(`/api/dialogs/${a}/agent/messages`);
@@ -123,12 +129,12 @@ describe('App', () => {
     returnA.flush({ analysis: 'still A' }); flushSave();
   });
 
-  it('shows Agent failures and permits the next manual send without retrying', () => {
+  it('shows Agent context overflow and permits the next manual send without retrying', () => {
     component.experiment = 'AGENT'; component.input = 'failed'; component.analyze();
     const route = `/api/dialogs/${dialog().id}/agent/messages`;
-    http.expectOne(route).flush({ error: 'Provider unavailable' }, { status: 502, statusText: 'Bad Gateway' });
+    http.expectOne(route).flush({ error: 'Estimated context limit exceeded: 12 > 10.' }, { status: 413, statusText: 'Payload Too Large' });
     flushSave(); fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('Provider unavailable');
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('Estimated context limit exceeded');
     http.expectNone(route);
     component.input = 'next'; component.analyze();
     const request = http.expectOne(route);

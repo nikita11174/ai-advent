@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -54,10 +55,11 @@ class MainTest {
         var transport = spy(new DeepSeekClient(http, JSON, "test-key"));
         var histories = mock(AgentHistoryStore.class);
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
-                new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories);
+                new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories,
+                new ApproximateTokenEstimator());
 
         assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
-        assertEquals("answer", agent.reply("next"));
+        assertEquals("answer", agent.reply("next").analysis());
 
         verify(transport).complete(List.of(
                 new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
@@ -92,6 +94,7 @@ class MainTest {
         String response = "{\"choices\":[{\"message\":{\"content\":\"Check empty input.\"}}]}";
 
         assertEquals("Check empty input.", client.extractContent(response));
+        assertNull(client.extractCompletion(response).usage());
     }
 
     @Test
@@ -215,8 +218,18 @@ class MainTest {
     }
 
     @Test
+    void extractsOptionalDeepSeekUsageWithoutTreatingItAsALocalEstimate() throws Exception {
+        DeepSeekClient.Completion completion = client.extractCompletion("""
+                {"choices":[{"finish_reason":"stop","message":{"content":"answer"}}],
+                 "usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}
+                """);
+
+        assertEquals(new ProviderUsage(100L, 20L, 120L), completion.usage());
+    }
+
+    @Test
     void rejectsControlledResponseFinishedByLengthAndPreservesContent() {
-        DeepSeekClient.Completion completion = new DeepSeekClient.Completion("{partial", "length");
+        DeepSeekClient.Completion completion = new DeepSeekClient.Completion("{partial", "length", null);
 
         DeepSeekException error = assertThrows(DeepSeekException.class,
                 () -> client.validateControlledCompletion(completion, ReviewControls.defaults()));

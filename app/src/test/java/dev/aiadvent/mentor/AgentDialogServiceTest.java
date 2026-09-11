@@ -36,13 +36,14 @@ class AgentDialogServiceTest {
         byte[] originalArchive = Files.readAllBytes(directory.resolve("dialogs").resolve(a + ".json"));
         DeepSeekClient client = mock(DeepSeekClient.class);
         when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn("answer A", "answer B", "follow-up A", "restored answer");
-        var service = new AgentDialogService(dialogs, client, histories);
+                .thenReturn(completion("answer A"), completion("answer B"), completion("follow-up A"),
+                        completion("restored answer"));
+        var service = service(dialogs, client, histories);
 
         service.reply(a, "A1");
         service.reply(b, "B1");
         service.reply(UUID.fromString(a.toString().toUpperCase()), "A2");
-        new AgentDialogService(dialogs, client, histories).reply(a, "after restart");
+        service(dialogs, client, histories).reply(a, "after restart");
 
         ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
         verify(client, times(4)).complete(messages.capture(), anyString(), isNull(), isNull());
@@ -71,7 +72,7 @@ class AgentDialogServiceTest {
         Files.writeString(history, "{\"messages\":[{\"role\":\"user\",\"content\":\"invalid\"}]}");
         DeepSeekClient client = mock(DeepSeekClient.class);
 
-        assertThrows(IOException.class, () -> new AgentDialogService(dialogs, client, histories).reply(id, "next"));
+        assertThrows(IOException.class, () -> service(dialogs, client, histories).reply(id, "next"));
         verifyNoInteractions(client);
     }
 
@@ -88,18 +89,18 @@ class AgentDialogServiceTest {
         when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
             providerEntered.countDown();
             assertTrue(releaseProvider.await(5, TimeUnit.SECONDS));
-            return "answer";
+            return completion("answer");
         });
-        var service = new AgentDialogService(dialogs, client, histories);
+        var service = service(dialogs, client, histories);
         var rejected = new CountDownLatch(1);
         var first = new FutureTask<>(() -> {
             start.await(5, TimeUnit.SECONDS);
-            try { return service.reply(id, "one"); }
+            try { return service.reply(id, "one").analysis(); }
             catch (EngineeringReviewAgent.BusyException e) { rejected.countDown(); return "busy"; }
         });
         var second = new FutureTask<>(() -> {
             start.await(5, TimeUnit.SECONDS);
-            try { return service.reply(id, "two"); }
+            try { return service.reply(id, "two").analysis(); }
             catch (EngineeringReviewAgent.BusyException e) { rejected.countDown(); return "busy"; }
         });
         Thread firstThread = Thread.ofPlatform().start(first);
@@ -119,5 +120,13 @@ class AgentDialogServiceTest {
         assertEquals(List.of(messages.getAllValues().getFirst().getFirst(), messages.getAllValues().getFirst().getLast(),
                 new ConversationContext.Message("assistant", "answer"), new ConversationContext.Message("user", "follow-up")),
                 messages.getValue());
+    }
+
+    private AgentDialogService service(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories) {
+        return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(), 0);
+    }
+
+    private DeepSeekClient.Completion completion(String content) {
+        return new DeepSeekClient.Completion(content, "stop", null);
     }
 }
