@@ -34,6 +34,10 @@ class AgentControllerTest {
     private AgentHistoryStore histories;
     @MockitoBean
     private ApproximateTokenEstimator tokenEstimator;
+    @MockitoBean
+    private AgentSummaryStore summaries;
+    @MockitoBean
+    private ConversationSummaryService summaryService;
 
     @Test
     void returnsAnalysisAndRejectsAnOverlappingRequest() throws Exception {

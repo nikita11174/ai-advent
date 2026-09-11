@@ -27,8 +27,8 @@ class AgentController {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
-        AgentReply reply = agents.reply(id, request.input());
-        return new AgentResponse(reply.analysis(), reply.metrics());
+        AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount());
+        return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.contextMetadata());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -49,9 +49,13 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
-    record AgentRequest(String input) {
+    record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount) {
+        AgentRequest(String input) {
+            this(input, null, null);
+        }
     }
 
-    record AgentResponse(String analysis, TokenMetrics metrics) {
+    record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
+                         ContextMetadata contextMetadata) {
     }
 }

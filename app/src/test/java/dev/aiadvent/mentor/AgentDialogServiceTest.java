@@ -77,6 +77,46 @@ class AgentDialogServiceTest {
     }
 
     @Test
+    void freshServiceRestoresSummaryStateWithoutRegeneratingIt() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var firstHistories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var firstSummaries = new AgentSummaryStore(directory.resolve("summaries"), json);
+        UUID id = UUID.fromString(dialogs.create().id());
+        DeepSeekClient client = mock(DeepSeekClient.class);
+        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+                .thenReturn(completion("a1"), completion("a2"), completion("a3"), completion("compressed"),
+                        completion("restored"));
+        ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
+        when(summaryService.generate(anyList(), isNull(), any(), eq(4)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(4, "remembered summary"),
+                        new TokenMetrics(3, 8, 4, null)));
+        var firstService = new AgentDialogService(dialogs, client, firstHistories, new ApproximateTokenEstimator(),
+                firstSummaries, summaryService, 0);
+
+        firstService.reply(id, "u1");
+        firstService.reply(id, "u2");
+        firstService.reply(id, "u3");
+        firstService.reply(id, "u4", ContextMode.SUMMARY_RECENT, 2);
+        verify(summaryService).generate(anyList(), isNull(), any(), eq(4));
+        assertEquals(9, firstHistories.load(id).orElseThrow().size());
+
+        ConversationSummaryService restoredSummaryService = mock(ConversationSummaryService.class);
+        var restoredHistories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var restoredSummaries = new AgentSummaryStore(directory.resolve("summaries"), json);
+        var secondService = new AgentDialogService(dialogs, client, restoredHistories, new ApproximateTokenEstimator(),
+                restoredSummaries, restoredSummaryService, 0);
+        secondService.reply(id, "u5", ContextMode.SUMMARY_RECENT, 4);
+
+        verifyNoInteractions(restoredSummaryService);
+        assertEquals(11, restoredHistories.load(id).orElseThrow().size());
+        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
+        verify(client, times(5)).complete(messages.capture(), anyString(), isNull(), isNull());
+        assertEquals(new ConversationContext.Message("system", "remembered summary"),
+                messages.getValue().get(1));
+    }
+
+    @Test
     void concurrentFirstRequestsUseOneAgent() throws Exception {
         DialogStore dialogs = mock(DialogStore.class);
         AgentHistoryStore histories = mock(AgentHistoryStore.class);
@@ -123,7 +163,8 @@ class AgentDialogServiceTest {
     }
 
     private AgentDialogService service(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories) {
-        return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(), 0);
+        return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
+                mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), 0);
     }
 
     private DeepSeekClient.Completion completion(String content) {

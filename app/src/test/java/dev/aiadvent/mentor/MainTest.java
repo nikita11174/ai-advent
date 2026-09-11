@@ -56,7 +56,8 @@ class MainTest {
         var histories = mock(AgentHistoryStore.class);
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
                 new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories,
-                new ApproximateTokenEstimator());
+                new ApproximateTokenEstimator(), mock(AgentSummaryStore.class),
+                mock(ConversationSummaryService.class), new FullContextPolicy(), new SummaryRecentContextPolicy());
 
         assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
         assertEquals("answer", agent.reply("next").analysis());

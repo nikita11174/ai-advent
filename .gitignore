@@ -10,5 +10,6 @@ tmp/
 .tmp.driveupload/
 docs/local/mentor-dialogs/
 docs/local/agent-histories/
+docs/local/agent-summaries/
 docs/local/agent-sessions/
 docs/local/screenshots/

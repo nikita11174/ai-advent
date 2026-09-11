@@ -13,6 +13,7 @@ type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
+type ContextMode = 'FULL' | 'SUMMARY_RECENT';
 
 interface ReviewControls {
   maxTokens: number; maxFindings: number; summaryMaxWords: number;
@@ -25,14 +26,15 @@ interface ProviderUsage { promptTokens: number | null; completionTokens: number 
 interface TokenMetrics {
   currentRequestTokens: number; contextTokens: number; responseTokens: number; providerUsage: ProviderUsage | null;
 }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; }
+interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
-  evaluation?: Evaluation; metrics?: TokenMetrics;
+  evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -54,6 +56,7 @@ interface DialogUiState {
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
   selectedModelKey?: string;
+  contextMode?: ContextMode; recentMessageCount?: number;
 }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
 
@@ -106,6 +109,8 @@ export class App implements OnInit {
   protected selectedMode: ReviewMode = 'FREE';
   protected selectedStrategy: ReasoningStrategy = 'DIRECT';
   protected selectedTemperature: Temperature = 0;
+  protected contextMode: ContextMode = 'FULL';
+  protected recentMessageCount = 4;
   protected selectedModelKey = 'WEAK';
   protected readonly modelOptions = signal<ModelProfile[]>([]);
   protected readonly modelOptionsError = signal('');
@@ -297,6 +302,7 @@ export class App implements OnInit {
     this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
+    this.contextMode = ui?.contextMode ?? 'FULL'; this.recentMessageCount = ui?.recentMessageCount ?? 4;
     if (this.experiment === 'MODELS') this.selectModels();
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
     this.nextExchangeId = Math.max(0, ...exchanges.map(exchange => exchange.id)) + 1;
@@ -308,8 +314,10 @@ export class App implements OnInit {
   private analyzeAgent(input: string): void {
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', free: { loading: true } });
     this.prepareAfterSubmit(); this.startRequest();
-    this.http.post<AgentResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`, { input }).subscribe({
-      next: response => this.finishResult(id, 'free', { analysis: response.analysis, metrics: response.metrics, loading: false }),
+    this.http.post<AgentResponse>(`/api/dialogs/${this.currentDialogId()}/agent/messages`,
+      { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount }).subscribe({
+      next: response => this.finishResult(id, 'free', { analysis: response.analysis, metrics: response.metrics,
+        summaryMetrics: response.summaryMetrics, contextMetadata: response.contextMetadata, loading: false }),
       error: (error: HttpErrorResponse) => this.finishResult(id, 'free', { error: this.errorMessage(error, false), loading: false }),
     });
   }
@@ -387,7 +395,8 @@ export class App implements OnInit {
     const completed = this.exchanges().map(exchange => this.withoutLoading(exchange));
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
-      selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey };
+      selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
+      contextMode: this.contextMode, recentMessageCount: this.recentMessageCount };
     this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });

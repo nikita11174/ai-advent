@@ -21,6 +21,10 @@ final class ConversationContext {
         return List.copyOf(request);
     }
 
+    List<Message> snapshot() {
+        return messages;
+    }
+
     List<Message> withCompletedTurn(String input, String analysis) {
         var completed = new ArrayList<>(messages);
         completed.add(new Message("user", input));

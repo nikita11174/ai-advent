@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Days 6–8 — TECHNICALLY COMPLETE; Day 8 API and desktop UI acceptance PASS |
-| Current branch | `day_8` from Day 7 commit `b2eb28e`; `developer` remains untouched until the whole week is complete and reviewed |
+| Current milestone | Day 9 technically complete; automated backend and targeted real restart/reuse verification PASS |
+| Current branch | `day_9` from Day 8 commit `e0085941`; `developer` remains untouched until the whole week is complete and reviewed |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 7 committed; Day 8 backend 67/frontend 17 tests and builds PASS; 5-call real API/UI acceptance PASS |
-| Next action | Review the complete Day 8 diff and prepare the Day 8 implementation checkpoint |
+| Status | Days 1–5 published/integrated; Day 8 committed; Day 9 backend 74/frontend 18 tests and build PASS; targeted real restart/reuse PASS with one provider call; initial contradictory smoke preserved as evidence |
+| Next action | Prepare Day 9 implementation checkpoint; do not rerun the FULL vs SUMMARY benchmark |
 
 ## Challenge days
 
@@ -28,7 +28,7 @@
 | Day 6 | DONE (`2966cbe`) | Backend 58 / frontend 17 tests + builds PASS; real API and UI 1440×1000 PASS; 5 total real provider calls; TECHNICALLY COMPLETE; video postponed by owner | NOT PUBLISHED |
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | DONE (uncommitted) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
-| Day 9 | PLANNED | Full versus summary + recent context comparison | NOT STARTED |
+| Day 9 | IMPLEMENTED (uncommitted) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
 | Day 10 | PLANNED | Sliding Window, Sticky Facts and Branching comparison | NOT STARTED |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
@@ -111,6 +111,9 @@ Angular 22 :4201
   **никогда не отправляется DeepSeek/OpenAI как conversation memory**.
 - Day 6 отдельно держит собственные successful turns в памяти backend и отправляет их DeepSeek
   целиком. UI archive не используется для восстановления этого context; restart очищает память.
+- Day 9 adds `FULL` and `SUMMARY_RECENT` context policies. Raw Day 7 history remains canonical and
+  durable; summaries are derived per-dialog state under `docs/local/agent-summaries/`, and summary
+  generation metrics remain separate from main response metrics.
 - Concise run evidence — tracked `docs/agent-runs/DAY-XX.md`; detailed local evidence — ignored
   `docs/local/agent-sessions/`.
 - `DEEPSEEK_API_KEY` и `OPENAI_API_KEY` доступны только backend environment; `.env.local` игнорируется Git.

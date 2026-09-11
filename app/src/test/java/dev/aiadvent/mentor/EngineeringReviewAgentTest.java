@@ -17,6 +17,8 @@ import static org.mockito.Mockito.*;
 class EngineeringReviewAgentTest {
     private final DeepSeekClient client = mock(DeepSeekClient.class);
     private final AgentHistoryStore histories = mock(AgentHistoryStore.class);
+    private final AgentSummaryStore summaries = mock(AgentSummaryStore.class);
+    private final ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
 
     @Test
     void sendsTheWholeConversationAndPersistsCompletedSnapshots() throws Exception {
@@ -188,9 +190,104 @@ class EngineeringReviewAgentTest {
         verifyNoInteractions(client, histories);
     }
 
+    @Test
+    void summaryRecentUsesLatestOddNumberOfMessagesAndKeepsSummaryMetricsSeparate() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var system = new ConversationContext.Message("system", config.systemPrompt());
+        var context = new ConversationContext(List.of(system,
+                new ConversationContext.Message("user", "u1"),
+                new ConversationContext.Message("assistant", "a1"),
+                new ConversationContext.Message("user", "u2"),
+                new ConversationContext.Message("assistant", "a2")));
+        var summaryMetrics = new TokenMetrics(8, 20, 5, new ProviderUsage(20L, 5L, 25L));
+        when(summaries.load(id)).thenReturn(java.util.Optional.empty());
+        when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary of u1"), summaryMetrics));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("a3"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy());
+
+        AgentReply reply = agent.reply("u3", ContextMode.SUMMARY_RECENT, 3);
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
+        assertEquals(List.of(system, new ConversationContext.Message("system", "summary of u1"),
+                new ConversationContext.Message("assistant", "a1"),
+                new ConversationContext.Message("user", "u2"),
+                new ConversationContext.Message("assistant", "a2"),
+                new ConversationContext.Message("user", "u3")), outbound.getValue());
+        assertEquals(summaryMetrics, reply.summaryMetrics());
+        assertEquals(ContextMode.SUMMARY_RECENT, reply.contextMetadata().mode());
+        assertEquals(3, reply.contextMetadata().recentMessageCount());
+        assertEquals(1, reply.contextMetadata().summarizedMessageCount());
+    }
+
+    @Test
+    void summaryFailureLeavesRawHistoryUnchangedAndSkipsMainProvider() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")));
+        when(summaries.load(id)).thenReturn(java.util.Optional.empty());
+        when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
+                .thenThrow(new DeepSeekException("summary unavailable"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy());
+
+        assertThrows(DeepSeekException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+        verifyNoInteractions(client);
+        verify(histories, never()).save(any(), anyList());
+        verify(summaries, never()).save(any(), any());
+        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")),
+                context.snapshot());
+    }
+
+    @Test
+    void malformedSummaryStopsBeforeProvider() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var agent = new EngineeringReviewAgent(id, config,
+                new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                        new ConversationContext.Message("user", "u1"),
+                        new ConversationContext.Message("assistant", "a1"))), client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy());
+        when(summaries.load(id)).thenThrow(new IOException("Agent summary is malformed."));
+
+        assertThrows(IOException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+        verifyNoInteractions(client);
+        verifyNoInteractions(summaryService);
+    }
+
+    @Test
+    void summarySaveFailureLeavesRawHistoryUnchangedAndSkipsMainProvider() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
+                new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")));
+        when(summaries.load(id)).thenReturn(java.util.Optional.empty());
+        when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary"),
+                        new TokenMetrics(1, 2, 3, null)));
+        doThrow(new IOException("summary storage unavailable")).when(summaries).save(eq(id), any());
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy());
+
+        assertThrows(IOException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+        verifyNoInteractions(client);
+        verify(histories, never()).save(any(), anyList());
+        assertEquals(3, context.snapshot().size());
+    }
+
     private EngineeringReviewAgent agent(UUID id, AgentConfig config) {
         return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories,
-                new ApproximateTokenEstimator());
+                new ApproximateTokenEstimator(), summaries, summaryService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy());
     }
 
     private DeepSeekClient.Completion completion(String content) {

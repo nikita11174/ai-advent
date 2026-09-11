@@ -13,6 +13,8 @@ interface TestApp {
   selectedMode: 'FREE' | 'CONTROLLED';
   selectedStrategy: 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
   selectedTemperature: 0 | 0.7 | 1.2;
+  contextMode: 'FULL' | 'SUMMARY_RECENT';
+  recentMessageCount: number;
   controls: { maxTokens: number; maxFindings: number };
   analyze(): void;
   compare(): void;
@@ -83,11 +85,11 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('mat-progress-bar')).not.toBeNull();
     component.analyze();
     const first = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(first.request.body).toEqual({ input: 'fact A' });
+    expect(first.request.body).toEqual({ input: 'fact A', contextMode: 'FULL', recentMessageCount: 4 });
     first.flush({ analysis: '## Запомнил\n<img src=x onerror=alert(1)>', metrics: {
       currentRequestTokens: 2, contextTokens: 12, responseTokens: 5,
       providerUsage: { promptTokens: 20, completionTokens: 6, totalTokens: 26 },
-    } });
+    }, summaryMetrics: null, contextMetadata: { mode: 'FULL', recentMessageCount: 4, summary: null, summarizedMessageCount: 0 } });
     const savedFirst = http.expectOne(r => r.method === 'PUT');
     savedFirst.flush(dialog(a, savedFirst.request.body.state.exchanges, savedFirst.request.body.state.ui));
     fixture.detectChanges();
@@ -99,7 +101,7 @@ describe('App', () => {
 
     component.input = 'follow-up A'; component.analyze();
     const followUp = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(followUp.request.body).toEqual({ input: 'follow-up A' });
+    expect(followUp.request.body).toEqual({ input: 'follow-up A', contextMode: 'FULL', recentMessageCount: 4 });
     followUp.flush({ analysis: 'answer A' });
     const save = http.expectOne(r => r.method === 'PUT');
     const archive = structuredClone(save.request.body.state);
@@ -110,7 +112,7 @@ describe('App', () => {
     component.newDialog(); http.expectOne('/api/dialogs').flush(dialog(b));
     component.experiment = 'AGENT'; component.input = 'question B'; component.analyze();
     const requestB = http.expectOne(`/api/dialogs/${b}/agent/messages`);
-    expect(requestB.request.body).toEqual({ input: 'question B' });
+    expect(requestB.request.body).toEqual({ input: 'question B', contextMode: 'FULL', recentMessageCount: 4 });
     requestB.flush({ analysis: 'no context B' });
     const saveB = http.expectOne(r => r.method === 'PUT');
     expect(saveB.request.body.state.exchanges).toHaveLength(1);
@@ -125,7 +127,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('question B');
     component.input = 'back to A'; component.analyze();
     const returnA = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(returnA.request.body).toEqual({ input: 'back to A' });
+    expect(returnA.request.body).toEqual({ input: 'back to A', contextMode: 'FULL', recentMessageCount: 4 });
     returnA.flush({ analysis: 'still A' }); flushSave();
   });
 
@@ -138,9 +140,28 @@ describe('App', () => {
     http.expectNone(route);
     component.input = 'next'; component.analyze();
     const request = http.expectOne(route);
-    expect(request.request.body).toEqual({ input: 'next' });
+    expect(request.request.body).toEqual({ input: 'next', contextMode: 'FULL', recentMessageCount: 4 });
     request.flush({ analysis: 'recovered' }); flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('recovered');
+  });
+
+  it('sends Summary Recent settings and renders separate summary metrics', () => {
+    component.experiment = 'AGENT'; component.contextMode = 'SUMMARY_RECENT'; component.recentMessageCount = 3;
+    component.input = 'compare context'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toEqual({ input: 'compare context', contextMode: 'SUMMARY_RECENT', recentMessageCount: 3 });
+    request.flush({ analysis: 'compressed answer', metrics: {
+      currentRequestTokens: 4, contextTokens: 18, responseTokens: 6,
+      providerUsage: { promptTokens: 30, completionTokens: 8, totalTokens: 38 },
+    }, summaryMetrics: {
+      currentRequestTokens: 9, contextTokens: 14, responseTokens: 5,
+      providerUsage: { promptTokens: 20, completionTokens: 5, totalTokens: 25 },
+    }, contextMetadata: { mode: 'SUMMARY_RECENT', recentMessageCount: 3, summary: 'old facts', summarizedMessageCount: 2 } });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('SUMMARY_RECENT');
+    expect(fixture.nativeElement.textContent).toContain('сжато сообщений: 2');
+    expect(fixture.nativeElement.textContent).toContain('old facts');
+    expect(fixture.nativeElement.textContent).toContain('Summary generation');
   });
 
   it('selects the model experiment and sends only the selected model and exact input', () => {

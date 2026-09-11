@@ -135,9 +135,18 @@
       @else if (result?.analysis) {
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
         @if (agent && result.metrics) {
-          <span class="control-metadata">Day 8 · локальная оценка, не токенизация провайдера:<br>
+          <span class="control-metadata">Day 8/9 · локальная оценка, не токенизация провайдера:<br>
             request / context / response: {{ result.metrics.currentRequestTokens }} / {{ result.metrics.contextTokens }} / {{ result.metrics.responseTokens }}
             @if (result.metrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
+        }
+        @if (agent && result.contextMetadata) {
+          <span class="control-metadata">Контекст: {{ result.contextMetadata.mode }} · последние raw messages: {{ result.contextMetadata.recentMessageCount }} · сжато сообщений: {{ result.contextMetadata.summarizedMessageCount }}</span>
+          @if (result.contextMetadata.summary) { <details><summary>Показать summary</summary><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></details> }
+        }
+        @if (agent && result.summaryMetrics) {
+          <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
+            request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
+            @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
         }
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
@@ -252,7 +261,16 @@
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
       } @else if (experiment === 'AGENT') {
-        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Day 8 показывает локальную оценку tokens для каждого успешного turn.</small>
+        <div class="reasoning-controls">
+          <label>Контекст <select [(ngModel)]="contextMode" aria-label="Режим контекста">
+            <option value="FULL">FULL</option>
+            <option value="SUMMARY_RECENT">SUMMARY + RECENT</option>
+          </select></label>
+          @if (contextMode === 'SUMMARY_RECENT') {
+            <label>Последние raw messages <input type="number" min="1" [(ngModel)]="recentMessageCount" /></label>
+          }
+        </div>
+        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Summary — отдельная производная контекста; локальные оценки токенов не являются токенизацией провайдера.</small>
       }
       <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>
       <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">
