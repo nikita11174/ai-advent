@@ -2,9 +2,9 @@
 
 Дата: 2026-09-10. Статус: **TECHNICALLY COMPLETE; deterministic tests/build PASS; real API PASS; UI 1440×1000 PASS; video PENDING**.
 Baseline: `developer`, HEAD `06355effc56d60b4d43b58c7e274b0ec20622337`, Days 1–5 интегрированы.
-Ветка реализации: `day_6`, создана от этого baseline; HEAD тот же, commit не создан.
+Ветка реализации: `day_6`; feature commit `2966cbe2fec86aceefe42af701cd39b3b4bdc9d1` создан от этого baseline; `developer` не изменён.
 План **OWNER APPROVED** явной командой «Implement the approved Day 6 plan»; реализация и
-deterministic local verification разрешены. Последующая команда владельца разрешила real API/browser verification; commit/push не разрешены.
+deterministic local verification разрешены. Последующие команды владельца разрешили real API/browser verification и local feature commit; push не разрешён.
 Разделы 1–11 сохраняют план с уточнением config; фактический результат — §12 и
 [отчёт реализации](../agent-runs/DAY-06.md).
 Предыдущий [анализ](../agent-runs/DAY-06-ANALYSIS.md) переиспользован; его раздел 11 фиксирует дельту.

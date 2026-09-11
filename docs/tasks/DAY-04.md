@@ -166,7 +166,11 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
 - [x] 9-call real experiment
 - [x] owner UX/responsive acceptance
 - [ ] demo video
-- [ ] repository/code publication
+- [x] repository/code publication — https://github.com/nikita11174/ai-advent/tree/day_4
+
+2026-09-07: recording demo на day_4 выполнено после owner START: один PaymentReceived benchmark,
+compare-all 0/0.7/1.2, три real DeepSeek responses и показ comparison cards. Без дополнительных calls
+или retry. OBS управлял владелец; сохранение/загрузка видео и подача организатору не подтверждены.
 
 DAY 4 IMPLEMENTATION = **DONE**
 

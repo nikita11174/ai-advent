@@ -112,7 +112,9 @@ entrypoint и не предполагает заранее следующую а
   секрета.
 - **Repository/code link:** `https://github.com/nikita11174/ai-advent`.
 
-Текущий код опубликован во всех трёх согласованных ветках GitHub. Web demo video ещё не записано.
+Код опубликован: https://github.com/nikita11174/ai-advent/tree/day_1.
+2026-09-07 Chrome demo выполнено после owner START (включая отдельно запрошенный повтор): input,
+real DeepSeek response и Markdown показаны. OBS управлял владелец; сохранение/загрузка видео не подтверждены.
 
 Day 1 реализован в `day_1`, созданной от integration branch `developer`; завершённый increment
 продвигается в stable branch `main`.
@@ -187,7 +189,7 @@ Package, unit tests и реальный DeepSeek API call проверены п�
 - Fresh final browser smoke на `:4201`: два `/api/review` request — HTTP 200; loading, русский
   Markdown, порядок exchanges, overflow, удержание низа после ответа и ручной scroll/return — PASS.
 - Repository/code опубликован: `https://github.com/nikita11174/ai-advent`.
-- Web demo video ещё не подготовлено.
+- Demo flow выполнен; файл OBS/video link и отправка организатору ещё не подтверждены.
 
 ## 12. Submission checklist
 

@@ -469,7 +469,12 @@ Open product decisions: **NONE**. Implementation blockers: **NONE**.
 - [x] backend/frontend automated verification and production builds
 - [x] real four-strategy API verification
 - [ ] owner visual browser review / demo video
-- [ ] repository/code publication for Day 3
+- [x] repository/code publication — https://github.com/nikita11174/ai-advent/tree/day_3
+
+2026-09-07: на day_3 после owner START выполнен Chrome recording demo: один benchmark,
+compare-all, четыре полученных результата, reveal generated prompt SELF_PROMPT и checklist fields.
+Дополнительных retry не было. OBS управлял владелец; файл/загрузка видео и отдельное owner visual
+acceptance не подтверждены. Demo execution не заменяет подтверждение публикации видео.
 
 DAY 3 IMPLEMENTATION = **DONE**
 

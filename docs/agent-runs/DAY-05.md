@@ -1,5 +1,18 @@
 # Day 5 — implementation / real experiment evidence
 
+## Publication / integration / runtime checkpoint — 2026-09-07
+
+Codex; owner explicitly authorized normal pushes day_1–day_5 and integration day_5 → developer.
+day_1 already published; day_2–day_5 pushed, remote heads confirmed. developer fast-forwarded
+to `06355effc56d60b4d43b58c7e274b0ec20622337` and pushed. main untouched (`45c62e1`).
+Report and code publication DONE; organizer submission not confirmed. No new commits during
+these Git operations, no tests/API calls. Safety check: 159 historical blobs, no configured key
+values/obvious sk-keys or local/generated artifacts in published history.
+Then owner requested stopping AI Advent services: backend18080 and both frontend4201 listeners
+stopped, final listener count zero. Other projects untouched.
+Current docs reconciled on developer without commit/push; Day 6 not started. Below publication-PENDING
+statements belong to earlier dated checkpoints, not current operational truth.
+
 ## Финальный статус — 2026-09-06
 
 Implementation **DONE**: `951e65c4516c4f01fb3321cbb86dc2574591d911` — implementation/evidence

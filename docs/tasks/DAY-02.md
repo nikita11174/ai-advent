@@ -395,6 +395,10 @@ application-side проверки schema, cardinality, enum values и факти
 - [x] Three default and one customized real CONTROLLED verification
 - [x] Real browser FREE/CONTROLLED/comparison smoke
 - [ ] Demo video
-- [ ] Repository/code publication through the approved branch flow
+- [x] Repository/code publication — https://github.com/nikita11174/ai-advent/tree/day_2
+
+2026-09-07: recording demo выполнено на day_2 через Chrome после owner START: точный одинаковый
+input, FREE Markdown, видимые defaults CONTROLLED, затем structured response. Два calls, без retry.
+OBS управлял владелец; сохранённый файл/загрузка/подача видео не подтверждены.
 
 Day 2: **IMPLEMENTATION DONE / VERIFICATION DONE / SUBMISSION PENDING**.

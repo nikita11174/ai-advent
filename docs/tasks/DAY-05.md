@@ -4,7 +4,8 @@
 Implementation: **DONE**, checkpoint `951e65c4516c4f01fb3321cbb86dc2574591d911`.
 Automated verification: **PASS**. OpenAI access: **VERIFIED**.
 Real experiment: **ACCEPTED — 7 completed / 9 attempts**; browser replay/refresh: **PASS**.
-Quality comparison: **OWNER APPROVED**. Submission report: **READY**. Publication: **PENDING**.
+Quality comparison: **OWNER APPROVED**. Submission report: **PUBLISHED**. Publication: **DONE**.
+Отправка отчёта организатору: **NOT CONFIRMED**. Days 1–5 интегрированы в `developer` (2026-09-07).
 Day 6: **NOT STARTED**. Отчёт: [DAY-05-REPORT.md](../DAY-05-REPORT.md).
 Дата проверки документации: **2026-09-05**. Ветка `day_5` от finalized Day 4 `9ff5b29`.
 
@@ -336,7 +337,7 @@ Owner принял эти incomplete как реальные результат�
 Изменение ceiling возможно только как отдельно разрешённый будущий эксперимент, не замена этого.
 Quality conclusion утверждён владельцем; [итоговый отчёт](../DAY-05-REPORT.md) — canonical
 shareable conclusion. Подробная классификация и история — `docs/agent-runs/DAY-05.md`.
-Блокеров финализации нет; публикация требует отдельной owner-авторизации.
+Блокеров финализации нет; публикация требует отдельной owner-авторизации. См. CURRENT-STATE.
 Если реальный API противоречит docs (effort/model access/tier), сохранить факт и остановить
 соответствующий verification path; модели/preset не заменять молча.
 Первый Luna smoke был отдельным вызовом (USD 0.0000948); затем owner разрешил ровно девять
@@ -352,11 +353,13 @@ No push/merge/rebase/branch deletion.
 - [x] Nine-attempt protocol + browser replay/persistence verification
 - [x] Owner acceptance: 7 completed / 9 attempts, включая два Terra incomplete как valid observations
 - [x] Owner-approved quality/speed/resource conclusion и [готовый report](../DAY-05-REPORT.md)
-- [ ] Code publication/link for Day 5 (separate owner-authorized Git flow)
+- [x] Code publication/link for Day 5 — https://github.com/nikita11174/ai-advent/tree/day_5
+- [x] Report published — https://github.com/nikita11174/ai-advent/blob/day_5/docs/DAY-05-REPORT.md
+- [ ] Organizer submission confirmed
 
 Report может заменить video по Day 5 clarification; in-app report generation не требуется.
-Repository: https://github.com/nikita11174/ai-advent — это существующий repo, не evidence публикации
-ещё не опубликованного Day 5. Day 1–4 pending submissions не закрываются этим документом.
+Repository: https://github.com/nikita11174/ai-advent. Day 5 published HEAD `06355ef`;
+developer интегрирован на тот же checkpoint. Day 1–4 pending submissions не закрываются этим документом.
 
 ## 16. Official external references — checked 2026-09-05
 

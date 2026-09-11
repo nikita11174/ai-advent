@@ -24,20 +24,22 @@
 
 ## Current task
 
-**Day 6 реализован локально** на `day_6` от developer `06355effc56d60b4d43b58c7e274b0ec20622337`.
-HEAD равен базе; commit/push не выполнялись. Canonical — `docs/tasks/DAY-06.md`, фактический отчёт —
-`docs/agent-runs/DAY-06.md`. Backend 58/58, frontend 17/17 и оба builds PASS.
+**Day 6 TECHNICALLY COMPLETE**: commit `2966cbe2fec86aceefe42af701cd39b3b4bdc9d1` на `day_6`.
+Canonical — `docs/tasks/DAY-06.md`, фактический отчёт — `docs/agent-runs/DAY-06.md`.
+Backend 58/58, frontend 17/17 и оба builds PASS.
 Runtime agent per UUID отправляет полный собственный stack; restart очищает память.
-Real API PASS: 4 calls A1/A2/B1/A3, точный outgoing context подтверждён. UI 1440×1000 PASS; TECHNICALLY COMPLETE; video PENDING.
+Real API PASS; desktop UI 1440×1000 PASS; всего 5 реальных provider calls. Видео отложено владельцем.
+**Следующая задача — Day 7**: создать `day_7` от завершённой `day_6`; `developer` не merge до завершения/review недели.
 
 **Week 1 / Day 5 финализирован**: implementation DONE, automated PASS, OpenAI access VERIFIED;
-experiment ACCEPTED — 7 completed / 9 attempts, quality OWNER APPROVED. Report READY, publication PENDING.
+experiment ACCEPTED — 7 completed / 9 attempts, quality OWNER APPROVED. Report и day_1–day_5 опубликованы.
 Canonical contract — `docs/tasks/DAY-05.md`; исторический анализ — `docs/agent-runs/DAY-05-ANALYSIS.md`.
-Ветка `day_5` от finalized Day 4 `9ff5b29`; implementation checkpoint `951e65c`.
+Базовая ветка `developer`: fast-forward integration checkpoint `06355ef`, отправлен в origin;
+implementation checkpoint Day 5 `951e65c`. `main` не изменялся.
 Итог — `docs/DAY-05-REPORT.md`; история — `docs/agent-runs/DAY-05.md`; next action — CURRENT-STATE.
-Day 6 TECHNICALLY COMPLETE. Следующий шаг — подготовка видео; дополнительные real calls/retries не нужны.
-Day 4 implementation, technical verification и owner UX acceptance DONE; video/publication PENDING.
-Day 1–3 visual/submission items остаются отдельными pending действиями.
+Дополнительные реальные calls/retries Day 5 и Day 6 не требуются.
+Day 1–4 recording demos выполнены; сохранение/загрузка OBS-видео и отправка Day 5 report не подтверждены.
+Frontend http://127.0.0.1:4201 доступен; desktop UI PASS с одним дополнительным реальным вызовом. Day 7 — следующий task; evidence — последний раздел Day 6 task.
 
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

@@ -95,5 +95,8 @@ replay сохранённых реальных ответов с refresh про�
 
 Код: [nikita11174/ai-advent](https://github.com/nikita11174/ai-advent).
 Day 5 implementation checkpoint: `951e65c4516c4f01fb3321cbb86dc2574591d911`.
-**Отчёт готов; публикация Day 5 commit/ветки пока PENDING** — ссылка на repository не означает,
-что текущий локальный Day 5 уже опубликован.
+**Код и отчёт опубликованы**:
+[ветка day_5](https://github.com/nikita11174/ai-advent/tree/day_5),
+[отчёт на day_5](https://github.com/nikita11174/ai-advent/blob/day_5/docs/DAY-05-REPORT.md).
+Подача организатору отдельно не подтверждена. Опубликованный snapshot отчёта на day_5 сохраняет
+историческую pre-publication пометку; актуальный статус здесь записан после публикации.
