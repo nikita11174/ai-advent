@@ -120,3 +120,18 @@ Persisted linear history не содержала ClickHouse branch continuation.
 STICKY_FACTS MAIN + 3 maintenance calls из ошибочной первой версии local harness; 2 branch MAIN calls.
 Raw evidence (без credentials) — ignored
 `docs/local/agent-sessions/day10-post-review-acceptance/`. Product code during acceptance не менялся.
+
+## SECOND POST-REVIEW FRONTEND REMEDIATION — 2026-09-12
+
+Targeted independent verification выявила только три frontend gaps и они исправлены без backend
+changes: выбранный checkpoint остаётся самостоятельной base selection и не перезаписывается active
+branch при topology reload; structured error-side `summaryMetrics`/`factsMetrics` сохраняются и
+отображаются без fabricated main metrics; topology load и Agent send взаимно исключены, поэтому
+старый snapshot не может стереть pending/new branch projection.
+
+Focused и полный frontend test run: 26/26 PASS. `npm run build` PASS с существующими warnings для
+initial bundle и `app.scss`. Narrow browser acceptance на 1440×1000 PASS: реальный C2 сохранился
+через topology reload и создал branch по C2 URL; при искусственно задержанных topology GET кнопка
+send была disabled и POST не был отправлен; CDP-fulfilled structured 502 показал maintenance facts
+рядом с error, без main metrics. Реальных provider calls не было. Raw evidence — ignored
+`docs/local/agent-sessions/day10-second-remediation-acceptance/`.

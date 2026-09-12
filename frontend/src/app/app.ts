@@ -30,6 +30,7 @@ interface TokenMetrics {
 interface StickyFacts { coveredUserMessageCount: number; facts: Record<string, string>; }
 interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: StickyFacts | null; }
 interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; contextMetadata: ContextMetadata; }
+interface AgentError { error?: string; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
@@ -174,7 +175,7 @@ export class App implements OnInit {
         if (!this.isCurrentTopologyOperation(id, operation)) return;
         this.branches.update(items => [...items, branch]);
         this.branchViews.update(views => ({ ...views, [branch.id]: this.exchangesFromHistory(branch) }));
-        this.branchId = branch.id; this.contextMode = 'FULL'; this.checkpointId = branch.checkpointId;
+        this.branchId = branch.id; this.contextMode = 'FULL';
         this.finishTopologyOperation(id, operation); this.persistDialog();
       },
       error: () => this.failTopologyOperation(id, operation, 'Не удалось создать ветку.'),
@@ -186,7 +187,6 @@ export class App implements OnInit {
     this.branchId = branchId;
     if (branchId) {
       this.contextMode = 'FULL';
-      this.checkpointId = this.branches().find(branch => branch.id === branchId)?.checkpointId ?? this.checkpointId;
       if (!this.branchViews()[branchId]) this.loadTopology();
     } else {
       this.contextMode = this.linearContextMode;
@@ -258,7 +258,7 @@ export class App implements OnInit {
 
   protected analyze(): void {
     const input = this.input;
-    if (!input.trim() || this.loading() || !this.currentDialogId()) return;
+    if (!input.trim() || this.loading() || !this.currentDialogId() || (this.experiment === 'AGENT' && this.topologyBusy())) return;
     if (this.experiment === 'AGENT') { this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
@@ -388,7 +388,7 @@ export class App implements OnInit {
     if (this.experiment === 'AGENT') this.loadTopology();
   }
   private loadTopology(): void {
-    const id = this.currentDialogId(); if (!id || this.topologyBusy()) return;
+    const id = this.currentDialogId(); if (!id || this.loading() || this.topologyBusy()) return;
     const operation = ++this.topologyRequestGeneration;
     this.topologyBusy.set(true); this.topologyError.set('');
     forkJoin({
@@ -403,7 +403,9 @@ export class App implements OnInit {
           this.branchId = null; this.contextMode = this.linearContextMode;
           this.topologyError.set('Выбранная ветка больше недоступна. Показан линейный диалог.');
         }
-        if (this.branchId) this.checkpointId = topology.branches.find(branch => branch.id === this.branchId)?.checkpointId ?? this.checkpointId;
+        if (!topology.checkpoints.some(checkpoint => checkpoint.id === this.checkpointId)) {
+          this.checkpointId = topology.checkpoints[0]?.id ?? null;
+        }
         this.finishTopologyOperation(id, operation);
       },
       error: () => this.failTopologyOperation(id, operation, 'Не удалось загрузить topology диалога.'),
@@ -421,7 +423,11 @@ export class App implements OnInit {
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
         summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, contextMetadata: response.contextMetadata, loading: false }),
-      error: (error: HttpErrorResponse) => this.finishAgentResult(dialogId, id, { error: this.errorMessage(error, false), loading: false }),
+      error: (error: HttpErrorResponse) => {
+        const details = error.error as AgentError | null;
+        this.finishAgentResult(dialogId, id, { error: this.errorMessage(error, false),
+          summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [], loading: false });
+      },
     });
   }
   private analyzeReasoning(input: string): void {

@@ -23,6 +23,7 @@ interface TestApp {
   createCheckpoint(): void;
   createBranch(): void;
   switchBranch(branchId: string | null): void;
+  selectCheckpoint(checkpointId: string | null): void;
   branches(): readonly { id: string; checkpointId: string; history: unknown[] }[];
   controls: { maxTokens: number; maxFindings: number };
   analyze(): void;
@@ -247,6 +248,82 @@ describe('App', () => {
     component.switchBranch(null);
     const linearSave = http.expectOne(r => r.method === 'PUT'); linearSave.flush(dialog());
     expect(component.contextMode).toBe('STICKY_FACTS');
+  });
+
+  it('keeps an explicit checkpoint selection through topology reload and creates from it', () => {
+    const id = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(id);
+    http.expectOne(`/api/dialogs/${id}`).flush(dialog(id, [], { experiment: 'AGENT', selectedMode: 'FREE',
+      selectedStrategy: 'DIRECT', selectedTemperature: 0, branchId: 'branch-a', checkpointId: 'checkpoint-1' }));
+    const topology = [
+      { id: 'branch-a', checkpointId: 'checkpoint-1', history: [] },
+    ];
+    const checkpoints = [
+      { id: 'checkpoint-1', baseHistory: [], branches: [] },
+      { id: 'checkpoint-2', baseHistory: [], branches: [] },
+    ];
+    flushTopology(id, topology, checkpoints);
+
+    component.selectCheckpoint('checkpoint-2');
+    http.expectOne(r => r.method === 'PUT').flush(dialog());
+    component.selectAgent();
+    flushTopology(id, topology, checkpoints);
+    expect(component.checkpointId).toBe('checkpoint-2');
+
+    component.createBranch();
+    const request = http.expectOne(`/api/dialogs/${id}/agent/checkpoints/checkpoint-2/branches`);
+    request.flush({ id: 'branch-c', checkpointId: 'checkpoint-2', history: [] });
+    http.expectOne(r => r.method === 'PUT').flush(dialog());
+  });
+
+  it('renders completed maintenance metrics alongside an Agent error without main metrics', () => {
+    component.experiment = 'AGENT'; component.input = 'facts failure'; component.analyze();
+    http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush({ error: 'main failed', summaryMetrics: null,
+      factsMetrics: [{ currentRequestTokens: 2, contextTokens: 4, responseTokens: 3, providerUsage: null }] },
+      { status: 502, statusText: 'Bad Gateway' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('main failed');
+    expect(fixture.nativeElement.textContent).toContain('Sticky facts maintenance · calls: 1');
+    expect(fixture.nativeElement.textContent).toContain('2 / 4 / 3');
+    expect(fixture.nativeElement.textContent).not.toContain('Day 8/9 · локальная оценка');
+  });
+
+  it('renders summary maintenance metrics alongside an Agent error without main metrics', () => {
+    component.experiment = 'AGENT'; component.input = 'summary failure'; component.analyze();
+    http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush({ error: 'main overflow', factsMetrics: [],
+      summaryMetrics: { currentRequestTokens: 5, contextTokens: 8, responseTokens: 2, providerUsage: null } },
+      { status: 413, statusText: 'Payload Too Large' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('main overflow');
+    expect(fixture.nativeElement.textContent).toContain('Summary generation');
+    expect(fixture.nativeElement.textContent).toContain('5 / 8 / 2');
+    expect(fixture.nativeElement.textContent).not.toContain('Day 8/9 · локальная оценка');
+  });
+
+  it('blocks branch send during topology loading and shows the next completed response with metrics', () => {
+    const id = dialog().id;
+    component.experiment = 'AGENT'; component.branchId = 'branch-a'; component.input = 'branch turn';
+    component.selectAgent(); fixture.detectChanges();
+    const button = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((item: HTMLButtonElement) => item.textContent?.trim() === 'Проанализировать') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    component.analyze();
+    http.expectNone(`/api/dialogs/${id}/agent/messages`);
+    expect(component.input).toBe('branch turn');
+
+    flushTopology(id, [{ id: 'branch-a', checkpointId: 'checkpoint-1', history: [] }],
+      [{ id: 'checkpoint-1', baseHistory: [], branches: [] }]);
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+
+    component.analyze();
+    const request = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(request.request.body).toEqual({ input: 'branch turn', contextMode: 'FULL', recentMessageCount: 4, branchId: 'branch-a' });
+    request.flush({ analysis: 'branch response', metrics: { currentRequestTokens: 1, contextTokens: 2, responseTokens: 3, providerUsage: null },
+      summaryMetrics: null, factsMetrics: [], contextMetadata: { mode: 'FULL', recentMessageCount: 4, summary: null, summarizedMessageCount: 0 } });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('branch response');
+    expect(fixture.nativeElement.textContent).toContain('1 / 2 / 3');
   });
 
   it('ignores stale topology after a dialog switch and renders a topology loading error', () => {

@@ -7,14 +7,14 @@
 | Поле | Состояние |
 |---|---|
 | Product | Engineering Review Mentor |
-| Current milestone | Day 10 committed; post-independent-review fixes verified automatically and targeted real re-acceptance PASS |
+| Current milestone | Day 10 committed; second post-review frontend remediation verified and awaits its separate local commit |
 | Current branch | `day_10`; original Day 10 feature commit `f2db8634453182de927f21412fd069b8e33b8297` (`feat: add context management strategies`) followed by accepted post-review remediation; `developer` remains untouched |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 committed; independent review ran 89/89 backend tests and post-review suite 96/96; 9 historical and 7 targeted-re-acceptance real provider calls; desktop 1440×1000 acceptance PASS |
-| Next action | Owner may make the post-review commit decision; no further provider or browser run is required |
+| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 remediation commit `b538516`; second frontend remediation: 26/26 frontend tests and build PASS; narrow desktop 1440×1000 acceptance PASS without provider calls |
+| Next action | Create the separately authorized second remediation commit; no additional provider acceptance is required |
 
 ## Challenge days
 
@@ -29,7 +29,7 @@
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | DONE (`e0085941`) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
 | Day 9 | DONE (`4597f3b`) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
-| Day 10 | DONE (`f2db863`) | Independent review: backend 89/89; post-review backend 96/96, frontend 22/22 and build PASS; targeted real re-acceptance PASS | READY FOR POST-REVIEW COMMIT DECISION |
+| Day 10 | DONE (`f2db863`, `b538516`) | Second frontend remediation: 26/26 frontend tests and build PASS; narrow browser acceptance PASS | READY FOR SECOND REMEDIATION COMMIT |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),
@@ -71,6 +71,14 @@ not a product loading-state defect. A real restart reloaded two persisted checkp
 explicitly selected orphan checkpoint, and created its branch from that selected checkpoint. Seven
 additional provider calls were made without retries; raw evidence remains ignored under
 `docs/local/agent-sessions/day10-post-review-acceptance/`.
+
+Second post-review verification found and frontend remediation closed three direct UI gaps: explicit
+checkpoint selection now remains the new-branch base across topology reload; structured summary/facts
+maintenance metrics render with a later Agent error and without fabricated main metrics; topology load
+and agent send are mutually blocked to prevent stale branch projections. Frontend 26/26 and build PASS.
+Narrow browser acceptance at 1440×1000 used real topology endpoints and a CDP-fulfilled 502 only for
+the error-rendering contract; it made no provider calls. Raw evidence remains ignored under
+`docs/local/agent-sessions/day10-second-remediation-acceptance/`.
 
 Day 4 planning начат по official Telegram message `1642`. Day 5 (`1798`) design:
 `docs/tasks/DAY-05.md` — direct OpenAI Luna/Terra/Sol, relative family tiers, PaymentReceived,

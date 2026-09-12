@@ -144,22 +144,22 @@
           @if (result.contextMetadata.summary) { <details><summary>Показать summary</summary><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></details> }
           @if (result.contextMetadata.facts) { <details><summary>Показать sticky facts</summary><pre class="raw-json"><code>{{ result.contextMetadata.facts | json }}</code></pre></details> }
         }
-        @if (agent && result.summaryMetrics) {
-          <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
-            request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
-            @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
-        }
-        @if (agent && result.factsMetrics?.length) {
-          <span class="control-metadata">Sticky facts maintenance · calls: {{ result.factsMetrics.length }}</span>
-            @for (metrics of result.factsMetrics; track $index) {
-              <span class="control-metadata">request / context / response: {{ metrics.currentRequestTokens }} / {{ metrics.contextTokens }} / {{ metrics.responseTokens }}</span>
-              @if (metrics.providerUsage) {
-                <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
-              }
-            }
-        }
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
+      @if (agent && result?.summaryMetrics) {
+        <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
+          request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
+          @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
+      }
+      @if (agent && result?.factsMetrics?.length) {
+        <span class="control-metadata">Sticky facts maintenance · calls: {{ result.factsMetrics.length }}</span>
+          @for (metrics of result.factsMetrics; track $index) {
+            <span class="control-metadata">request / context / response: {{ metrics.currentRequestTokens }} / {{ metrics.contextTokens }} / {{ metrics.responseTokens }}</span>
+            @if (metrics.providerUsage) {
+              <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
+            }
+          }
+      }
     </ng-template>
 
     <ng-template #temperatureResult let-exchange="exchange" let-temperature="temperature">
@@ -289,7 +289,7 @@
             <option [ngValue]="null">Линейный диалог</option>
             @for (branch of branches(); track branch.id) { <option [ngValue]="branch.id">{{ branch.id.slice(0, 8) }}</option> }
           </select></label>
-          <label>Checkpoint <select [ngModel]="checkpointId" (ngModelChange)="selectCheckpoint($event)" [disabled]="topologyBusy()" aria-label="Checkpoint">
+          <label>Checkpoint для новой ветки <select [ngModel]="checkpointId" (ngModelChange)="selectCheckpoint($event)" [disabled]="topologyBusy()" aria-label="Checkpoint">
             <option [ngValue]="null">Выберите checkpoint</option>
             @for (checkpoint of checkpoints(); track checkpoint.id) { <option [ngValue]="checkpoint.id">{{ checkpoint.id.slice(0, 8) }}</option> }
           </select></label>
@@ -305,7 +305,7 @@
         @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
         @else if (experiment === 'MODELS') { <button mat-stroked-button (click)="compareModels()" [disabled]="!input.trim() || loading() || !currentDialogId() || !modelOptions().length">Сравнить модели</button> }
         @else if (experiment === 'TEMPERATURE') { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
-        <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId()">Проанализировать</button>
+        <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && topologyBusy())">Проанализировать</button>
       </div></div>
     </div></section>
   </main>

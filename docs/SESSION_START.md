@@ -81,5 +81,11 @@ branch-UI blocker был 4.042-секундным legitimate provider request, �
 3 секунды; product defect не найден. Day 9 FULL/SUMMARY benchmark повторно не запускать:
 historical metrics сохранены, raw artifact недоступен.
 
+**Second post-review frontend remediation verified, pending separate commit**: independent targeted
+verification закрыла сохранение explicit checkpoint selection, error-side maintenance metrics и
+topology-load/branch-send race. Frontend 26/26 и production build PASS. Narrow desktop 1440×1000
+acceptance подтвердила C2 → create-branch URL, disabled send во время задержанного topology GET и
+видимые facts metrics у structured 502; provider не вызывался.
+
 Не реализовывать будущие Challenge Days заранее. Требования текущего Day всегда имеют приоритет
 над long-term vision.

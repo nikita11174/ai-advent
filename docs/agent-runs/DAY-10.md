@@ -85,3 +85,18 @@ usage и разблокировал checkpoint action; старый local harnes
 acceptance harness error, а не product regression. Browser console содержала только Vite/Angular
 development messages; application errors и UI alerts не наблюдались. Raw evidence — ignored
 `docs/local/agent-sessions/day10-post-review-acceptance/`.
+
+## Second post-review frontend remediation — 2026-09-12
+
+После targeted independent verification исправлены три frontend-only состояния: valid selected
+checkpoint больше не подменяется checkpoint active branch при topology refresh; error response
+сохраняет и показывает completed summary/facts maintenance metrics без fabricated main metrics;
+topology load и Agent send взаимно блокируются, исключая stale topology snapshot после нового branch
+turn. Backend не изменялся.
+
+Frontend focused/full: 26/26 PASS. `npm run build` PASS с существующими budget warnings. Narrow
+desktop 1440×1000 acceptance использовала real topology endpoints: C2 сохранился через reload и
+new-branch POST использовал C2; во время CDP-paused topology GET send был disabled и agent POST не
+возник; CDP-fulfilled structured 502 показал facts maintenance вместе с error без main metrics.
+Provider не вызывался. Evidence — ignored
+`docs/local/agent-sessions/day10-second-remediation-acceptance/`.
