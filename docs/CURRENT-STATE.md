@@ -6,15 +6,16 @@
 
 | Поле | Состояние |
 |---|---|
-| Product | Engineering Review Mentor |
-| Current milestone | Day 10 committed; second post-review frontend remediation verified and awaits its separate local commit |
-| Current branch | `day_10`; original Day 10 feature commit `f2db8634453182de927f21412fd069b8e33b8297` (`feat: add context management strategies`) followed by accepted post-review remediation; `developer` remains untouched |
+| Product | Local AI Worker; Engineering Review Mentor is a specialized use case |
+| Product authority | `docs/PRODUCT-MANIFEST.md`; architecture-boundary authority — `docs/ARCHITECTURE.md`; direction rationale — `docs/decisions/ADR-001-local-ai-worker-direction.md` |
+| Current milestone | Week 2 CLOSED; Day 10 plus both post-review remediation commits are accepted |
+| Current branch | `day_10`; current HEAD `95c54858ddd671824ed022720d10e87cb7ba2e02` (`fix: resolve week 2 ui races`); original Day 10 feature commit `f2db8634453182de927f21412fd069b8e33b8297`; `developer` remains untouched |
 | Day 4 base | `0271bf8eb0d1415c71c985dae7b45bed075c0c75` — completed Day 3 knowledge checkpoint |
 | Day 4 planning commit | `237126aa018de62e48a46e48f8ef2dd5f3ba5eb3` |
 | Day 4 implementation checkpoint | `0ac3ca7b7e05b18570ba4dc438d3fc8b65768820` |
 | Day 4 accepted UX checkpoint | `aacbbf32701a5107b6afb81178d637cafb6d00a4` |
-| Status | Days 1–5 published/integrated; Day 9 finalized; Day 10 remediation commit `b538516`; second frontend remediation: 26/26 frontend tests and build PASS; narrow desktop 1440×1000 acceptance PASS without provider calls |
-| Next action | Create the separately authorized second remediation commit; no additional provider acceptance is required |
+| Status | Days 1–5 published/integrated; Day 9 finalized; Week 2 CLOSED at `95c548`; second frontend remediation: 26/26 frontend tests and build PASS; narrow desktop 1440×1000 acceptance PASS without provider calls |
+| Next action | Owner review of Local AI Worker product-direction documentation; future Days remain requirement-driven and additive |
 
 ## Challenge days
 
@@ -29,7 +30,7 @@
 | Day 7 | DONE (`b2eb28e`) | Backend 62 tests PASS; real restart/provider persistence PASS; 3 real provider calls | NOT PUBLISHED |
 | Day 8 | DONE (`e0085941`) | Backend 67 / frontend 17 tests and builds PASS; real API/UI 1440×1000 PASS; 5 provider calls | NOT PUBLISHED |
 | Day 9 | DONE (`4597f3b`) | Backend 74 / frontend 18 tests and build PASS; targeted real restart/reuse PASS; summary reuse and raw history 9→11 proven; initial contradictory smoke preserved | NOT STARTED |
-| Day 10 | DONE (`f2db863`, `b538516`) | Second frontend remediation: 26/26 frontend tests and build PASS; narrow browser acceptance PASS | READY FOR SECOND REMEDIATION COMMIT |
+| Day 10 | DONE (`f2db863`, `b538516`, `95c548`) | Second frontend remediation: 26/26 frontend tests and build PASS; narrow browser acceptance PASS | WEEK 2 CLOSED |
 
 Day 6 2026-09-10: [canonical task](tasks/DAY-06.md), [implementation evidence](agent-runs/DAY-06.md).
 Runtime-only agent per existing UUID, immutable config (model/systemPrompt/temperature/maxTokens),

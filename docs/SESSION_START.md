@@ -2,17 +2,19 @@
 
 ## Project
 
-**Engineering Review Mentor / AI Advent Challenge 9** — независимый sandbox-проект, который
-превращает ежедневные задания challenge в небольшие increments одного developer tool.
+**Local AI Worker / AI Advent Challenge 9** — независимый sandbox-проект, который
+превращает ежедневные задания challenge в небольшие additive increments local developer tool.
+Engineering Review Mentor остаётся его специализированным use case.
 
 ## Reading order
 
 1. `AGENTS.md`
 2. `docs/PRODUCT-MANIFEST.md`
-3. `docs/CURRENT-STATE.md`
-4. текущий `docs/tasks/DAY-XX.md`
-5. `docs/WORKFLOW.md`
-6. `README.md`, когда нужны команды build/test/run
+3. `docs/ARCHITECTURE.md`
+4. `docs/CURRENT-STATE.md`
+5. текущий `docs/tasks/DAY-XX.md`
+6. `docs/WORKFLOW.md`
+7. `README.md`, когда нужны команды build/test/run
 
 ## Agent workflow
 
@@ -23,6 +25,12 @@
 - Commit/push разрешены только после явной owner-авторизации.
 
 ## Current task
+
+**Week 2 CLOSED** at `95c54858ddd671824ed022720d10e87cb7ba2e02` (`fix: resolve week 2 ui races`).
+Product direction authority — `docs/PRODUCT-MANIFEST.md`; architecture-boundary authority —
+`docs/ARCHITECTURE.md`; decision rationale —
+`docs/decisions/ADR-001-local-ai-worker-direction.md`. Future Days are requirement-driven,
+additive increments; do not pre-build MCP, RAG, local-model or pipeline infrastructure.
 
 **Day 6 TECHNICALLY COMPLETE**: feature commit `2966cbe2fec86aceefe42af701cd39b3b4bdc9d1`,
 documentation checkpoint `c0d736369b7bfc033b59f6ee36ab43af5553b658`.
@@ -81,7 +89,7 @@ branch-UI blocker был 4.042-секундным legitimate provider request, �
 3 секунды; product defect не найден. Day 9 FULL/SUMMARY benchmark повторно не запускать:
 historical metrics сохранены, raw artifact недоступен.
 
-**Second post-review frontend remediation verified, pending separate commit**: independent targeted
+**Second post-review frontend remediation committed and accepted** (`95c548`): independent targeted
 verification закрыла сохранение explicit checkpoint selection, error-side maintenance metrics и
 topology-load/branch-send race. Frontend 26/26 и production build PASS. Narrow desktop 1440×1000
 acceptance подтвердила C2 → create-branch URL, disabled send во время задержанного topology GET и
