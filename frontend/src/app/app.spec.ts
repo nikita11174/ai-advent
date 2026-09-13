@@ -7,6 +7,8 @@ interface TestApp {
   input: string;
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
+  backendStatus(): 'CONNECTING' | 'ONLINE' | 'OFFLINE';
+  checkBackend(): void;
   selectModels(): void;
   compareModels(): void;
   updateModelConclusion(id: number, value: string): void;
@@ -82,6 +84,7 @@ describe('App', () => {
     http.expectOne(`/api/dialogs/${id}/agent/branches`).flush(branches);
     http.expectOne(`/api/dialogs/${id}/agent/checkpoints`).flush(checkpoints);
   }
+  function flushHealth(): void { http.expectOne('/api/health').flush({ status: 'UP' }); }
 
   it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {
     const a = dialog().id;
@@ -89,6 +92,7 @@ describe('App', () => {
     const agentButton = [...fixture.nativeElement.querySelectorAll('.experiment-selector button')]
       .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Агент') as HTMLButtonElement;
     agentButton.click(); fixture.detectChanges();
+    flushHealth();
     flushTopology(a);
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
@@ -136,6 +140,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('fact A');
 
     component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
+    flushHealth();
     flushTopology(a);
     fixture.detectChanges();
     expect(component.experiment).toBe('AGENT');
@@ -145,6 +150,30 @@ describe('App', () => {
     const returnA = http.expectOne(`/api/dialogs/${a}/agent/messages`);
     expect(returnA.request.body).toEqual({ input: 'back to A', contextMode: 'FULL', recentMessageCount: 4 });
     returnA.flush({ analysis: 'still A' }); flushSave();
+  });
+
+  it('shows backend availability without agent requests or overlapping heartbeats', () => {
+    component.selectAgent(); fixture.detectChanges();
+    expect(component.backendStatus()).toBe('CONNECTING');
+    expect(fixture.nativeElement.querySelector('.server-status')?.textContent).toContain('Подключение');
+    const first = http.expectOne('/api/health');
+    expect(first.request.method).toBe('GET');
+    component.checkBackend(); http.expectNone('/api/health');
+    first.flush({ status: 'UP' }); flushTopology(); fixture.detectChanges();
+    expect(component.backendStatus()).toBe('ONLINE');
+    expect(fixture.nativeElement.querySelector('.server-status.online')?.textContent).toContain('Сервер подключён');
+
+    component.checkBackend();
+    http.expectOne('/api/health').flush(null, { status: 502, statusText: 'Bad Gateway' });
+    fixture.detectChanges();
+    expect(component.backendStatus()).toBe('OFFLINE');
+    expect(fixture.nativeElement.querySelector('.server-status.offline')?.textContent).toContain('Сервер недоступен');
+
+    component.checkBackend(); http.expectOne('/api/health').flush({ status: 'UP' });
+    fixture.detectChanges();
+    expect(component.backendStatus()).toBe('ONLINE');
+    expect(component.exchanges()).toHaveLength(0);
+    http.expectNone(request => request.url.includes('/agent/messages'));
   });
 
   it('shows Agent context overflow and permits the next manual send without retrying', () => {
@@ -225,6 +254,7 @@ describe('App', () => {
   it('renders only the selected branch projection and restores the linear strategy', () => {
     const id = dialog().id;
     component.selectAgent();
+    flushHealth();
     flushTopology(id, [
       { id: 'branch-a', checkpointId: 'checkpoint-a', history: [
         { role: 'system', content: 'instruction' }, { role: 'user', content: 'PostgreSQL' }, { role: 'assistant', content: 'answer A' }] },
@@ -262,11 +292,12 @@ describe('App', () => {
       { id: 'checkpoint-1', baseHistory: [], branches: [] },
       { id: 'checkpoint-2', baseHistory: [], branches: [] },
     ];
-    flushTopology(id, topology, checkpoints);
+    flushHealth(); flushTopology(id, topology, checkpoints);
 
     component.selectCheckpoint('checkpoint-2');
     http.expectOne(r => r.method === 'PUT').flush(dialog());
     component.selectAgent();
+    flushHealth();
     flushTopology(id, topology, checkpoints);
     expect(component.checkpointId).toBe('checkpoint-2');
 
@@ -304,6 +335,7 @@ describe('App', () => {
     const id = dialog().id;
     component.experiment = 'AGENT'; component.branchId = 'branch-a'; component.input = 'branch turn';
     component.selectAgent(); fixture.detectChanges();
+    flushHealth();
     const button = [...fixture.nativeElement.querySelectorAll('button')]
       .find((item: HTMLButtonElement) => item.textContent?.trim() === 'Проанализировать') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
@@ -330,15 +362,18 @@ describe('App', () => {
     const a = dialog().id;
     const b = '22222222-2222-2222-2222-222222222222';
     component.selectAgent();
+    flushHealth();
     component.openDialog(b);
     http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], { experiment: 'AGENT', selectedMode: 'FREE',
       selectedStrategy: 'DIRECT', selectedTemperature: 0 }));
+    flushHealth();
     http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([{ id: 'old-branch', checkpointId: 'old', history: [] }]);
     http.expectOne(`/api/dialogs/${a}/agent/checkpoints`).flush([{ id: 'old', baseHistory: [], branches: [] }]);
     flushTopology(b);
     expect(component.branchId).toBeNull();
 
     component.selectAgent();
+    flushHealth();
     http.expectOne(`/api/dialogs/${b}/agent/branches`).flush({ error: 'unavailable' }, { status: 500, statusText: 'Server Error' });
     expect(component.topologyError()).toContain('Не удалось загрузить topology');
   });

@@ -1,13 +1,13 @@
 import { JsonPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { marked, Renderer } from 'marked';
-import { forkJoin } from 'rxjs';
+import { forkJoin, timeout } from 'rxjs';
 import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './model-result';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
@@ -102,8 +102,10 @@ markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('
   imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
-export class App implements OnInit {
+export class App implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private heartbeatInFlight = false;
   private nextExchangeId = 1;
   private pendingRequests = 0;
   private topologyRequestGeneration = 0;
@@ -141,15 +143,35 @@ export class App implements OnInit {
   protected readonly loading = signal(false);
   protected readonly showLatestButton = signal(false);
   protected readonly sidebarOpen = signal(false);
+  protected readonly backendStatus = signal<'CONNECTING' | 'ONLINE' | 'OFFLINE'>('CONNECTING');
 
-  ngOnInit(): void { this.loadDialogList(); }
+  ngOnInit(): void {
+    this.loadDialogList();
+    this.heartbeatTimer = setInterval(() => this.checkBackend(), 2000);
+  }
+
+  ngOnDestroy(): void { clearInterval(this.heartbeatTimer); }
 
   protected newDialog(): void {
     if (this.loading()) return;
     this.http.post<DialogDocument>('/api/dialogs', {}).subscribe({ next: dialog => this.activateDialog(dialog) });
   }
 
-  protected selectAgent(): void { this.experiment = 'AGENT'; this.loadTopology(); }
+  protected selectAgent(): void {
+    this.experiment = 'AGENT';
+    this.backendStatus.set('CONNECTING');
+    this.checkBackend();
+    this.loadTopology();
+  }
+
+  private checkBackend(): void {
+    if (this.experiment !== 'AGENT' || this.heartbeatInFlight) return;
+    this.heartbeatInFlight = true;
+    this.http.get('/api/health').pipe(timeout(1500)).subscribe({
+      next: () => { this.backendStatus.set('ONLINE'); this.heartbeatInFlight = false; },
+      error: () => { this.backendStatus.set('OFFLINE'); this.heartbeatInFlight = false; },
+    });
+  }
 
   protected createCheckpoint(): void {
     const id = this.startTopologyOperation(); if (!id) return;
@@ -385,7 +407,7 @@ export class App implements OnInit {
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
     this.sidebarOpen.set(false);
     this.requestScrollToLatest();
-    if (this.experiment === 'AGENT') this.loadTopology();
+    if (this.experiment === 'AGENT') this.selectAgent();
   }
   private loadTopology(): void {
     const id = this.currentDialogId(); if (!id || this.loading() || this.topologyBusy()) return;
