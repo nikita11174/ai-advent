@@ -59,3 +59,18 @@ correctly reported no access to another dialog. Sanitized local evidence is unde
 `docs/local/agent-sessions/day7-restart-verification/`; no credentials are stored there.
 
 No browser/UI verification or frontend build was required because the UI/API contract did not change.
+
+## POST-DAY-7 BACKEND AVAILABILITY — 2026-09-13
+
+After the historical Day 7 implementation, the Agent UI gained a compact backend-process
+indicator. `GET /api/health` returns only `{"status":"UP"}`; it does not call an LLM,
+read dialog history or mutate state. While the Agent tab is active, the frontend performs one
+non-overlapping health request at selection and then approximately every two seconds, with a
+1.5-second timeout. Its states are «Подключение…», «Сервер подключён» and «Сервер недоступен».
+
+At desktop 1440×1000, the Day 7 runtime was observed as `connected → unavailable → connected`:
+the Java backend process was really stopped, then a newly started Day 7 process again returned
+`200 {"status":"UP"}`. Browser network evidence during this check contained health polling only,
+with no `/agent/messages` request; the visible dialog history was unchanged. Focused
+`HealthControllerTest` (1 test), Angular tests (18 tests) and frontend build passed. This is a
+generic product availability capability; it does not change Day 7 canonical raw-history semantics.
