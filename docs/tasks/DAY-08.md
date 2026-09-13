@@ -81,3 +81,15 @@ histories. The UI also rendered the deliberate local overflow alert. Console out
 expected HTTP 413 for that deliberate overflow and normal Vite/Angular development messages; there
 were no unexpected runtime errors. Total real provider calls: **5**. Day 8 is technically complete;
 video remains out of scope.
+
+## INHERITED BACKEND AVAILABILITY — 2026-09-13
+
+Day 8 now inherits the generic Day 7 backend-process indicator: `GET /api/health` returns only
+`{"status":"UP"}` and is polled while the Agent tab is active. It does not create an agent turn,
+call the provider, write history or contribute to Day 8 request/context/response metrics or provider
+usage. At desktop 1440×1000 the Day 8 Agent tab displayed «Сервер подключён»; the browser network
+contained dialogs and health requests only, with no `/agent/messages` request or provider call.
+
+Regression evidence: focused backend metrics/context-limit/health suite passed (17 tests), Angular
+tests passed (18 tests), and the frontend build passed with the pre-existing stylesheet budget warning.
+The historical Day 8 real provider evidence above was not recreated.
