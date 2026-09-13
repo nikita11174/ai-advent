@@ -1,6 +1,14 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
-  <div class="context"><span>AI Advent · День 6</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span></div>
+  <div class="context"><span>AI Advent · День 8</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span>
+    @if (experiment === 'AGENT') {
+      <span class="model-badge server-status" [class.online]="backendStatus() === 'ONLINE'" [class.offline]="backendStatus() === 'OFFLINE'"
+        [style.color]="backendStatus() === 'ONLINE' ? '#86efac' : backendStatus() === 'OFFLINE' ? '#fca5a5' : '#fde68a'" role="status">
+        <span aria-hidden="true">●</span>
+        {{ backendStatus() === 'ONLINE' ? 'Сервер подключён' : backendStatus() === 'OFFLINE' ? 'Сервер недоступен' : 'Подключение…' }}
+      </span>
+    }
+  </div>
 </mat-toolbar>
 
 <div class="workspace">
@@ -207,7 +215,7 @@
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
         <button [class.active]="experiment === 'TEMPERATURE'" (click)="experiment = 'TEMPERATURE'">Температура</button>
         <button [class.active]="experiment === 'MODELS'" (click)="selectModels()">Модели</button>
-        <button [class.active]="experiment === 'AGENT'" (click)="experiment = 'AGENT'">Агент</button>
+        <button [class.active]="experiment === 'AGENT'" (click)="selectAgent()">Агент</button>
       </div>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
