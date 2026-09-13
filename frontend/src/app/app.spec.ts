@@ -7,6 +7,9 @@ interface TestApp {
   input: string;
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
+  backendStatus(): 'CONNECTING' | 'ONLINE' | 'OFFLINE';
+  selectAgent(): void;
+  checkBackend(): void;
   selectModels(): void;
   compareModels(): void;
   updateModelConclusion(id: number, value: string): void;
@@ -73,11 +76,12 @@ describe('App', () => {
     const agentButton = [...fixture.nativeElement.querySelectorAll('.experiment-selector button')]
       .find((button: HTMLButtonElement) => button.textContent?.trim() === 'Агент') as HTMLButtonElement;
     agentButton.click(); fixture.detectChanges();
+    http.expectOne('/api/health').flush({ status: 'UP' });
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
     expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
     expect(fixture.nativeElement.querySelector('.action-buttons').textContent).not.toContain('Сравнить');
-    expect(fixture.nativeElement.textContent).toContain('до перезапуска сервера');
+    expect(fixture.nativeElement.textContent).toContain('После перезапуска приложения история восстанавливается');
 
     component.input = 'fact A'; component.analyze(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('mat-progress-bar')).not.toBeNull();
@@ -113,6 +117,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('fact A');
 
     component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
+    http.expectOne('/api/health').flush({ status: 'UP' });
     fixture.detectChanges();
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.textContent).toContain('fact A');
@@ -121,6 +126,30 @@ describe('App', () => {
     const returnA = http.expectOne(`/api/dialogs/${a}/agent/messages`);
     expect(returnA.request.body).toEqual({ input: 'back to A' });
     returnA.flush({ analysis: 'still A' }); flushSave();
+  });
+
+  it('shows backend availability without agent requests or overlapping heartbeats', () => {
+    component.selectAgent(); fixture.detectChanges();
+    expect(component.backendStatus()).toBe('CONNECTING');
+    expect(fixture.nativeElement.querySelector('.server-status')?.textContent).toContain('Подключение');
+    const first = http.expectOne('/api/health');
+    expect(first.request.method).toBe('GET');
+    component.checkBackend(); http.expectNone('/api/health');
+    first.flush({ status: 'UP' }); fixture.detectChanges();
+    expect(component.backendStatus()).toBe('ONLINE');
+    expect(fixture.nativeElement.querySelector('.server-status.online')?.textContent).toContain('Сервер подключён');
+
+    component.checkBackend();
+    http.expectOne('/api/health').flush(null, { status: 502, statusText: 'Bad Gateway' });
+    fixture.detectChanges();
+    expect(component.backendStatus()).toBe('OFFLINE');
+    expect(fixture.nativeElement.querySelector('.server-status.offline')?.textContent).toContain('Сервер недоступен');
+
+    component.checkBackend(); http.expectOne('/api/health').flush({ status: 'UP' });
+    fixture.detectChanges();
+    expect(component.backendStatus()).toBe('ONLINE');
+    expect(component.exchanges()).toHaveLength(0);
+    http.expectNone(request => request.url.includes('/agent/messages'));
   });
 
   it('shows Agent failures and permits the next manual send without retrying', () => {
