@@ -93,3 +93,22 @@ contained dialogs and health requests only, with no `/agent/messages` request or
 Regression evidence: focused backend metrics/context-limit/health suite passed (17 tests), Angular
 tests passed (18 tests), and the frontend build passed with the pre-existing stylesheet budget warning.
 The historical Day 8 real provider evidence above was not recreated.
+
+## BROWSER VIDEO SCENARIO — 2026-09-13
+
+At desktop 1440×1000, a fresh Day 8 dialog demonstrated full-context observability with three
+successful provider calls and no retries. The first short request, `Назови три основных риска этого
+решения. Ответь кратко.`, rendered local `request / context / response` estimates of `26 / 89 / 46`
+and provider usage `61 / 33 / 94`. After one normal engineering-context message (`2815 / 2956 / 8`),
+the exact same short request rendered `26 / 2996 / 294` and provider usage `1892 / 193 / 2085`.
+Thus the new-input estimate stayed equal while actual outbound context increased from 89 to 2996.
+
+For the limit segment, the Java backend process was really stopped (the visible status became
+«Сервер недоступен») and a new Day 8 process started with
+`mentor.agent.context-token-limit=1` (status returned to «Сервер подключён»). The request
+`Проверка ограничения контекста.` rendered the deliberate error `Estimated context limit exceeded:
+3311 > 1.` The canonical `AgentHistoryStore` file had the same SHA-256 before and after
+(`37D57EF014E982CFF4E0E17F6D1377AAB6A1E85CA53782A2095A191626E31191`) and did not contain the
+rejected input. Runtime HTTP 413 reached the pre-provider context guard; `DeepSeekClient.complete`
+is invoked only after that guard, so this rejected request did not call the provider. The browser
+video scenario was executed; OBS-file creation, saving and publication were not verified.
