@@ -66,3 +66,18 @@ Summary-generation path не входил; outbound stack содержал `syst
 том же пути и выросла до 11 сообщений (10 committed), SHA-256
 `8C938775FCF71CD6...`. Product persistence defect не воспроизведён; первоначальное расхождение
 классифицировано как acceptance/runtime-evidence inconsistency.
+
+## BROWSER VIDEO SCENARIO — 2026-09-13
+
+В отдельном Day 9 recording worktree выполнен browser-сценарий на двух равных dialog fixtures.
+Обе raw histories сохранили ORION, PostgreSQL, максимум 120 мс и запрет распределённых
+транзакций; для `SUMMARY_RECENT` с `recentMessageCount=4` persisted derived summary также
+содержал эти факты, а canonical raw history оставалась полной.
+
+Одинаковый контрольный вопрос дал корректные четыре пункта в обоих режимах. Для main вызова
+`FULL`: request/context/response `61 / 2492 / 46`, provider usage `1578 / 43 / 1621`.
+Для `SUMMARY_RECENT`: `61 / 2007 / 48`, provider usage `1370 / 43 / 1413`; main context был
+меньше на 485 local estimated tokens (19.5%). UI показал `SUMMARY_RECENT`, последние 4 raw
+messages, отдельную summary и отдельные summary-generation metrics. Во время подготовки были
+реальные provider calls для создания сопоставимых fixture и derived summary; они не включены в
+сравнение main вызовов. Browser-сценарий выполнен; OBS-файл и публикация не проверялись.
