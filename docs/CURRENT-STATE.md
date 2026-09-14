@@ -10,8 +10,8 @@
 | Поле | Состояние |
 |---|---|
 | Product | Local AI Worker; Engineering Review Mentor — specialized use case |
-| Current milestone | Week 2 CLOSED AND PUBLISHED; product direction formally recorded |
-| Current branch | `day_10`; verify HEAD with `git rev-parse HEAD` |
+| Current milestone | Week 2 CLOSED AND PUBLISHED; integrated into local `developer`, push pending; product direction formally recorded |
+| Current branch | `developer`; verify HEAD with `git rev-parse HEAD` |
 | Current implementation | Days 1–10 complete; Week 2 agent/context/topology behavior accepted; `developer` unchanged |
 | Immediate next step | Owner defines the next challenge task; implement only its smallest additive capability |
 
