@@ -24,7 +24,7 @@
 | 7 | Complete; durable raw conversation history/restart verification and generic backend availability indicator established |
 | 8 | Complete; context-limit/token metrics and inherited availability indicator established; browser video scenario executed 2026-09-13 (OBS file/submission not verified) |
 | 9 | Complete; FULL/SUMMARY_RECENT and persisted derived summary established; browser comparison executed 2026-09-13: both modes retained four early facts and SUMMARY_RECENT main context was 2007 vs FULL 2492 local estimated tokens (OBS file/submission not verified) |
-| 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed |
+| 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed; browser video scenario executed 2026-09-14 (OBS file/submission not verified) |
 
 ## Important current constraints
 
@@ -37,6 +37,8 @@
   complete contract.
 - Day 9 real FULL/SUMMARY benchmark metrics are historical; its missing raw
   artifact must not be recreated with new provider calls.
+- Day 10 inherits the generic backend availability indicator; health polling is
+  not provider, history or agent-metrics activity.
 - Detailed local runtime evidence is ignored under `docs/local/`; it is not
   canonical truth and must not contain secrets.
 

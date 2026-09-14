@@ -99,6 +99,24 @@ non-blocking issue о двух form fields без id/name. Raw evidence сохр
 class files Java 21 и завершился без provider call; после запуска с Java 21 backend стартовал.
 Provider retries и product-code changes не потребовались.
 
+## BROWSER VIDEO SCENARIO — 2026-09-14
+
+Browser video scenario executed. OBS/video-file persistence and publication remain owner-controlled
+artifacts and are not asserted here.
+
+- Fresh `Day10 Sliding v2`: `SLIDING_WINDOW`, `N=2`. Final probe local metrics were
+  `51/187/274` (request/context/response); provider usage was `129/179/308`
+  (prompt/completion/total). It recovered `0/4` early facts.
+- `Day10 Sticky`: final probe local metrics were `51/2011/65`; provider usage was
+  `1622/62/1684`. All `4/4` facts were retained. Separate Sticky Facts maintenance cost was
+  local `51/170/40`, provider `133/43/176`; this overhead does not show Sticky to be cheaper
+  than Sliding.
+- Branching used checkpoint `f6ded221-2bae-46a9-accb-5b26b83e17a6`; Branch A decided
+  PostgreSQL and Branch B decided ClickHouse. A → B → A switching and sibling isolation passed.
+  Video switching required no new provider calls.
+- Day 10 inherits the generic backend availability indicator. Health polling is not provider,
+  history or agent-metrics activity.
+
 ## TARGETED POST-REVIEW REAL RE-ACCEPTANCE — 2026-09-12
 
 Проверены только исправленные review-семантики. Sticky Facts success/restart и maintenance context-limit
