@@ -7,11 +7,13 @@
 
 Перед работой:
 
-1. Прочитать `README.md`.
-2. Прочитать `docs/CURRENT-STATE.md` — единственный operational source of truth.
-3. Прочитать документ текущего challenge task в `docs/tasks/`, если он существует.
-4. Проверить `git status`, затем staged и unstaged diff.
-5. Сверить фактическое состояние working tree с `CURRENT-STATE.md`; при конфликте сначала
+1. Прочитать `docs/PRODUCT-MANIFEST.md` — product authority.
+2. Прочитать `docs/ARCHITECTURE.md` — architecture-boundary authority.
+3. Прочитать `docs/CURRENT-STATE.md` — operational source of truth.
+4. Прочитать документ текущего challenge task в `docs/tasks/`, если он существует.
+5. Прочитать `README.md`, когда нужны команды build/test/run.
+6. Проверить `git status`, затем staged и unstaged diff.
+7. Сверить фактическое состояние working tree с `CURRENT-STATE.md`; при конфликте сначала
    зафиксировать конфликт, не продолжать на догадках.
 
 Не полагаться на память предыдущей сессии или отдельный чат-handoff, если репозиторий говорит
@@ -67,5 +69,10 @@
 Дополнительного агента подключать только для конкретной открытой неизвестности или оправданной
 независимой проверки: например, high-risk/security change, существенное архитектурное решение
 или сложное runtime-поведение. Не запускать multi-agent циклы ради дополнительной уверенности.
+
+Начинать отдельный research/review/agent cycle только при concrete unresolved question, ответ на
+который может изменить implementation или decision; не проводить broad audit «на всякий случай».
+Для нетривиального цикла явно задать: Goal → Evidence/Context → Constraints → Done when.
+Для follow-up в той же сессии использовать delta prompt, а не повторять полный handoff.
 
 Полный flow и handoff описаны в `docs/WORKFLOW.md`.
