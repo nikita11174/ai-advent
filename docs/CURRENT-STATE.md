@@ -12,7 +12,7 @@
 | Product | Local AI Worker; Engineering Review Mentor — specialized use case |
 | Current milestone | Week 2 CLOSED AND PUBLISHED; integrated into local `developer`, push pending; product direction formally recorded |
 | Current branch | `developer`; verify HEAD with `git rev-parse HEAD` |
-| Current implementation | Days 1–10 complete; Week 2 agent/context/topology behavior accepted; `developer` unchanged |
+| Current implementation | Days 1–10 complete; Week 2 agent/context/topology behavior accepted and integrated into local `developer` |
 | Immediate next step | Owner defines the next challenge task; implement only its smallest additive capability |
 
 ## Challenge status
