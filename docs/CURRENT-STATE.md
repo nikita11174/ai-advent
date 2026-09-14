@@ -10,9 +10,9 @@
 | Поле | Состояние |
 |---|---|
 | Product | Local AI Worker; Engineering Review Mentor — specialized use case |
-| Current milestone | Week 2 CLOSED; product direction formally recorded |
+| Current milestone | Week 2 CLOSED AND PUBLISHED; product direction formally recorded |
 | Current branch | `day_10`; verify HEAD with `git rev-parse HEAD` |
-| Current implementation | Days 1–10 complete; Week 2 agent/context/topology behavior accepted |
+| Current implementation | Days 1–10 complete; Week 2 agent/context/topology behavior accepted; `developer` unchanged |
 | Immediate next step | Owner defines the next challenge task; implement only its smallest additive capability |
 
 ## Challenge status
@@ -21,10 +21,16 @@
 |---|---|
 | 1–5 | Complete; day_1–day_5 published/integrated; organizer publication artifacts where noted in each Day record remain owner-controlled |
 | 6 | Technically complete; Day 6 browser recording scenario executed 2026-09-13; OBS file and submission not verified |
-| 7 | Complete; durable raw conversation history/restart verification and generic backend availability indicator established |
+| 7 | Complete; durable raw conversation history/restart verification and generic backend availability indicator established; browser availability scenario executed 2026-09-13 |
 | 8 | Complete; context-limit/token metrics and inherited availability indicator established; browser video scenario executed 2026-09-13 (OBS file/submission not verified) |
 | 9 | Complete; FULL/SUMMARY_RECENT and persisted derived summary established; browser comparison executed 2026-09-13: both modes retained four early facts and SUMMARY_RECENT main context was 2007 vs FULL 2492 local estimated tokens (OBS file/submission not verified) |
-| 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed; browser video scenario executed 2026-09-14 (OBS file/submission not verified) |
+| 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed; browser video scenario executed 2026-09-14: Sliding N=2 retained 0/4 early facts, Sticky retained 4/4, branches A=PostgreSQL and B=ClickHouse with sibling isolation PASS (OBS file/submission not verified) |
+
+Week 2 code branches are published on origin: `day_6` at `8b4524f`, `day_7` at
+`69547b3`, `day_8` at `2cf1978`, `day_9` at `13ddba1`, and `day_10` at `98f9112`.
+Local and origin HEADs matched at publication; `developer` remained at `06355ef`.
+Browser scenarios for Days 6–10 have been executed. OBS recordings, uploads and
+organizer submissions remain owner-controlled and are not verified here.
 
 ## Important current constraints
 

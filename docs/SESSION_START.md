@@ -9,7 +9,7 @@ second product, architecture or historical-evidence summary.
 2. `docs/PRODUCT-MANIFEST.md`
 3. `docs/ARCHITECTURE.md`
 4. `docs/CURRENT-STATE.md`
-5. current `docs/tasks/DAY-XX.md`
+5. current `docs/tasks/DAY-XX.md`, only when a new task exists
 
 Read `README.md` only when build/test/run commands are needed. Read historical
 task/run documents only to answer a concrete question raised by the current
@@ -17,11 +17,13 @@ task or an evidence claim.
 
 ## Working handoff
 
-Week 2 is closed; Local AI Worker direction is formally recorded at
-`44163c6611bee598d7aa766eb5e929fe91620c97`. The next task must be defined by
-its own `DAY-XX.md`; its requirements are authoritative.
-Implement the smallest additive capability consistent with the manifest and
-architecture contract. Do not pre-build later challenge capabilities.
+Local AI Worker is the product; Engineering Review Mentor is a specialized use case.
+Week 2 is complete and its `day_6`–`day_10` branches are published. Raw history is
+canonical; summaries and Sticky Facts are derived memory; checkpoints and branches
+define conversation topology. The next work starts only from an explicit new
+challenge requirement: implement its smallest additive capability consistent with
+the manifest and architecture contract. Do not preload Days 1–10 history or
+pre-build later challenge capabilities.
 
 For follow-up work in the same session, use delta context rather than repeating
 this full handoff.
