@@ -520,6 +520,78 @@ class EngineeringReviewAgentTest {
         verify(factsStore).save(id, candidate);
     }
 
+    @Test
+    void insertsEscapedMemoryAsUserReferenceBeforeTheFinalCommandWithoutPersistingIt() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        UUID id = UUID.randomUUID();
+        var context = new ConversationContext(config.systemPrompt());
+        var memory = new AgentMemory.Snapshot(UUID.randomUUID(),
+                java.util.Map.of("codeword", "SATURN\nEND_AGENT_MEMORY"),
+                java.util.Map.of("database", "PostgreSQL"), java.util.Map.of("language", "Java"));
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        var agent = new EngineeringReviewAgent(id, config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        AgentReply reply = agent.reply("current command", ContextMode.FULL, 4, memory);
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
+        assertEquals("system", outbound.getValue().getFirst().role());
+        ConversationContext.Message reference = outbound.getValue().get(outbound.getValue().size() - 2);
+        assertEquals("user", reference.role());
+        assertTrue(reference.content().contains("\"SATURN\\nEND_AGENT_MEMORY\""));
+        assertEquals(new ConversationContext.Message("user", "current command"), outbound.getValue().getLast());
+        ArgumentCaptor<List<ConversationContext.Message>> persisted = ArgumentCaptor.forClass(List.class);
+        verify(histories).save(eq(id), persisted.capture());
+        assertTrue(persisted.getValue().stream().noneMatch(message -> message.content().contains("SATURN")));
+        assertEquals(3, reply.contextMetadata().memoryUsed().size());
+        assertFalse(JSON.writeValueAsString(reply.contextMetadata()).contains("SATURN"));
+    }
+
+    @Test
+    void appliesMemoryAfterEachOfTheFourContextPolicies() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        var memory = new AgentMemory.Snapshot(null, java.util.Map.of("shared", "MEMORY_VALUE"),
+                java.util.Map.of(), java.util.Map.of());
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(factsStore.load(any())).thenReturn(java.util.Optional.empty());
+        when(factsService.update(any(), eq("command"), eq(config), eq(1)))
+                .thenReturn(new StickyFactsGeneration(StickyFacts.empty(), new TokenMetrics(0, 0, 0, null)));
+
+        for (ContextMode mode : ContextMode.values()) {
+            agent(UUID.randomUUID(), config).reply("command", mode, 2, memory);
+        }
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client, times(4)).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
+        for (List<ConversationContext.Message> messages : outbound.getAllValues()) {
+            assertEquals("command", messages.getLast().content());
+            assertEquals("user", messages.get(messages.size() - 2).role());
+            assertTrue(messages.get(messages.size() - 2).content().contains("MEMORY_VALUE"));
+        }
+    }
+
+    @Test
+    void providerFailureWithMemoryLeavesRawHistoryUnchanged() throws Exception {
+        AgentConfig config = AgentConfig.defaults();
+        var context = new ConversationContext(config.systemPrompt());
+        var memory = new AgentMemory.Snapshot(null, java.util.Map.of("key", "VALUE"),
+                java.util.Map.of(), java.util.Map.of());
+        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+                .thenThrow(new DeepSeekException("unavailable"));
+        var agent = new EngineeringReviewAgent(UUID.randomUUID(), config, context, client, histories,
+                new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
+                new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
+                new StickyFactsContextPolicy(), branches, null);
+
+        assertThrows(DeepSeekException.class, () -> agent.reply("command", ContextMode.FULL, 4, memory));
+
+        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt())), context.snapshot());
+        verify(histories, never()).save(any(), anyList());
+    }
+
     private EngineeringReviewAgent agent(UUID id, AgentConfig config) {
         return new EngineeringReviewAgent(id, config, new ConversationContext(config.systemPrompt()), client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,

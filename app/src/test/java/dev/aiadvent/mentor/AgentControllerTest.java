@@ -1,6 +1,7 @@
 package dev.aiadvent.mentor;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -44,6 +45,14 @@ class AgentControllerTest {
     private StickyFactsService factsService;
     @MockitoBean
     private AgentBranchStore branches;
+    @MockitoBean
+    private AgentMemoryStore memories;
+
+    @BeforeEach
+    void emptyMemoryByDefault() throws Exception {
+        when(memories.load(any(UUID.class), nullable(UUID.class)))
+                .thenAnswer(call -> AgentMemory.Snapshot.empty(call.getArgument(1)));
+    }
 
     @Test
     void returnsAnalysisAndRejectsAnOverlappingRequest() throws Exception {
@@ -133,5 +142,27 @@ class AgentControllerTest {
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").value("Unavailable"))
                 .andExpect(jsonPath("$.factsMetrics[0].contextTokens").value(3));
+    }
+
+    @Test
+    void mapsTaskIdAndReturnsValueFreeMemoryEvidence() throws Exception {
+        UUID dialogId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        when(memories.load(dialogId, taskId)).thenReturn(new AgentMemory.Snapshot(taskId,
+                java.util.Map.of("codeword", "SATURN"), java.util.Map.of(), java.util.Map.of()));
+        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+                .thenReturn(new DeepSeekClient.Completion("answer", "stop", null));
+
+        String response = mvc.perform(post("/api/dialogs/{id}/agent/messages", dialogId)
+                        .contentType("application/json")
+                        .content("{\"input\":\"hello\",\"taskId\":\"" + taskId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contextMetadata.memoryUsed[0].scope").value("SHORT_TERM"))
+                .andExpect(jsonPath("$.contextMetadata.memoryUsed[0].keys[0]").value("codeword"))
+                .andExpect(jsonPath("$.contextMetadata.memoryUsed[0].entryCount").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        assertTrue(!response.contains("SATURN"));
+        verify(memories).load(dialogId, taskId);
     }
 }

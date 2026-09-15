@@ -59,6 +59,11 @@ final class EngineeringReviewAgent {
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount)
             throws IOException, DeepSeekException {
+        return reply(input, mode, recentMessageCount, AgentMemory.Snapshot.empty(null));
+    }
+
+    AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory)
+            throws IOException, DeepSeekException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
@@ -115,6 +120,12 @@ final class EngineeringReviewAgent {
                     case FULL -> fullPolicy;
                 };
                 List<ConversationContext.Message> outbound = policy.build(raw, input, summary, facts, recent);
+                if (!memory.isEmpty()) {
+                    var assembled = new ArrayList<>(outbound);
+                    assembled.add(assembled.size() - 1,
+                            new ConversationContext.Message("user", memory.renderReferenceData()));
+                    outbound = List.copyOf(assembled);
+                }
                 long contextTokens = tokenEstimator.estimateMessagesWithinLimit(outbound, config.contextTokenLimit());
                 DeepSeekClient.Completion completion = client.complete(outbound, config.model(),
                         config.temperature(), config.maxTokens());
@@ -130,7 +141,8 @@ final class EngineeringReviewAgent {
                 return new AgentReply(analysis, new TokenMetrics(tokenEstimator.estimateText(input), contextTokens,
                         tokenEstimator.estimateText(analysis), completion.usage()), summaryMetrics, List.copyOf(factsMetrics),
                         new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
-                                summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts));
+                                summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts,
+                                memory.usage()));
             } catch (IOException | DeepSeekException | ContextLimitExceededException exception) {
                 if (summaryMetrics != null || !factsMetrics.isEmpty()) {
                     throw new MaintenanceMetricsException(exception, summaryMetrics, List.copyOf(factsMetrics));

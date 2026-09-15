@@ -93,7 +93,8 @@ class AgentDialogServiceTest {
                         new TokenMetrics(3, 8, 4, null)));
         var firstService = new AgentDialogService(dialogs, client, firstHistories, new ApproximateTokenEstimator(),
                 firstSummaries, summaryService, new StickyFactsStore(directory.resolve("facts"), json),
-                mock(StickyFactsService.class), new AgentBranchStore(directory.resolve("branches"), json), 0);
+                mock(StickyFactsService.class), new AgentBranchStore(directory.resolve("branches"), json),
+                new AgentMemoryStore(directory.resolve("memory"), json), 0);
 
         firstService.reply(id, "u1");
         firstService.reply(id, "u2");
@@ -107,7 +108,8 @@ class AgentDialogServiceTest {
         var restoredSummaries = new AgentSummaryStore(directory.resolve("summaries"), json);
         var secondService = new AgentDialogService(dialogs, client, restoredHistories, new ApproximateTokenEstimator(),
                 restoredSummaries, restoredSummaryService, new StickyFactsStore(directory.resolve("facts"), json),
-                mock(StickyFactsService.class), new AgentBranchStore(directory.resolve("branches"), json), 0);
+                mock(StickyFactsService.class), new AgentBranchStore(directory.resolve("branches"), json),
+                new AgentMemoryStore(directory.resolve("memory"), json), 0);
         secondService.reply(id, "u5", ContextMode.SUMMARY_RECENT, 4);
 
         verifyNoInteractions(restoredSummaryService);
@@ -137,7 +139,7 @@ class AgentDialogServiceTest {
         StickyFactsService factsService = mock(StickyFactsService.class);
         var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 new AgentSummaryStore(directory.resolve("summaries"), json), summaryService, factsStore, factsService,
-                branchStore, 0);
+                branchStore, new AgentMemoryStore(directory.resolve("memory"), json), 0);
 
         var checkpoint = service.createCheckpoint(id, null);
         var branchA = service.createBranch(id, checkpoint.id());
@@ -152,7 +154,9 @@ class AgentDialogServiceTest {
 
         var restarted = new AgentDialogService(dialogs, client, new AgentHistoryStore(directory.resolve("histories"), json),
                 new ApproximateTokenEstimator(), new AgentSummaryStore(directory.resolve("summaries"), json),
-                summaryService, new StickyFactsStore(directory.resolve("facts"), json), factsService, branchStore, 0);
+                summaryService, new StickyFactsStore(directory.resolve("facts"), json), factsService, branchStore,
+                new AgentMemoryStore(directory.resolve("memory"), json), 0);
+
         restarted.reply(id, "A follow-up", ContextMode.FULL, 4, branchA.id());
         verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
         assertTrue(messages.getValue().stream().anyMatch(message -> message.content().equals("PostgreSQL")));
@@ -177,7 +181,8 @@ class AgentDialogServiceTest {
         });
         var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 new AgentSummaryStore(directory.resolve("summaries"), json), mock(ConversationSummaryService.class),
-                new StickyFactsStore(directory.resolve("facts"), json), mock(StickyFactsService.class), branchStore, 0);
+                new StickyFactsStore(directory.resolve("facts"), json), mock(StickyFactsService.class), branchStore,
+                new AgentMemoryStore(directory.resolve("memory"), json), 0);
         var checkpoint = service.createCheckpoint(id, null);
         var branchA = service.createBranch(id, checkpoint.id());
         var branchB = service.createBranch(id, checkpoint.id());
@@ -242,10 +247,79 @@ class AgentDialogServiceTest {
                 messages.getValue());
     }
 
+    @Test
+    void loadsApplicableMemoryFreshForDialogTaskAndGlobalScopes() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var memoryStore = new AgentMemoryStore(directory.resolve("memory"), json);
+        UUID dialogA = UUID.fromString(dialogs.create().id());
+        UUID dialogB = UUID.fromString(dialogs.create().id());
+        UUID taskA = UUID.randomUUID();
+        UUID taskB = UUID.randomUUID();
+        DeepSeekClient client = mock(DeepSeekClient.class);
+        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn(completion("answer"));
+        var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
+                mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
+                mock(StickyFactsService.class), mock(AgentBranchStore.class), memoryStore, 0);
+        service.upsertMemory(dialogA, taskA, AgentMemory.Scope.SHORT_TERM, "codeword", "SATURN");
+        service.upsertMemory(dialogA, taskA, AgentMemory.Scope.WORKING, "database", "PostgreSQL");
+        service.upsertMemory(dialogA, taskA, AgentMemory.Scope.LONG_TERM, "language", "Java");
+
+        service.reply(dialogA, "A", ContextMode.FULL, 4, null, taskA);
+        service.reply(dialogB, "B", ContextMode.FULL, 4, null, taskA);
+        service.reply(dialogB, "B2", ContextMode.FULL, 4, null, taskB);
+
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client, times(3)).complete(outbound.capture(), anyString(), isNull(), isNull());
+        String first = outbound.getAllValues().get(0).get(outbound.getAllValues().get(0).size() - 2).content();
+        String sharedTask = outbound.getAllValues().get(1).get(outbound.getAllValues().get(1).size() - 2).content();
+        String otherTask = outbound.getAllValues().get(2).get(outbound.getAllValues().get(2).size() - 2).content();
+        assertTrue(first.contains("SATURN") && first.contains("PostgreSQL") && first.contains("Java"));
+        assertFalse(sharedTask.contains("SATURN"));
+        assertTrue(sharedTask.contains("PostgreSQL") && sharedTask.contains("Java"));
+        assertFalse(otherTask.contains("SATURN") || otherTask.contains("PostgreSQL"));
+        assertTrue(otherTask.contains("Java"));
+
+        var restarted = new AgentMemoryStore(directory.resolve("memory"), json).load(dialogA, taskA);
+        assertEquals("SATURN", restarted.shortTerm().get("codeword"));
+        assertEquals("PostgreSQL", restarted.working().get("database"));
+        assertEquals("Java", restarted.longTerm().get("language"));
+    }
+
+    @Test
+    void branchUsesFullContextButPersistsNoMemoryProjectionInTopology() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var branchStore = new AgentBranchStore(directory.resolve("branches"), json);
+        var memoryStore = new AgentMemoryStore(directory.resolve("memory"), json);
+        UUID dialogId = UUID.fromString(dialogs.create().id());
+        DeepSeekClient client = mock(DeepSeekClient.class);
+        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn(completion("answer"));
+        var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
+                mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
+                mock(StickyFactsService.class), branchStore, memoryStore, 0);
+        service.upsertMemory(dialogId, null, AgentMemory.Scope.SHORT_TERM, "key", "MEMORY_ONLY_VALUE");
+        AgentBranchStore.Checkpoint checkpoint = service.createCheckpoint(dialogId, null);
+        AgentBranchStore.Branch branch = service.createBranch(dialogId, checkpoint.id());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.reply(dialogId, "invalid", ContextMode.SLIDING_WINDOW, 4, branch.id(), null));
+        service.reply(dialogId, "command", ContextMode.FULL, 4, branch.id(), null);
+
+        List<ConversationContext.Message> branchHistory = branchStore.loadBranch(dialogId, branch.id());
+        assertTrue(branchHistory.stream().noneMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
+        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
+        verify(client).complete(outbound.capture(), anyString(), isNull(), isNull());
+        assertTrue(outbound.getValue().stream().anyMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
+    }
+
     private AgentDialogService service(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories) {
         return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
-                mock(StickyFactsService.class), mock(AgentBranchStore.class), 0);
+                mock(StickyFactsService.class), mock(AgentBranchStore.class),
+                new AgentMemoryStore(directory.resolve("memory"), new ObjectMapper().findAndRegisterModules()), 0);
     }
 
     private DeepSeekClient.Completion completion(String content) {

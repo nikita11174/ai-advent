@@ -29,7 +29,7 @@ class AgentController {
             throw new IllegalArgumentException("Input must not be empty.");
         }
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                request.branchId());
+                request.branchId(), request.taskId());
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
                 reply.contextMetadata());
     }
@@ -71,9 +71,10 @@ class AgentController {
                 exception.summaryMetrics(), exception.factsMetrics()));
     }
 
-    record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId) {
+    record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
+                        UUID taskId) {
         AgentRequest(String input) {
-            this(input, null, null, null);
+            this(input, null, null, null, null);
         }
     }
 

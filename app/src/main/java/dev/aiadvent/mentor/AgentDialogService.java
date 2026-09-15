@@ -20,13 +20,14 @@ class AgentDialogService {
     private final StickyFactsStore factsStore;
     private final StickyFactsService factsService;
     private final AgentBranchStore branches;
+    private final AgentMemoryStore memories;
     private final ConcurrentHashMap<AgentKey, EngineeringReviewAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
                        ApproximateTokenEstimator tokenEstimator,
                        AgentSummaryStore summaries, ConversationSummaryService summaryService,
                        StickyFactsStore factsStore, StickyFactsService factsService,
-                       AgentBranchStore branches,
+                       AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
         this.dialogs = dialogs;
         this.client = client;
@@ -37,6 +38,7 @@ class AgentDialogService {
         this.factsStore = factsStore;
         this.factsService = factsService;
         this.branches = branches;
+        this.memories = memories;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -47,6 +49,11 @@ class AgentDialogService {
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId)
             throws IOException, DeepSeekException {
+        return reply(dialogId, input, mode, recentMessageCount, branchId, null);
+    }
+
+    AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
+                     UUID taskId) throws IOException, DeepSeekException {
         if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
             throw new IllegalArgumentException("Branch messages use FULL context only.");
         }
@@ -69,7 +76,8 @@ class AgentDialogService {
             EngineeringReviewAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
-        return agent.reply(input, mode, recentMessageCount);
+        AgentMemory.Snapshot memory = memories.load(dialogId, taskId);
+        return agent.reply(input, mode, recentMessageCount, memory);
     }
 
     AgentReply reply(UUID dialogId, String input) throws IOException, DeepSeekException {
@@ -97,6 +105,25 @@ class AgentDialogService {
     List<AgentBranchStore.Checkpoint> checkpoints(UUID dialogId) throws IOException {
         dialogs.load(dialogId.toString());
         return branches.checkpoints(dialogId);
+    }
+
+    AgentMemory.Snapshot memory(UUID dialogId, UUID taskId) throws IOException {
+        dialogs.load(dialogId.toString());
+        return memories.load(dialogId, taskId);
+    }
+
+    AgentMemory.Snapshot upsertMemory(UUID dialogId, UUID taskId, AgentMemory.Scope scope,
+                                      String key, String value) throws IOException {
+        dialogs.load(dialogId.toString());
+        if (scope == null) {
+            throw new IllegalArgumentException("Memory scope is required.");
+        }
+        if (scope == AgentMemory.Scope.WORKING && taskId == null) {
+            throw new IllegalArgumentException("taskId is required for WORKING memory.");
+        }
+        AgentMemory.validateKey(key);
+        AgentMemory.validateValue(value);
+        return memories.upsert(dialogId, taskId, scope, key, value);
     }
 
     private record AgentKey(UUID dialogId, String branchId) {
