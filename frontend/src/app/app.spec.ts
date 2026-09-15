@@ -19,6 +19,16 @@ interface TestApp {
   recentMessageCount: number;
   branchId: string | null;
   checkpointId: string | null;
+  appliedTaskId: string | null;
+  taskIdDraft: string;
+  memoryScope: 'SHORT_TERM' | 'WORKING' | 'LONG_TERM';
+  memoryKey: string;
+  memoryValue: string;
+  memory(): { taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string> };
+  memoryError(): string;
+  generateTaskScope(): void;
+  applyTaskScope(): void;
+  saveMemory(): void;
   topologyError(): string;
   selectLinearContextMode(mode: 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS'): void;
   selectAgent(): void;
@@ -79,12 +89,19 @@ describe('App', () => {
 
   afterEach(() => http.verify({ ignoreCancelled: true }));
 
-  function flushSave(): void { http.expectOne(request => request.url.startsWith('/api/dialogs/')).flush(dialog()); }
+  function flushSave(): void {
+    http.expectOne(request => request.method === 'PUT' && /^\/api\/dialogs\/[^/]+$/.test(request.url)).flush(dialog());
+  }
   function flushTopology(id = dialog().id, branches: unknown[] = [], checkpoints: unknown[] = []): void {
     http.expectOne(`/api/dialogs/${id}/agent/branches`).flush(branches);
     http.expectOne(`/api/dialogs/${id}/agent/checkpoints`).flush(checkpoints);
   }
   function flushHealth(): void { http.expectOne('/api/health').flush({ status: 'UP' }); }
+  function flushMemory(id = dialog().id, taskId: string | null = null,
+    snapshot = { shortTerm: {}, working: {}, longTerm: {} }): void {
+    const query = taskId ? `?taskId=${taskId}` : '';
+    http.expectOne(`/api/dialogs/${id}/agent/memory${query}`).flush({ taskId, ...snapshot });
+  }
 
   it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {
     const a = dialog().id;
@@ -94,8 +111,9 @@ describe('App', () => {
     agentButton.click(); fixture.detectChanges();
     flushHealth();
     flushTopology(a);
+    flushMemory(a);
     expect(component.experiment).toBe('AGENT');
-    expect(fixture.nativeElement.querySelector('.controls-panel')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.memory-panel')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.temperature-selector')).toBeNull();
     expect(fixture.nativeElement.querySelector('.action-buttons').textContent).not.toContain('Сравнить');
     expect(fixture.nativeElement.textContent).toContain('восстанавливает его после перезапуска');
@@ -142,6 +160,7 @@ describe('App', () => {
     component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, archive.exchanges, archive.ui));
     flushHealth();
     flushTopology(a);
+    flushMemory(a);
     fixture.detectChanges();
     expect(component.experiment).toBe('AGENT');
     expect(fixture.nativeElement.textContent).toContain('fact A');
@@ -152,6 +171,91 @@ describe('App', () => {
     returnA.flush({ analysis: 'still A' }); flushSave();
   });
 
+  it('loads all memory layers, blocks WORKING without a task and reloads after an upsert', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(id);
+    flushMemory(id, null, { shortTerm: { codeword: 'SATURN' }, working: {}, longTerm: { language: 'Java' } });
+    fixture.detectChanges();
+    expect(component.memory()).toEqual({ taskId: null, shortTerm: { codeword: 'SATURN' }, working: {}, longTerm: { language: 'Java' } });
+    expect(fixture.nativeElement.querySelector('.memory-layers')?.textContent).toContain('SATURN');
+    expect(fixture.nativeElement.querySelector('.memory-layers')?.textContent).toContain('Java');
+
+    component.memoryScope = 'WORKING'; component.memoryKey = 'database'; component.memoryValue = 'PostgreSQL';
+    fixture.detectChanges();
+    const saveButton = [...fixture.nativeElement.querySelectorAll('.memory-editor button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Сохранить')) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    component.saveMemory(); http.expectNone(`/api/dialogs/${id}/agent/memory/WORKING`);
+
+    component.memoryScope = 'SHORT_TERM'; component.saveMemory();
+    const put = http.expectOne(`/api/dialogs/${id}/agent/memory/SHORT_TERM`);
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toEqual({ taskId: null, key: 'database', value: 'PostgreSQL' });
+    put.flush({ taskId: null, shortTerm: { database: 'PostgreSQL' }, working: {}, longTerm: {} });
+    flushMemory(id, null, { shortTerm: { codeword: 'SATURN', database: 'PostgreSQL' }, working: {}, longTerm: { language: 'Java' } });
+    expect(component.memory().shortTerm['database']).toBe('PostgreSQL');
+  });
+
+  it('generates, persists and reuses an applied task ID for memory and Agent requests across dialogs', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.selectAgent(); flushHealth(); flushTopology(a); flushMemory(a);
+    component.generateTaskScope();
+    const taskId = component.appliedTaskId!;
+    expect(taskId).toMatch(/^[0-9a-f-]{36}$/);
+    const save = http.expectOne(request => request.method === 'PUT' && request.url === `/api/dialogs/${a}`);
+    expect(save.request.body.state.ui.appliedTaskId).toBe(taskId); save.flush(dialog());
+    flushMemory(a, taskId, { shortTerm: {}, working: { database: 'PostgreSQL' }, longTerm: {} });
+    expect(component.appliedTaskId).toBe(taskId);
+
+    component.input = 'Which database?'; component.analyze();
+    const message = http.expectOne(`/api/dialogs/${a}/agent/messages`);
+    expect(message.request.body.taskId).toBe(taskId);
+    message.flush({ analysis: 'PostgreSQL', contextMetadata: { mode: 'FULL', recentMessageCount: 4,
+      summary: null, summarizedMessageCount: 0, memoryUsed: [{ scope: 'WORKING', keys: ['database'], entryCount: 1 }] } });
+    flushSave();
+
+    component.openDialog(b);
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], { experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT',
+      selectedTemperature: 0, appliedTaskId: taskId }));
+    flushHealth(); flushTopology(b);
+    flushMemory(b, taskId, { shortTerm: {}, working: { database: 'PostgreSQL' }, longTerm: {} });
+    expect(component.appliedTaskId).toBe(taskId);
+    expect(component.memory().working['database']).toBe('PostgreSQL');
+  });
+
+  it('ignores stale memory after a task change and archives only value-free response evidence', () => {
+    const id = dialog().id;
+    const firstTask = '33333333-3333-4333-8333-333333333333';
+    const secondTask = '44444444-4444-4444-8444-444444444444';
+    component.selectAgent(); flushHealth(); flushTopology(id); flushMemory(id);
+
+    component.taskIdDraft = firstTask; component.applyTaskScope(); flushSave();
+    component.taskIdDraft = secondTask; component.applyTaskScope(); flushSave();
+    flushMemory(id, secondTask, { shortTerm: {}, working: { current: 'SECOND_VALUE' }, longTerm: {} });
+    flushMemory(id, firstTask, { shortTerm: {}, working: { stale: 'FIRST_VALUE' }, longTerm: {} });
+    expect(component.memory().working).toEqual({ current: 'SECOND_VALUE' });
+
+    component.input = 'Use memory'; component.analyze();
+    const message = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(message.request.body.taskId).toBe(secondTask);
+    message.flush({ analysis: 'done', contextMetadata: { mode: 'FULL', recentMessageCount: 4, summary: null,
+      summarizedMessageCount: 0, memoryUsed: [{ scope: 'WORKING', keys: ['current'], entryCount: 1 }] } });
+    const save = http.expectOne(request => request.method === 'PUT' && request.url === `/api/dialogs/${id}`);
+    const archived = JSON.stringify(save.request.body.state);
+    expect(archived).not.toContain('SECOND_VALUE');
+    expect(archived).not.toContain('FIRST_VALUE');
+    expect(save.request.body.state.exchanges[0].free.contextMetadata.memoryUsed).toEqual([
+      { scope: 'WORKING', keys: ['current'], entryCount: 1 },
+    ]);
+    save.flush(dialog()); fixture.detectChanges();
+    const evidence = fixture.nativeElement.querySelector('.memory-used');
+    expect(evidence.textContent).toContain('WORKING');
+    expect(evidence.textContent).toContain('current');
+    expect(evidence.textContent).toContain('count: 1');
+    expect(evidence.textContent).not.toContain('SECOND_VALUE');
+  });
+
   it('shows backend availability without agent requests or overlapping heartbeats', () => {
     component.selectAgent(); fixture.detectChanges();
     expect(component.backendStatus()).toBe('CONNECTING');
@@ -159,7 +263,7 @@ describe('App', () => {
     const first = http.expectOne('/api/health');
     expect(first.request.method).toBe('GET');
     component.checkBackend(); http.expectNone('/api/health');
-    first.flush({ status: 'UP' }); flushTopology(); fixture.detectChanges();
+    first.flush({ status: 'UP' }); flushTopology(); flushMemory(); fixture.detectChanges();
     expect(component.backendStatus()).toBe('ONLINE');
     expect(fixture.nativeElement.querySelector('.server-status.online')?.textContent).toContain('Сервер подключён');
 
@@ -264,6 +368,7 @@ describe('App', () => {
       { id: 'checkpoint-a', baseHistory: [{ role: 'system', content: 'instruction' }], branches: [] },
       { id: 'checkpoint-b', baseHistory: [{ role: 'system', content: 'instruction' }], branches: [] },
     ]);
+    flushMemory(id);
     component.selectLinearContextMode('STICKY_FACTS');
     const strategySave = http.expectOne(r => r.method === 'PUT'); strategySave.flush(dialog());
     component.switchBranch('branch-a');
@@ -292,13 +397,14 @@ describe('App', () => {
       { id: 'checkpoint-1', baseHistory: [], branches: [] },
       { id: 'checkpoint-2', baseHistory: [], branches: [] },
     ];
-    flushHealth(); flushTopology(id, topology, checkpoints);
+    flushHealth(); flushTopology(id, topology, checkpoints); flushMemory(id);
 
     component.selectCheckpoint('checkpoint-2');
     http.expectOne(r => r.method === 'PUT').flush(dialog());
     component.selectAgent();
     flushHealth();
     flushTopology(id, topology, checkpoints);
+    flushMemory(id);
     expect(component.checkpointId).toBe('checkpoint-2');
 
     component.createBranch();
@@ -336,6 +442,7 @@ describe('App', () => {
     component.experiment = 'AGENT'; component.branchId = 'branch-a'; component.input = 'branch turn';
     component.selectAgent(); fixture.detectChanges();
     flushHealth();
+    flushMemory(id);
     const button = [...fixture.nativeElement.querySelectorAll('button')]
       .find((item: HTMLButtonElement) => item.textContent?.trim() === 'Проанализировать') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
@@ -369,12 +476,16 @@ describe('App', () => {
     flushHealth();
     http.expectOne(`/api/dialogs/${a}/agent/branches`).flush([{ id: 'old-branch', checkpointId: 'old', history: [] }]);
     http.expectOne(`/api/dialogs/${a}/agent/checkpoints`).flush([{ id: 'old', baseHistory: [], branches: [] }]);
+    http.expectOne(`/api/dialogs/${a}/agent/memory`).flush({ taskId: null, shortTerm: { stale: 'old' }, working: {}, longTerm: {} });
     flushTopology(b);
+    flushMemory(b);
+    expect(component.memory().shortTerm).toEqual({});
     expect(component.branchId).toBeNull();
 
     component.selectAgent();
     flushHealth();
     http.expectOne(`/api/dialogs/${b}/agent/branches`).flush({ error: 'unavailable' }, { status: 500, statusText: 'Server Error' });
+    flushMemory(b);
     expect(component.topologyError()).toContain('Не удалось загрузить topology');
   });
 

@@ -149,6 +149,13 @@
         }
         @if (agent && result.contextMetadata) {
           <span class="control-metadata">Контекст: {{ result.contextMetadata.mode }} · последние raw messages: {{ result.contextMetadata.recentMessageCount }} · сжато сообщений: {{ result.contextMetadata.summarizedMessageCount }}</span>
+          @if (result.contextMetadata.memoryUsed?.length) {
+            <div class="memory-used"><strong>Memory used</strong>
+              @for (usage of result.contextMetadata.memoryUsed; track usage.scope) {
+                <span>{{ usage.scope }} · keys: {{ usage.keys.join(', ') }} · count: {{ usage.entryCount }}</span>
+              }
+            </div>
+          }
           @if (result.contextMetadata.summary) { <details><summary>Показать summary</summary><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></details> }
           @if (result.contextMetadata.facts) { <details><summary>Показать sticky facts</summary><pre class="raw-json"><code>{{ result.contextMetadata.facts | json }}</code></pre></details> }
         }
@@ -279,6 +286,40 @@
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
       } @else if (experiment === 'AGENT') {
+        <details class="controls-panel memory-panel" open>
+          <summary>Task scope и explicit memory</summary>
+          <div class="task-scope">
+            <span>Applied Task ID: <strong>{{ appliedTaskId ?? 'не задан' }}</strong></span>
+            <label>Draft Task ID<input [(ngModel)]="taskIdDraft" placeholder="UUID существующего task scope" /></label>
+            <div class="task-actions">
+              <button mat-stroked-button type="button" (click)="generateTaskScope()">Новый task scope</button>
+              <button mat-stroked-button type="button" [disabled]="!taskIdDraft.trim()" (click)="applyTaskScope()">Применить</button>
+            </div>
+          </div>
+          <div class="memory-editor">
+            <label>Scope <select [(ngModel)]="memoryScope" aria-label="Memory scope">
+              <option value="SHORT_TERM">SHORT_TERM</option>
+              <option value="WORKING">WORKING</option>
+              <option value="LONG_TERM">LONG_TERM</option>
+            </select></label>
+            <label>Key<input [(ngModel)]="memoryKey" /></label>
+            <label>Value<textarea rows="2" [(ngModel)]="memoryValue"></textarea></label>
+            <button mat-flat-button type="button" (click)="saveMemory()"
+              [disabled]="memorySaving() || !memoryKey.trim() || !memoryValue.trim() || (memoryScope === 'WORKING' && !appliedTaskId)">Сохранить memory</button>
+          </div>
+          @if (memoryLoading() || memorySaving()) { <mat-progress-bar mode="indeterminate" /> }
+          @if (memoryError()) { <p class="inline-error" role="alert">{{ memoryError() }}</p> }
+          @if (memorySuccess()) { <p class="memory-success">{{ memorySuccess() }}</p> }
+          <div class="memory-layers">
+            @for (scope of ['SHORT_TERM', 'WORKING', 'LONG_TERM']; track scope) {
+              <section><h3>{{ scope }}</h3>
+                @if (memoryEntries($any(scope)).length) {
+                  <dl>@for (entry of memoryEntries($any(scope)); track entry[0]) { <dt>{{ entry[0] }}</dt><dd>{{ entry[1] }}</dd> }</dl>
+                } @else { <p>Нет записей</p> }
+              </section>
+            }
+          </div>
+        </details>
         <div class="reasoning-controls">
           @if (!branchId) {
             <label>Контекст <select [ngModel]="linearContextMode" (ngModelChange)="selectLinearContextMode($event)" aria-label="Режим контекста">

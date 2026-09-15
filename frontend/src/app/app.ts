@@ -15,6 +15,7 @@ type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
 type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
 type ContextMode = 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS';
+type MemoryScope = 'SHORT_TERM' | 'WORKING' | 'LONG_TERM';
 
 interface ReviewControls {
   maxTokens: number; maxFindings: number; summaryMaxWords: number;
@@ -28,7 +29,11 @@ interface TokenMetrics {
   currentRequestTokens: number; contextTokens: number; responseTokens: number; providerUsage: ProviderUsage | null;
 }
 interface StickyFacts { coveredUserMessageCount: number; facts: Record<string, string>; }
-interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: StickyFacts | null; }
+interface MemoryUsage { scope: MemoryScope; keys: string[]; entryCount: number; }
+interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summary: string | null; summarizedMessageCount: number; facts?: StickyFacts | null; memoryUsed?: MemoryUsage[]; }
+interface MemorySnapshot {
+  taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string>;
+}
 interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; contextMetadata: ContextMetadata; }
 interface AgentError { error?: string; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
@@ -62,6 +67,7 @@ interface DialogUiState {
   selectedModelKey?: string;
   contextMode?: ContextMode; linearContextMode?: ContextMode; recentMessageCount?: number;
   branchId?: string | null; checkpointId?: string | null;
+  appliedTaskId?: string | null;
 }
 interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]; ui?: DialogUiState }; }
 interface AgentMessage { role: 'system' | 'user' | 'assistant'; content: string; }
@@ -109,6 +115,7 @@ export class App implements OnInit, OnDestroy {
   private nextExchangeId = 1;
   private pendingRequests = 0;
   private topologyRequestGeneration = 0;
+  private memoryRequestGeneration = 0;
   private programmaticScroll = false;
   private shouldFollowLatest = true;
 
@@ -125,6 +132,16 @@ export class App implements OnInit, OnDestroy {
   protected recentMessageCount = 4;
   protected branchId: string | null = null;
   protected checkpointId: string | null = null;
+  protected appliedTaskId: string | null = null;
+  protected taskIdDraft = '';
+  protected memoryScope: MemoryScope = 'SHORT_TERM';
+  protected memoryKey = '';
+  protected memoryValue = '';
+  protected readonly memory = signal<MemorySnapshot>({ taskId: null, shortTerm: {}, working: {}, longTerm: {} });
+  protected readonly memoryLoading = signal(false);
+  protected readonly memorySaving = signal(false);
+  protected readonly memoryError = signal('');
+  protected readonly memorySuccess = signal('');
   protected readonly branches = signal<readonly AgentBranch[]>([]);
   protected readonly checkpoints = signal<readonly AgentCheckpoint[]>([]);
   protected readonly branchViews = signal<Record<string, readonly Exchange[]>>({});
@@ -162,6 +179,52 @@ export class App implements OnInit, OnDestroy {
     this.backendStatus.set('CONNECTING');
     this.checkBackend();
     this.loadTopology();
+    this.loadMemory();
+  }
+
+  protected generateTaskScope(): void {
+    this.taskIdDraft = crypto.randomUUID();
+    this.applyTaskScope();
+  }
+
+  protected applyTaskScope(): void {
+    const taskId = this.taskIdDraft.trim();
+    if (!this.isUuid(taskId)) {
+      this.memoryError.set('Task ID должен быть UUID.');
+      return;
+    }
+    this.appliedTaskId = taskId;
+    this.taskIdDraft = taskId;
+    this.persistDialog();
+    this.loadMemory();
+  }
+
+  protected saveMemory(): void {
+    const dialogId = this.currentDialogId();
+    if (!dialogId || this.memorySaving() || !this.memoryKey.trim() || !this.memoryValue.trim()
+      || (this.memoryScope === 'WORKING' && !this.appliedTaskId)) return;
+    const taskId = this.appliedTaskId;
+    const operation = ++this.memoryRequestGeneration;
+    this.memorySaving.set(true); this.memoryError.set(''); this.memorySuccess.set('');
+    this.http.put<MemorySnapshot>(`/api/dialogs/${dialogId}/agent/memory/${this.memoryScope}`,
+      { taskId, key: this.memoryKey, value: this.memoryValue }).subscribe({
+      next: () => {
+        if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
+        this.memorySaving.set(false); this.memoryKey = ''; this.memoryValue = '';
+        this.memorySuccess.set('Memory сохранена.'); this.loadMemory();
+      },
+      error: (error: HttpErrorResponse) => {
+        if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
+        this.memorySaving.set(false);
+        this.memoryError.set(error.error?.error ?? 'Не удалось сохранить memory.');
+      },
+    });
+  }
+
+  protected memoryEntries(scope: MemoryScope): readonly [string, string][] {
+    const values = scope === 'SHORT_TERM' ? this.memory().shortTerm
+      : scope === 'WORKING' ? this.memory().working : this.memory().longTerm;
+    return Object.entries(values);
   }
 
   private checkBackend(): void {
@@ -398,7 +461,10 @@ export class App implements OnInit, OnDestroy {
     this.linearContextMode = ui?.linearContextMode ?? ui?.contextMode ?? 'FULL';
     this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : this.linearContextMode;
     this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = ui?.checkpointId ?? null;
+    this.appliedTaskId = ui?.appliedTaskId ?? null; this.taskIdDraft = this.appliedTaskId ?? '';
     this.topologyRequestGeneration++; this.branches.set([]); this.checkpoints.set([]); this.branchViews.set({});
+    this.memoryRequestGeneration++; this.memory.set({ taskId: this.appliedTaskId, shortTerm: {}, working: {}, longTerm: {} });
+    this.memoryLoading.set(false); this.memorySaving.set(false); this.memoryError.set(''); this.memorySuccess.set('');
     this.topologyBusy.set(false); this.topologyError.set('');
     if (this.experiment === 'MODELS') this.selectModels();
     this.currentDialogId.set(dialog.id); this.exchanges.set(exchanges);
@@ -433,6 +499,23 @@ export class App implements OnInit, OnDestroy {
       error: () => this.failTopologyOperation(id, operation, 'Не удалось загрузить topology диалога.'),
     });
   }
+  private loadMemory(): void {
+    const dialogId = this.currentDialogId(); if (!dialogId) return;
+    const taskId = this.appliedTaskId;
+    const operation = ++this.memoryRequestGeneration;
+    const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
+    this.memoryLoading.set(true); this.memoryError.set('');
+    this.http.get<MemorySnapshot>(`/api/dialogs/${dialogId}/agent/memory${query}`).subscribe({
+      next: snapshot => {
+        if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
+        this.memory.set(snapshot); this.memoryLoading.set(false);
+      },
+      error: () => {
+        if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
+        this.memoryLoading.set(false); this.memoryError.set('Не удалось загрузить memory.');
+      },
+    });
+  }
   private analyzeAgent(input: string): void {
     const dialogId = this.currentDialogId(); if (!dialogId) return;
     const requestBranchId = this.branchId;
@@ -440,7 +523,7 @@ export class App implements OnInit, OnDestroy {
       free: { loading: true } });
     this.prepareAfterSubmit(); this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
-      ...(requestBranchId ? { branchId: requestBranchId } : {}) };
+      ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
@@ -537,7 +620,7 @@ export class App implements OnInit, OnDestroy {
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
       selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
       contextMode: this.contextMode, linearContextMode: this.linearContextMode, recentMessageCount: this.recentMessageCount,
-      branchId: this.branchId, checkpointId: this.checkpointId };
+      branchId: this.branchId, checkpointId: this.checkpointId, appliedTaskId: this.appliedTaskId };
     this.http.put<DialogDocument>(`/api/dialogs/${id}`, { title, state: { exchanges: completed, ui } }).subscribe({
       next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
     });
@@ -564,6 +647,12 @@ export class App implements OnInit, OnDestroy {
   }
   private isCurrentTopologyOperation(dialogId: string, operation: number): boolean {
     return this.currentDialogId() === dialogId && this.topologyRequestGeneration === operation;
+  }
+  private isCurrentMemoryOperation(dialogId: string, taskId: string | null, operation: number): boolean {
+    return this.currentDialogId() === dialogId && this.appliedTaskId === taskId && this.memoryRequestGeneration === operation;
+  }
+  private isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
   }
   private finishTopologyOperation(dialogId: string, operation: number): void {
     if (this.isCurrentTopologyOperation(dialogId, operation)) this.topologyBusy.set(false);
