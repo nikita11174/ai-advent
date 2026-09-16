@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
-  <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">ERM</span><span>Engineering Review Mentor</span></div>
-  <div class="context"><span>AI Advent · День 10</span><span class="model-badge">{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek V4 Flash' }}</span>
+  <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">LW</span><span>Local AI Worker</span></div>
+  <div class="context"><button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button>
     @if (experiment === 'AGENT') {
       <span class="model-badge server-status" [class.online]="backendStatus() === 'ONLINE'" [class.offline]="backendStatus() === 'OFFLINE'"
         [style.color]="backendStatus() === 'ONLINE' ? '#86efac' : backendStatus() === 'OFFLINE' ? '#fca5a5' : '#fde68a'" role="status">
@@ -13,10 +13,11 @@
 
 <div class="workspace">
   <aside class="dialog-sidebar" [class.open]="sidebarOpen()">
-    <button mat-flat-button (click)="newDialog()" [disabled]="loading()">Новый диалог</button>
+    <h2>Диалоги</h2>
+    <button mat-flat-button (click)="newDialog()" [disabled]="loading()">+ Новый диалог</button>
     <nav aria-label="История диалогов">
       @for (dialog of dialogs(); track dialog.id) {
-        <button class="dialog-item" [class.current]="dialog.id === currentDialogId()" (click)="openDialog(dialog.id)">
+        <button class="dialog-item" [class.current]="dialog.id === currentDialogId()" [attr.aria-current]="dialog.id === currentDialogId() ? 'page' : null" [title]="dialog.title" [disabled]="loading()" (click)="openDialog(dialog.id)">
           {{ dialog.title }}
         </button>
       }
@@ -24,10 +25,22 @@
   </aside>
 
   <main class="chat-shell">
+    <header class="conversation-header">
+      <span>Беседа</span>
+      @if (experiment === 'AGENT') {
+        <label class="agent-model-selector">Провайдер / модель
+          <select [ngModel]="activeAgentModelKey()" (ngModelChange)="chooseAgentModel($event)" [disabled]="loading() || !agentModelOptions().length" aria-label="Провайдер API и модель агента">
+            @if (!agentModelAvailable()) { <option [value]="activeAgentModelKey()">{{ agentModelOptions().length ? 'Выбранная модель недоступна' : 'Загрузка моделей…' }}</option> }
+            @for (model of agentModelOptions(); track model.key) { <option [value]="model.key">{{ agentModelLabel(model.key) }}</option> }
+          </select>
+        </label>
+      } @else { <small>{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek API' }} · эксперимент</small> }
+    </header>
+    @if (agentModelError()) { <div class="catalog-error" role="alert">{{ agentModelError() }} <button mat-button (click)="loadAgentModels()">Повторить</button></div> }
     <section #conversation class="conversation" aria-live="polite" (scroll)="handleConversationScroll()">
       <div class="conversation-content">
         @if (visibleExchanges().length === 0) {
-          <div class="empty-state"><h1>Развивайте инженерное мышление</h1><p>Вставьте Java-код или задайте инженерный вопрос</p></div>
+          <div class="empty-state"><h1>С чего начнём?</h1><p>Задайте вопрос или вставьте код для анализа.</p></div>
         }
 
         @for (exchange of visibleExchanges(); track exchange.id) {
@@ -125,7 +138,7 @@
             </div></article>
           } @else {
             <article class="message-row mentor-row"><div class="message mentor-message">
-              <span class="message-label">Ментор · {{ exchange.mode === 'AGENT' ? 'Агент' : exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
+              <span class="message-label">Worker · {{ exchange.mode === 'AGENT' ? agentModelLabel(exchange.free?.agentModelKey) : exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
               @if (exchange.mode === 'FREE' || exchange.mode === 'AGENT') {
                 <ng-container [ngTemplateOutlet]="freeResult" [ngTemplateOutletContext]="{ result: exchange.free, agent: exchange.mode === 'AGENT' }" />
               } @else {
@@ -142,38 +155,43 @@
       @if (result?.loading) { <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div> }
       @else if (result?.analysis) {
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
-        @if (agent && result.metrics) {
-          <span class="control-metadata">Day 8/9 · локальная оценка, не токенизация провайдера:<br>
-            request / context / response: {{ result.metrics.currentRequestTokens }} / {{ result.metrics.contextTokens }} / {{ result.metrics.responseTokens }}
-            @if (result.metrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
-        }
-        @if (agent && result.contextMetadata) {
-          <span class="control-metadata">Контекст: {{ result.contextMetadata.mode }} · последние raw messages: {{ result.contextMetadata.recentMessageCount }} · сжато сообщений: {{ result.contextMetadata.summarizedMessageCount }}</span>
-          @if (result.contextMetadata.memoryUsed?.length) {
-            <div class="memory-used"><strong>Memory used</strong>
-              @for (usage of result.contextMetadata.memoryUsed; track usage.scope) {
-                <span>{{ usage.scope }} · keys: {{ usage.keys.join(', ') }} · count: {{ usage.entryCount }}</span>
-              }
-            </div>
-          }
-          @if (result.contextMetadata.summary) { <details><summary>Показать summary</summary><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></details> }
-          @if (result.contextMetadata.facts) { <details><summary>Показать sticky facts</summary><pre class="raw-json"><code>{{ result.contextMetadata.facts | json }}</code></pre></details> }
-        }
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
-      @if (agent && result?.summaryMetrics) {
-        <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
-          request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
-          @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
-      }
-      @if (agent && result?.factsMetrics?.length) {
-        <span class="control-metadata">Sticky facts maintenance · calls: {{ result.factsMetrics.length }}</span>
-          @for (metrics of result.factsMetrics; track $index) {
-            <span class="control-metadata">request / context / response: {{ metrics.currentRequestTokens }} / {{ metrics.contextTokens }} / {{ metrics.responseTokens }}</span>
-            @if (metrics.providerUsage) {
-              <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
+      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length)) {
+        <details class="technical-details">
+          <summary>Технические детали</summary>
+          @if (result?.metrics) {
+            <span class="control-metadata">Локальная оценка токенов:<br>
+              request / context / response: {{ result.metrics.currentRequestTokens }} / {{ result.metrics.contextTokens }} / {{ result.metrics.responseTokens }}
+              @if (result.metrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
+          }
+          @if (result?.contextMetadata) {
+            <span class="control-metadata">Контекст: {{ result.contextMetadata.mode }} · последние raw messages: {{ result.contextMetadata.recentMessageCount }} · сжато сообщений: {{ result.contextMetadata.summarizedMessageCount }}</span>
+            @if (result.contextMetadata.memoryUsed?.length) {
+              <div class="memory-used"><strong>Использованная память</strong>
+                @for (usage of result.contextMetadata.memoryUsed; track usage.scope) {
+                  <span>{{ usage.scope }} · keys: {{ usage.keys.join(', ') }} · count: {{ usage.entryCount }}</span>
+                }
+              </div>
+            }
+            @if (result.contextMetadata.summary) { <section class="technical-section"><strong>Summary</strong><div class="analysis-text" [innerHTML]="renderMarkdown(result.contextMetadata.summary)"></div></section> }
+            @if (result.contextMetadata.facts) { <section class="technical-section"><strong>Sticky facts</strong><pre class="raw-json"><code>{{ result.contextMetadata.facts | json }}</code></pre></section> }
+          }
+          @if (result?.summaryMetrics) {
+            <span class="control-metadata">Summary generation · отдельная локальная оценка:<br>
+              request / context / response: {{ result.summaryMetrics.currentRequestTokens }} / {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}
+              @if (result.summaryMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.summaryMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.summaryMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
+          }
+          @if (result?.factsMetrics?.length) {
+            <span class="control-metadata">Sticky facts maintenance · calls: {{ result.factsMetrics.length }}</span>
+            @for (metrics of result.factsMetrics; track $index) {
+              <span class="control-metadata">request / context / response: {{ metrics.currentRequestTokens }} / {{ metrics.contextTokens }} / {{ metrics.responseTokens }}</span>
+              @if (metrics.providerUsage) {
+                <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
+              }
             }
           }
+        </details>
       }
     </ng-template>
 
@@ -236,6 +254,100 @@
     <section class="composer-wrap">
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
+        <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
+        <div class="composer-actions"><span>Ctrl+Enter — отправить</span><div class="action-buttons">
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable()))">Проанализировать</button>
+        </div></div>
+      </div>
+    </section>
+  </main>
+
+  <app-agent-inspector [open]="inspectorOpen" (closed)="inspectorOpen = false">
+    @if (experiment === 'AGENT') {
+      <section class="inspector-section task-panel">
+        <div class="section-heading"><h2>Задача</h2><button mat-button type="button" (click)="taskEditing = !taskEditing">{{ taskEditing ? 'Закрыть' : 'Изменить' }}</button></div>
+        <div class="task-current"><code [title]="appliedTaskId ?? ''">{{ appliedTaskId ? appliedTaskId.slice(0, 8) : 'Не задана' }}</code>
+          <button mat-button type="button" [disabled]="!appliedTaskId" (click)="copyTaskId()">Копировать</button></div>
+        @if (taskCopyStatus) { <small role="status">{{ taskCopyStatus }}</small> }
+        @if (taskEditing) {
+          <div class="task-scope">
+            <label>ID задачи<input [(ngModel)]="taskIdDraft" placeholder="UUID существующей задачи" /></label>
+            <div class="task-actions">
+              <button mat-stroked-button type="button" (click)="generateTaskScope()">Новый task scope</button>
+              <button mat-stroked-button type="button" [disabled]="!taskIdDraft.trim()" (click)="applyTaskScope()">Применить</button>
+            </div>
+          </div>
+        }
+      </section>
+      <section class="inspector-section memory-panel">
+        <div class="section-heading"><h2>Память</h2><button mat-button type="button" (click)="editMemory()" [disabled]="memorySaving()" aria-label="Добавить запись памяти">+</button></div>
+        <div class="memory-layers">
+          @for (scope of memoryScopes; track scope) {
+            <section><h3>{{ memoryLabels[scope] }} <small>{{ memoryScopeLabels[scope] }}</small></h3>
+              @if (memoryEntries(scope).length) {
+                <dl>@for (entry of memoryEntries(scope); track entry[0]) {
+                  <dt><span>{{ entry[0] }}</span><button type="button" (click)="editMemory(scope, entry[0], entry[1])" [disabled]="memorySaving()" [attr.aria-label]="'Изменить ' + entry[0]">Изменить</button></dt><dd>{{ entry[1] }}</dd>
+                }</dl>
+              } @else { <p class="muted">Нет записей</p> }
+            </section>
+          }
+        </div>
+        @if (memoryEditing()) {
+          <div class="memory-editor">
+            <label>Слой памяти<select [(ngModel)]="memoryScope" aria-label="Memory scope" [disabled]="memorySaving()">
+              @for (scope of memoryScopes; track scope) { <option [value]="scope">{{ memoryLabels[scope] }}</option> }
+            </select></label>
+            <label>Ключ<input [(ngModel)]="memoryKey" [disabled]="memorySaving()" /></label>
+            <label>Значение<textarea rows="3" [(ngModel)]="memoryValue" [disabled]="memorySaving()"></textarea></label>
+            @if (memoryScope === 'WORKING' && !appliedTaskId) { <small>Сначала задайте ID задачи.</small> }
+            <div class="task-actions"><button mat-flat-button type="button" (click)="saveMemory()" [disabled]="memorySaving() || !memoryKey.trim() || !memoryValue.trim() || (memoryScope === 'WORKING' && !appliedTaskId)">Сохранить память</button>
+              <button mat-button type="button" (click)="closeMemoryEditor()" [disabled]="memorySaving()">Отмена</button></div>
+          </div>
+        }
+        @if (memoryLoading() || memorySaving()) { <mat-progress-bar mode="indeterminate" /> }
+        @if (memoryError()) { <p class="inline-error" role="alert">{{ memoryError() }}</p> }
+        @if (memorySuccess()) { <p class="memory-success" role="status">{{ memorySuccess() }}</p> }
+      </section>
+      <details class="inspector-section">
+        <summary>Контекст <small>{{ contextMode }}</small></summary>
+        @if (!branchId) {
+          <label>Режим контекста<select [ngModel]="linearContextMode" (ngModelChange)="selectLinearContextMode($event)" aria-label="Режим контекста">
+            <option value="FULL">Полный</option><option value="SUMMARY_RECENT">Сводка + последние сообщения</option>
+            <option value="SLIDING_WINDOW">Скользящее окно</option><option value="STICKY_FACTS">Закреплённые факты</option>
+          </select></label>
+          @if (contextMode !== 'FULL') { <label>Последние сообщения<input type="number" min="1" [(ngModel)]="recentMessageCount" /></label> }
+        } @else { <p>Контекст ветки: FULL</p> }
+        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера.</small>
+      </details>
+      <details class="inspector-section">
+        <summary>Ветки / контрольные точки <small>{{ branchId ? branchId.slice(0, 8) : 'Линейный' }}</small></summary>
+        <label>Ветка<select [ngModel]="branchId" (ngModelChange)="switchBranch($event)" [disabled]="topologyBusy()" aria-label="Ветка">
+          <option [ngValue]="null">Линейный диалог</option>
+          @for (branch of branches(); track branch.id) { <option [ngValue]="branch.id">{{ branch.id.slice(0, 8) }}</option> }
+        </select></label>
+        <label>Контрольная точка<select [ngModel]="checkpointId" (ngModelChange)="selectCheckpoint($event)" [disabled]="topologyBusy()" aria-label="Checkpoint">
+          <option [ngValue]="null">Выберите точку</option>
+          @for (checkpoint of checkpoints(); track checkpoint.id) { <option [ngValue]="checkpoint.id">{{ checkpoint.id.slice(0, 8) }}</option> }
+        </select></label>
+        <button mat-button type="button" [disabled]="loading() || topologyBusy()" (click)="createCheckpoint()">Создать checkpoint</button>
+        <button mat-button type="button" [disabled]="loading() || topologyBusy() || !checkpointId" (click)="createBranch()">Создать ветку</button>
+      </details>
+      @if (topologyError()) { <p class="inline-error" role="alert">{{ topologyError() }}</p> }
+    }
+    <details class="inspector-section">
+      <summary>Метрики</summary>
+      @if (latestAgentResult(); as result) {
+        @if (result.metrics; as metrics) {
+          <p class="muted">Последний ответ · локальная оценка</p>
+          <dl class="metrics-list"><dt>Запрос</dt><dd>{{ metrics.currentRequestTokens }}</dd><dt>Контекст</dt><dd>{{ metrics.contextTokens }}</dd><dt>Ответ</dt><dd>{{ metrics.responseTokens }}</dd></dl>
+          @if (metrics.providerUsage; as usage) { <p>API: {{ usage.promptTokens ?? 'UNKNOWN' }} / {{ usage.completionTokens ?? 'UNKNOWN' }} / {{ usage.totalTokens ?? 'UNKNOWN' }}</p> }
+        } @else { <p class="muted">Нет метрик основного ответа</p> }
+        @if (result.summaryMetrics) { <p>Сводка: {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}</p> }
+        @if (result.factsMetrics?.length) { <p>Обновления фактов: {{ result.factsMetrics!.length }}</p> }
+      } @else { <p class="muted">Метрики доступны у результатов сообщений.</p> }
+    </details>
+    <details class="inspector-section run-settings">
+      <summary>Настройки запуска <small>{{ experiment === 'AGENT' ? 'Агент' : experiment === 'FORMAT' ? 'Формат ответа' : experiment === 'MODELS' ? 'Модели' : experiment === 'REASONING' ? 'Стратегия' : 'Температура' }}</small></summary>
       <div class="experiment-selector">
         <button [class.active]="experiment === 'FORMAT'" (click)="experiment = 'FORMAT'">Формат ответа</button>
         <button [class.active]="experiment === 'REASONING'" (click)="experiment = 'REASONING'">Стратегия анализа</button>
@@ -243,6 +355,25 @@
         <button [class.active]="experiment === 'MODELS'" (click)="selectModels()">Модели</button>
         <button [class.active]="experiment === 'AGENT'" (click)="selectAgent()">Агент</button>
       </div>
+
+      @if (experiment === 'AGENT') { <p class="muted">Модель выбирается над беседой. Настройки контекста — в разделе «Контекст».</p> }
+      <ng-container [ngTemplateOutlet]="historicalSettings" />
+      @if (experiment !== 'AGENT') { <p class="muted">{{ experiment === 'MODELS' ? 'OpenAI API · независимые запросы' : 'DeepSeek API · независимые запросы' }}. Память агента здесь не используется.</p> }
+    </details>
+    <details class="inspector-section experiments-panel">
+      <summary>Эксперименты / сравнение</summary>
+      @if (experiment === 'AGENT') { <p class="muted">Выберите исторический эксперимент в настройках запуска.</p> }
+      <div class="comparison-actions">
+        @if (experiment === 'FORMAT') { <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить режимы</button> }
+        @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
+        @else if (experiment === 'MODELS') { <button mat-stroked-button (click)="compareModels()" [disabled]="!input.trim() || loading() || !currentDialogId() || !modelOptions().length">Сравнить модели</button> }
+        @else if (experiment === 'TEMPERATURE') { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
+
+      </div>
+      @if (experiment !== 'AGENT') { <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button> }
+    </details>
+  </app-agent-inspector>
+  <ng-template #historicalSettings>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">
           <label><input type="radio" name="mode" value="FREE" [(ngModel)]="selectedMode" /> Свободный</label>
@@ -285,77 +416,7 @@
           </div>
           <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button>
         </div>
-      } @else if (experiment === 'AGENT') {
-        <details class="controls-panel memory-panel" open>
-          <summary>Task scope и explicit memory</summary>
-          <div class="task-scope">
-            <span>Applied Task ID: <strong>{{ appliedTaskId ?? 'не задан' }}</strong></span>
-            <label>Draft Task ID<input [(ngModel)]="taskIdDraft" placeholder="UUID существующего task scope" /></label>
-            <div class="task-actions">
-              <button mat-stroked-button type="button" (click)="generateTaskScope()">Новый task scope</button>
-              <button mat-stroked-button type="button" [disabled]="!taskIdDraft.trim()" (click)="applyTaskScope()">Применить</button>
-            </div>
-          </div>
-          <div class="memory-editor">
-            <label>Scope <select [(ngModel)]="memoryScope" aria-label="Memory scope">
-              <option value="SHORT_TERM">SHORT_TERM</option>
-              <option value="WORKING">WORKING</option>
-              <option value="LONG_TERM">LONG_TERM</option>
-            </select></label>
-            <label>Key<input [(ngModel)]="memoryKey" /></label>
-            <label>Value<textarea rows="2" [(ngModel)]="memoryValue"></textarea></label>
-            <button mat-flat-button type="button" (click)="saveMemory()"
-              [disabled]="memorySaving() || !memoryKey.trim() || !memoryValue.trim() || (memoryScope === 'WORKING' && !appliedTaskId)">Сохранить memory</button>
-          </div>
-          @if (memoryLoading() || memorySaving()) { <mat-progress-bar mode="indeterminate" /> }
-          @if (memoryError()) { <p class="inline-error" role="alert">{{ memoryError() }}</p> }
-          @if (memorySuccess()) { <p class="memory-success">{{ memorySuccess() }}</p> }
-          <div class="memory-layers">
-            @for (scope of ['SHORT_TERM', 'WORKING', 'LONG_TERM']; track scope) {
-              <section><h3>{{ scope }}</h3>
-                @if (memoryEntries($any(scope)).length) {
-                  <dl>@for (entry of memoryEntries($any(scope)); track entry[0]) { <dt>{{ entry[0] }}</dt><dd>{{ entry[1] }}</dd> }</dl>
-                } @else { <p>Нет записей</p> }
-              </section>
-            }
-          </div>
-        </details>
-        <div class="reasoning-controls">
-          @if (!branchId) {
-            <label>Контекст <select [ngModel]="linearContextMode" (ngModelChange)="selectLinearContextMode($event)" aria-label="Режим контекста">
-              <option value="FULL">FULL</option>
-              <option value="SUMMARY_RECENT">SUMMARY + RECENT</option>
-              <option value="SLIDING_WINDOW">SLIDING WINDOW</option>
-              <option value="STICKY_FACTS">STICKY FACTS</option>
-            </select></label>
-          } @else {
-            <span>Контекст ветки: FULL</span>
-          }
-          @if (!branchId && (contextMode === 'SUMMARY_RECENT' || contextMode === 'SLIDING_WINDOW' || contextMode === 'STICKY_FACTS')) {
-            <label>Последние raw messages <input type="number" min="1" [(ngModel)]="recentMessageCount" /></label>
-          }
-          <label>Ветка <select [ngModel]="branchId" (ngModelChange)="switchBranch($event)" [disabled]="topologyBusy()" aria-label="Ветка">
-            <option [ngValue]="null">Линейный диалог</option>
-            @for (branch of branches(); track branch.id) { <option [ngValue]="branch.id">{{ branch.id.slice(0, 8) }}</option> }
-          </select></label>
-          <label>Checkpoint для новой ветки <select [ngModel]="checkpointId" (ngModelChange)="selectCheckpoint($event)" [disabled]="topologyBusy()" aria-label="Checkpoint">
-            <option [ngValue]="null">Выберите checkpoint</option>
-            @for (checkpoint of checkpoints(); track checkpoint.id) { <option [ngValue]="checkpoint.id">{{ checkpoint.id.slice(0, 8) }}</option> }
-          </select></label>
-          <button mat-button type="button" [disabled]="loading() || topologyBusy()" (click)="createCheckpoint()">Создать checkpoint</button>
-          <button mat-button type="button" [disabled]="loading() || topologyBusy() || !checkpointId" (click)="createBranch()">Создать ветку</button>
-        </div>
-        @if (topologyError()) { <p class="inline-error" role="alert">{{ topologyError() }}</p> }
-        <small>Агент сохраняет полный raw stack и восстанавливает его после перезапуска сервера. Sticky facts — отдельная производная memory; branching изолирует продолжения. Локальные оценки токенов не являются токенизацией провайдера.</small>
       }
-      <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" placeholder="Вставьте Java-код или задайте инженерный вопрос"></textarea>
-      <div class="composer-actions"><span>Enter — новая строка · Ctrl+Enter — отправить</span><div class="action-buttons">
-        @if (experiment === 'FORMAT') { <button mat-stroked-button (click)="compare()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить режимы</button> }
-        @else if (experiment === 'REASONING') { <button mat-stroked-button (click)="compareStrategies()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить все стратегии</button> }
-        @else if (experiment === 'MODELS') { <button mat-stroked-button (click)="compareModels()" [disabled]="!input.trim() || loading() || !currentDialogId() || !modelOptions().length">Сравнить модели</button> }
-        @else if (experiment === 'TEMPERATURE') { <button mat-stroked-button (click)="compareTemperatures()" [disabled]="!input.trim() || loading() || !currentDialogId()">Сравнить температуры</button> }
-        <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && topologyBusy())">Проанализировать</button>
-      </div></div>
-    </div></section>
-  </main>
+
+  </ng-template>
 </div>

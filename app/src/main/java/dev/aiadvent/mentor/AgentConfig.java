@@ -31,4 +31,8 @@ record AgentConfig(String model, String systemPrompt, Double temperature, Intege
                 Respond in Russian.
                 Format the response using Markdown when it improves readability.""", null, null, contextTokenLimit);
     }
+
+    AgentConfig withModel(String selectedModel) {
+        return new AgentConfig(selectedModel, systemPrompt, temperature, maxTokens, contextTokenLimit);
+    }
 }

@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AgentController.class)
-@Import(AgentDialogService.class)
+@Import({AgentDialogService.class, AgentModelCatalog.class, DeepSeekAgentModelExecutor.class, OpenAiAgentModelExecutor.class})
 @TestPropertySource(properties = "mentor.agent.context-token-limit=1")
 class AgentControllerTest {
     @Autowired
@@ -31,6 +31,8 @@ class AgentControllerTest {
     private DialogStore store;
     @MockitoBean
     private DeepSeekClient client;
+    @MockitoBean
+    private OpenAiResponsesClient openAi;
     @MockitoBean
     private AgentHistoryStore histories;
     @MockitoBean
@@ -52,6 +54,14 @@ class AgentControllerTest {
     void emptyMemoryByDefault() throws Exception {
         when(memories.load(any(UUID.class), nullable(UUID.class)))
                 .thenAnswer(call -> AgentMemory.Snapshot.empty(call.getArgument(1)));
+    }
+
+    @Test
+    void rejectsUnknownAgentModelBeforeProviderOrStorage() throws Exception {
+        mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
+                .content("{\"input\":\"hello\",\"agentModelKey\":\"unknown\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("Неизвестная модель агента."));
+        verifyNoInteractions(client, openAi, store);
     }
 
     @Test
@@ -133,7 +143,7 @@ class AgentControllerTest {
         UUID dialogId = UUID.randomUUID();
         when(factsStore.load(dialogId)).thenReturn(java.util.Optional.empty());
         var maintenance = new TokenMetrics(2, 3, 4, null);
-        when(factsService.update(any(), eq("hello"), any(), eq(1)))
+        when(factsService.update(any(), eq("hello"), any(), eq(1), any()))
                 .thenReturn(new StickyFactsGeneration(new StickyFacts(1, java.util.Map.of("project", "Helios")), maintenance));
         when(client.complete(anyList(), anyString(), isNull(), isNull())).thenThrow(new DeepSeekException("Unavailable"));
 

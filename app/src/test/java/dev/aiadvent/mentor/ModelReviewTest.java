@@ -71,6 +71,23 @@ class ModelReviewTest {
     }
 
     @Test
+    void agentMessagesPreserveRolesAndContentWithoutReviewInstruction() throws Exception {
+        var messages = java.util.List.of(new ConversationContext.Message("system", "agent instruction"),
+                new ConversationContext.Message("user", "earlier"),
+                new ConversationContext.Message("assistant", "answer"),
+                new ConversationContext.Message("user", "memory reference"),
+                new ConversationContext.Message("user", "current"));
+        assertNull(client.complete(ModelProfile.resolve("WEAK"), messages, null, null).error());
+        var body = json.readTree(requestBody.get());
+        assertEquals(5, body.path("input").size());
+        for (int i = 0; i < messages.size(); i++) {
+            assertEquals(messages.get(i).content(), body.path("input").get(i).path("content").asText());
+            assertEquals(i == 0 ? "developer" : messages.get(i).role(), body.path("input").get(i).path("role").asText());
+        }
+        assertFalse(body.path("store").asBoolean());
+    }
+
+    @Test
     void allProfilesRouteExactCommonPresetAndReturnRealMetadata() throws Exception {
         String input = "  class A {\n int value;\n}\n";
         for (ModelProfile model : ModelProfile.MODELS) {

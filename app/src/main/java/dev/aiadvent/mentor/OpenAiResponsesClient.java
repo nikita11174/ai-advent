@@ -43,6 +43,13 @@ class OpenAiResponsesClient {
     }
 
     Result analyze(ModelProfile model, String input) {
+        return complete(model, java.util.List.of(
+                new ConversationContext.Message("system", INSTRUCTION),
+                new ConversationContext.Message("user", input)), null, PRESET.maxOutputTokens);
+    }
+
+    Result complete(ModelProfile model, java.util.List<ConversationContext.Message> input,
+                    Double temperature, Integer maxTokens) {
         Instant startedAt = Instant.now();
         if (apiKey == null || apiKey.isBlank() || "PASTE_KEY_HERE".equals(apiKey)) {
             return failure(model, startedAt, null, null, "OPENAI_API_KEY не задан в backend environment.");
@@ -52,10 +59,13 @@ class OpenAiResponsesClient {
             var body = json.createObjectNode();
             body.put("model", model.modelId());
             var messages = body.putArray("input");
-            messages.addObject().put("role", "developer").put("content", INSTRUCTION);
-            messages.addObject().put("role", "user").put("content", input);
+            for (var message : input) {
+                messages.addObject().put("role", "system".equals(message.role()) ? "developer" : message.role())
+                        .put("content", message.content());
+            }
             body.putObject("reasoning").put("effort", PRESET.reasoningEffort);
-            body.put("max_output_tokens", PRESET.maxOutputTokens);
+            body.put("max_output_tokens", maxTokens == null ? PRESET.maxOutputTokens : maxTokens);
+            if (temperature != null) body.put("temperature", temperature);
             body.put("service_tier", PRESET.serviceTier);
             body.put("stream", false); body.put("store", false);
             request = HttpRequest.newBuilder(endpoint).timeout(timeout)

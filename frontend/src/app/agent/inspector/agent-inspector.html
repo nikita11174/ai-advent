@@ -1,0 +1,4 @@
+<aside class="inspector" [class.open]="open()" aria-label="Инспектор">
+  <div class="inspector-heading"><strong>Инспектор</strong><button type="button" class="inspector-close" (click)="closed.emit()" aria-label="Закрыть инспектор">×</button></div>
+  <ng-content />
+</aside>

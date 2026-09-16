@@ -12,7 +12,7 @@ final class EngineeringReviewAgent {
     private static final Logger LOGGER = Logger.getLogger(EngineeringReviewAgent.class.getName());
     private final AgentConfig config;
     private final ConversationContext context;
-    private final DeepSeekClient client;
+    private final AgentModelExecutor defaultExecutor;
     private final UUID dialogId;
     private final AgentHistoryStore histories;
     private final ApproximateTokenEstimator tokenEstimator;
@@ -29,7 +29,7 @@ final class EngineeringReviewAgent {
     private final ReentrantLock turnLock = new ReentrantLock();
 
     EngineeringReviewAgent(UUID dialogId, AgentConfig config, ConversationContext context,
-                           DeepSeekClient client, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
+                           AgentModelExecutor defaultExecutor, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
                            AgentSummaryStore summaries, ConversationSummaryService summaryService,
                            StickyFactsStore factsStore, StickyFactsService factsService,
                            ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
@@ -38,7 +38,7 @@ final class EngineeringReviewAgent {
         this.dialogId = dialogId;
         this.config = config;
         this.context = context;
-        this.client = client;
+        this.defaultExecutor = defaultExecutor;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
         this.summaries = summaries;
@@ -53,6 +53,18 @@ final class EngineeringReviewAgent {
         this.branchId = branchId;
     }
 
+    EngineeringReviewAgent(UUID dialogId, AgentConfig config, ConversationContext context,
+                           DeepSeekClient client, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
+                           AgentSummaryStore summaries, ConversationSummaryService summaryService,
+                           StickyFactsStore factsStore, StickyFactsService factsService,
+                           ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
+                           ContextPolicy slidingWindowPolicy, ContextPolicy stickyFactsPolicy,
+                           AgentBranchStore branches, String branchId) {
+        this(dialogId, config, context, new DeepSeekAgentModelExecutor(client), histories, tokenEstimator,
+                summaries, summaryService, factsStore, factsService, fullPolicy, summaryRecentPolicy,
+                slidingWindowPolicy, stickyFactsPolicy, branches, branchId);
+    }
+
     AgentReply reply(String input) throws IOException, DeepSeekException {
         return reply(input, ContextMode.FULL, 4);
     }
@@ -63,6 +75,17 @@ final class EngineeringReviewAgent {
     }
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory)
+            throws IOException, DeepSeekException {
+        return reply(input, mode, recentMessageCount, memory, defaultExecutor, config, true);
+    }
+
+    AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig) throws IOException, DeepSeekException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, false);
+    }
+
+    private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                             AgentModelExecutor executor, AgentConfig requestConfig, boolean legacyMaintenanceCalls)
             throws IOException, DeepSeekException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
@@ -94,9 +117,10 @@ final class EngineeringReviewAgent {
                         List<ConversationContext.Message> source = stored != null && stored.summarizedMessageCount() < targetCoverage
                                 ? raw.subList(1 + stored.summarizedMessageCount(), 1 + targetCoverage)
                                 : raw.subList(1, 1 + targetCoverage);
-                        SummaryGeneration generation = summaryService.generate(source,
-                                stored != null && stored.summarizedMessageCount() < targetCoverage ? stored : null,
-                                config, targetCoverage);
+                        ConversationSummary previous = stored != null && stored.summarizedMessageCount() < targetCoverage ? stored : null;
+                        SummaryGeneration generation = legacyMaintenanceCalls
+                                ? summaryService.generate(source, previous, config, targetCoverage)
+                                : summaryService.generate(source, previous, requestConfig, targetCoverage, executor);
                         summaryCandidate = generation.summary();
                         stored = summaryCandidate;
                         summaryMetrics = generation.metrics();
@@ -107,9 +131,11 @@ final class EngineeringReviewAgent {
                 if (mode == ContextMode.STICKY_FACTS) {
                     int committedUserMessages = (raw.size() - 1) / 2;
                     StickyFacts stored = factsStore.load(dialogId).orElse(StickyFacts.empty());
-                    facts = reconcile(stored, raw, committedUserMessages, factsMetrics);
-                    StickyFactsGeneration update = factsService.update(facts, input, config,
-                            committedUserMessages + 1);
+                    facts = reconcile(stored, raw, committedUserMessages, factsMetrics, executor, requestConfig,
+                            legacyMaintenanceCalls);
+                    StickyFactsGeneration update = legacyMaintenanceCalls
+                            ? factsService.update(facts, input, config, committedUserMessages + 1)
+                            : factsService.update(facts, input, requestConfig, committedUserMessages + 1, executor);
                     facts = update.facts();
                     factsMetrics.add(update.metrics());
                 }
@@ -127,8 +153,7 @@ final class EngineeringReviewAgent {
                     outbound = List.copyOf(assembled);
                 }
                 long contextTokens = tokenEstimator.estimateMessagesWithinLimit(outbound, config.contextTokenLimit());
-                DeepSeekClient.Completion completion = client.complete(outbound, config.model(),
-                        config.temperature(), config.maxTokens());
+                AgentModelExecutor.Completion completion = executor.complete(outbound, requestConfig);
                 String analysis = completion.content();
                 List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
                 if (branchId == null) {
@@ -155,14 +180,16 @@ final class EngineeringReviewAgent {
     }
 
     private StickyFacts reconcile(StickyFacts stored, List<ConversationContext.Message> raw,
-                                  int committedUserMessages, List<TokenMetrics> metrics)
+                                  int committedUserMessages, List<TokenMetrics> metrics, AgentModelExecutor executor,
+                                  AgentConfig requestConfig, boolean legacyMaintenanceCalls)
             throws DeepSeekException {
         StickyFacts facts = stored.coveredUserMessageCount() <= committedUserMessages
                 ? stored : StickyFacts.empty();
         int start = facts.coveredUserMessageCount();
         for (int index = start; index < committedUserMessages; index++) {
-            StickyFactsGeneration update = factsService.update(facts, raw.get(1 + index * 2).content(), config,
-                    index + 1);
+            StickyFactsGeneration update = legacyMaintenanceCalls
+                    ? factsService.update(facts, raw.get(1 + index * 2).content(), config, index + 1)
+                    : factsService.update(facts, raw.get(1 + index * 2).content(), requestConfig, index + 1, executor);
             facts = update.facts();
             metrics.add(update.metrics());
         }

@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 class AgentDialogService {
     private final DialogStore dialogs;
-    private final DeepSeekClient client;
     private final AgentHistoryStore histories;
     private final ApproximateTokenEstimator tokenEstimator;
     private final AgentConfig defaultConfig;
@@ -21,6 +20,7 @@ class AgentDialogService {
     private final StickyFactsService factsService;
     private final AgentBranchStore branches;
     private final AgentMemoryStore memories;
+    private final AgentModelCatalog models;
     private final ConcurrentHashMap<AgentKey, EngineeringReviewAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
@@ -29,8 +29,17 @@ class AgentDialogService {
                        StickyFactsStore factsStore, StickyFactsService factsService,
                        AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
+        this(dialogs, client, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
+                branches, memories, contextTokenLimit, new AgentModelCatalog(new DeepSeekAgentModelExecutor(client), null));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models) {
         this.dialogs = dialogs;
-        this.client = client;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
         this.summaries = summaries;
@@ -39,6 +48,7 @@ class AgentDialogService {
         this.factsService = factsService;
         this.branches = branches;
         this.memories = memories;
+        this.models = models;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -54,6 +64,12 @@ class AgentDialogService {
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
                      UUID taskId) throws IOException, DeepSeekException {
+        return reply(dialogId, input, mode, recentMessageCount, branchId, taskId, null);
+    }
+
+    AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey) throws IOException, DeepSeekException {
+        AgentModelCatalog.Selection model = models.resolve(agentModelKey);
         if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
             throw new IllegalArgumentException("Branch messages use FULL context only.");
         }
@@ -70,14 +86,15 @@ class AgentDialogService {
                 context = new ConversationContext(branches.loadBranch(dialogId, branchId));
             }
             EngineeringReviewAgent created = new EngineeringReviewAgent(dialogId, defaultConfig, context,
-                    client, histories, tokenEstimator, summaries, summaryService,
+                    models.resolve(null).executor(), histories, tokenEstimator, summaries, summaryService,
                     factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                     new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId);
             EngineeringReviewAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
         AgentMemory.Snapshot memory = memories.load(dialogId, taskId);
-        return agent.reply(input, mode, recentMessageCount, memory);
+        return agent.reply(input, mode, recentMessageCount, memory,
+                model.executor(), defaultConfig.withModel(model.model()));
     }
 
     AgentReply reply(UUID dialogId, String input) throws IOException, DeepSeekException {

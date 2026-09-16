@@ -13,17 +13,23 @@ class ConversationSummaryService {
             Return only a concise Markdown summary in Russian.
             """;
 
-    private final DeepSeekClient client;
+    private final AgentModelExecutor defaultExecutor;
     private final ApproximateTokenEstimator estimator;
 
     ConversationSummaryService(DeepSeekClient client, ApproximateTokenEstimator estimator) {
-        this.client = client;
+        this.defaultExecutor = new DeepSeekAgentModelExecutor(client);
         this.estimator = estimator;
     }
 
     SummaryGeneration generate(List<ConversationContext.Message> olderMessages,
                                ConversationSummary previous, AgentConfig config, int coveredCount)
             throws DeepSeekException {
+        return generate(olderMessages, previous, config, coveredCount, defaultExecutor);
+    }
+
+    SummaryGeneration generate(List<ConversationContext.Message> olderMessages,
+                               ConversationSummary previous, AgentConfig config, int coveredCount,
+                               AgentModelExecutor executor) throws DeepSeekException {
         String source = olderMessages.stream()
                 .map(message -> message.role() + ": " + message.content())
                 .collect(Collectors.joining("\n\n"));
@@ -33,8 +39,7 @@ class ConversationSummaryService {
                 new ConversationContext.Message("system", SUMMARY_SYSTEM_PROMPT),
                 new ConversationContext.Message("user", request));
         long contextTokens = estimator.estimateMessagesWithinLimit(prompt, config.contextTokenLimit());
-        DeepSeekClient.Completion completion = client.complete(prompt, config.model(), config.temperature(),
-                config.maxTokens());
+        AgentModelExecutor.Completion completion = executor.complete(prompt, config);
         TokenMetrics metrics = new TokenMetrics(estimator.estimateText(request), contextTokens,
                 estimator.estimateText(completion.content()), completion.usage());
         return new SummaryGeneration(new ConversationSummary(coveredCount, completion.content()), metrics);

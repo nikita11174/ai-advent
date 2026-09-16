@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AgentMemoryController.class)
-@Import(AgentDialogService.class)
+@Import({AgentDialogService.class, AgentModelCatalog.class, DeepSeekAgentModelExecutor.class, OpenAiAgentModelExecutor.class})
 class AgentMemoryControllerTest {
     @Autowired
     private MockMvc mvc;
@@ -25,6 +25,8 @@ class AgentMemoryControllerTest {
     private DialogStore dialogs;
     @MockitoBean
     private DeepSeekClient client;
+    @MockitoBean
+    private OpenAiResponsesClient openAi;
     @MockitoBean
     private AgentHistoryStore histories;
     @MockitoBean

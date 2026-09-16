@@ -2,6 +2,7 @@ import { JsonPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Title } from '@angular/platform-browser';
 import { MatButtonModule } from '@angular/material/button';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -9,6 +10,9 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { marked, Renderer } from 'marked';
 import { forkJoin, timeout } from 'rxjs';
 import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './model-result';
+import { AgentModelOption } from './agent/agent-ui.types';
+import { AgentModelService } from './agent/model/agent-model.service';
+import { AgentInspector } from './agent/inspector/agent-inspector';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
@@ -16,7 +20,6 @@ type ReasoningStrategy = 'DIRECT' | 'STEP_BY_STEP' | 'SELF_PROMPT' | 'EXPERTS';
 type Temperature = 0 | 0.7 | 1.2;
 type ContextMode = 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS';
 type MemoryScope = 'SHORT_TERM' | 'WORKING' | 'LONG_TERM';
-
 interface ReviewControls {
   maxTokens: number; maxFindings: number; summaryMaxWords: number;
   reasonMaxWords: number; recommendationMaxWords: number; terminationInstruction: string;
@@ -40,6 +43,7 @@ interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
+  agentModelKey?: string;
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
   evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; contextMetadata?: ContextMetadata;
@@ -62,6 +66,7 @@ interface Exchange {
 }
 interface DialogSummary { id: string; title: string; createdAt: string; updatedAt: string; }
 interface DialogUiState {
+  selectedAgentModelKey?: string | null;
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
   selectedModelKey?: string;
@@ -105,11 +110,13 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult],
+  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
+  private readonly agentModelService = inject(AgentModelService);
+  private readonly pageTitle = inject(Title);
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private heartbeatInFlight = false;
   private nextExchangeId = 1;
@@ -134,6 +141,20 @@ export class App implements OnInit, OnDestroy {
   protected checkpointId: string | null = null;
   protected appliedTaskId: string | null = null;
   protected taskIdDraft = '';
+  protected taskEditing = false;
+  protected readonly memoryEditing = signal(false);
+  protected taskCopyStatus = '';
+  protected inspectorOpen = false;
+  protected selectedAgentModelKey: string | null = null;
+  protected readonly agentModelOptions = this.agentModelService.options;
+  protected readonly agentModelError = this.agentModelService.error;
+  protected readonly memoryScopes: readonly MemoryScope[] = ['SHORT_TERM', 'WORKING', 'LONG_TERM'];
+  protected readonly memoryLabels: Record<MemoryScope, string> = {
+    SHORT_TERM: 'Краткосрочная', WORKING: 'Рабочая', LONG_TERM: 'Долговременная',
+  };
+  protected readonly memoryScopeLabels: Record<MemoryScope, string> = {
+    SHORT_TERM: 'Диалог', WORKING: 'Задача', LONG_TERM: 'Установка',
+  };
   protected memoryScope: MemoryScope = 'SHORT_TERM';
   protected memoryKey = '';
   protected memoryValue = '';
@@ -163,6 +184,8 @@ export class App implements OnInit, OnDestroy {
   protected readonly backendStatus = signal<'CONNECTING' | 'ONLINE' | 'OFFLINE'>('CONNECTING');
 
   ngOnInit(): void {
+    this.pageTitle.setTitle('Local AI Worker');
+    this.loadAgentModels();
     this.loadDialogList();
     this.heartbeatTimer = setInterval(() => this.checkBackend(), 2000);
   }
@@ -171,7 +194,49 @@ export class App implements OnInit, OnDestroy {
 
   protected newDialog(): void {
     if (this.loading()) return;
-    this.http.post<DialogDocument>('/api/dialogs', {}).subscribe({ next: dialog => this.activateDialog(dialog) });
+    this.http.post<DialogDocument>('/api/dialogs', {}).subscribe({ next: dialog => this.activateDialog(dialog, true) });
+  }
+
+  protected loadAgentModels(): void {
+    this.agentModelService.load();
+  }
+
+  protected activeAgentModelKey(): string {
+    return this.selectedAgentModelKey ?? this.agentModelOptions()[0]?.key ?? '';
+  }
+
+  protected agentModelAvailable(): boolean {
+    return this.agentModelOptions().some(model => model.key === this.activeAgentModelKey());
+  }
+
+  protected chooseAgentModel(key: string): void {
+    if (this.loading() || !this.agentModelOptions().some(model => model.key === key)) return;
+    this.selectedAgentModelKey = key;
+    this.persistDialog();
+  }
+
+  protected agentModelLabel(key?: string): string {
+    const model = this.agentModelOptions().find(option => option.key === key);
+    return model ? `${model.provider === 'OPENAI' ? 'OpenAI API' : 'DeepSeek API'} · ${model.label}` : 'Модель не указана';
+  }
+
+  protected editMemory(scope: MemoryScope = 'SHORT_TERM', key = '', value = ''): void {
+    this.memoryScope = scope; this.memoryKey = key; this.memoryValue = value; this.memoryEditing.set(true);
+    this.memoryError.set(''); this.memorySuccess.set('');
+  }
+
+  protected closeMemoryEditor(): void {
+    this.memoryEditing.set(false); this.memoryKey = ''; this.memoryValue = '';
+  }
+
+  protected async copyTaskId(): Promise<void> {
+    if (!this.appliedTaskId) return;
+    try { await navigator.clipboard.writeText(this.appliedTaskId); this.taskCopyStatus = 'Скопировано'; }
+    catch { this.taskCopyStatus = 'Не удалось скопировать'; }
+  }
+
+  protected latestAgentResult(): ResultState | undefined {
+    return [...this.visibleExchanges()].reverse().find(exchange => exchange.mode === 'AGENT' && !exchange.free?.loading)?.free;
   }
 
   protected selectAgent(): void {
@@ -194,6 +259,7 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.appliedTaskId = taskId;
+    this.taskEditing = false; this.taskCopyStatus = ''; this.closeMemoryEditor();
     this.taskIdDraft = taskId;
     this.persistDialog();
     this.loadMemory();
@@ -211,7 +277,8 @@ export class App implements OnInit, OnDestroy {
       next: () => {
         if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
         this.memorySaving.set(false); this.memoryKey = ''; this.memoryValue = '';
-        this.memorySuccess.set('Memory сохранена.'); this.loadMemory();
+        this.memoryEditing.set(false);
+        this.memorySuccess.set('Память сохранена.'); this.loadMemory();
       },
       error: (error: HttpErrorResponse) => {
         if (!this.isCurrentMemoryOperation(dialogId, taskId, operation)) return;
@@ -344,7 +411,7 @@ export class App implements OnInit, OnDestroy {
   protected analyze(): void {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId() || (this.experiment === 'AGENT' && this.topologyBusy())) return;
-    if (this.experiment === 'AGENT') { this.analyzeAgent(input); return; }
+    if (this.experiment === 'AGENT') { if (this.agentModelAvailable()) this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
     if (this.experiment === 'TEMPERATURE') { this.analyzeTemperature(input); return; }
@@ -450,12 +517,14 @@ export class App implements OnInit, OnDestroy {
       this.dialogs.set(dialogs); if (dialogs.length) this.openDialog(dialogs[0].id); else this.newDialog();
     }});
   }
-  private activateDialog(dialog: DialogDocument): void {
+  private activateDialog(dialog: DialogDocument, fresh = false): void {
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
     const ui = dialog.state?.ui;
-    this.experiment = ui?.experiment ?? 'FORMAT'; this.selectedMode = ui?.selectedMode ?? 'FREE';
+    this.experiment = ui?.experiment ?? (fresh ? 'AGENT' : 'FORMAT'); this.selectedMode = ui?.selectedMode ?? 'FREE';
+    this.selectedAgentModelKey = ui?.selectedAgentModelKey ?? null;
+    this.taskEditing = false; this.taskCopyStatus = ''; this.closeMemoryEditor(); this.input = '';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
     this.linearContextMode = ui?.linearContextMode ?? ui?.contextMode ?? 'FULL';
@@ -503,6 +572,7 @@ export class App implements OnInit, OnDestroy {
     const dialogId = this.currentDialogId(); if (!dialogId) return;
     const taskId = this.appliedTaskId;
     const operation = ++this.memoryRequestGeneration;
+    this.memory.set({ taskId, shortTerm: {}, working: {}, longTerm: {} });
     const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
     this.memoryLoading.set(true); this.memoryError.set('');
     this.http.get<MemorySnapshot>(`/api/dialogs/${dialogId}/agent/memory${query}`).subscribe({
@@ -519,10 +589,12 @@ export class App implements OnInit, OnDestroy {
   private analyzeAgent(input: string): void {
     const dialogId = this.currentDialogId(); if (!dialogId) return;
     const requestBranchId = this.branchId;
+    const agentModelKey = this.activeAgentModelKey();
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
-      free: { loading: true } });
+      free: { loading: true, agentModelKey } });
     this.prepareAfterSubmit(); this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
+      agentModelKey,
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
@@ -585,7 +657,7 @@ export class App implements OnInit, OnDestroy {
   }
   private finishAgentResult(dialogId: string, id: number, result: ResultState): void {
     if (this.currentDialogId() !== dialogId) return;
-    this.updateExchange(id, { free: result }); this.completeRequest();
+    this.updateExchange(id, { free: { ...this.exchange(id).free, ...result } }); this.completeRequest();
   }
   private completeRequest(): void {
     this.pendingRequests--; this.loading.set(this.pendingRequests > 0);
@@ -618,6 +690,7 @@ export class App implements OnInit, OnDestroy {
     const completed = this.exchanges().map(exchange => this.withoutLoading(exchange));
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
+      selectedAgentModelKey: this.selectedAgentModelKey,
       selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
       contextMode: this.contextMode, linearContextMode: this.linearContextMode, recentMessageCount: this.recentMessageCount,
       branchId: this.branchId, checkpointId: this.checkpointId, appliedTaskId: this.appliedTaskId };

@@ -17,26 +17,30 @@ class StickyFactsService {
             Do not invent facts or include secrets.
             """;
 
-    private final DeepSeekClient client;
+    private final AgentModelExecutor defaultExecutor;
     private final ApproximateTokenEstimator estimator;
     private final ObjectMapper json;
 
     StickyFactsService(DeepSeekClient client, ApproximateTokenEstimator estimator, ObjectMapper json) {
-        this.client = client;
+        this.defaultExecutor = new DeepSeekAgentModelExecutor(client);
         this.estimator = estimator;
         this.json = json;
     }
 
     StickyFactsGeneration update(StickyFacts current, String input, AgentConfig config, int coveredCount)
             throws DeepSeekException {
+        return update(current, input, config, coveredCount, defaultExecutor);
+    }
+
+    StickyFactsGeneration update(StickyFacts current, String input, AgentConfig config, int coveredCount,
+                                AgentModelExecutor executor) throws DeepSeekException {
         String existing = json.valueToTree(current.facts()).toString();
         String request = "Existing facts:\n" + existing + "\n\nNew user message:\n" + input;
         List<ConversationContext.Message> prompt = List.of(
                 new ConversationContext.Message("system", FACTS_SYSTEM_PROMPT),
                 new ConversationContext.Message("user", request));
         long contextTokens = estimator.estimateMessagesWithinLimit(prompt, config.contextTokenLimit());
-        DeepSeekClient.Completion completion = client.complete(prompt, config.model(), config.temperature(),
-                config.maxTokens());
+        AgentModelExecutor.Completion completion = executor.complete(prompt, config);
         StickyFacts facts = parse(completion.content(), coveredCount);
         TokenMetrics metrics = new TokenMetrics(estimator.estimateText(input), contextTokens,
                 estimator.estimateText(completion.content()), completion.usage());

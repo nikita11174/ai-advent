@@ -7,6 +7,11 @@ interface TestApp {
   input: string;
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
+  selectedAgentModelKey: string | null;
+  chooseAgentModel(key: string): void;
+  editMemory(scope?: 'SHORT_TERM' | 'WORKING' | 'LONG_TERM', key?: string, value?: string): void;
+  memoryEditing(): boolean;
+  taskEditing: boolean;
   backendStatus(): 'CONNECTING' | 'ONLINE' | 'OFFLINE';
   checkBackend(): void;
   selectModels(): void;
@@ -54,7 +59,9 @@ interface TestApp {
 
 const now = '2026-09-03T10:00:00Z';
 const dialog = (id = '11111111-1111-1111-1111-111111111111', exchanges: unknown[] = [], ui?: unknown) => ({
-  id, title: 'Новый диалог', createdAt: now, updatedAt: now, state: { exchanges, ui },
+  id, title: 'Новый диалог', createdAt: now, updatedAt: now, state: { exchanges, ui: ui ?? {
+    experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+  } },
 });
 const controlled = (rawResponse = '{"summary":"Резюме","findings":[],"recommendation":"Проверить"}') => ({
   review: { summary: 'Резюме', findings: [], recommendation: 'Проверить' }, rawResponse,
@@ -82,6 +89,10 @@ describe('App', () => {
     fixture = TestBed.createComponent(App);
     component = fixture.componentInstance as unknown as TestApp;
     fixture.detectChanges();
+    http.expectOne('/api/agent-model-options').flush([
+      { key: 'DEEPSEEK', provider: 'DEEPSEEK', label: 'deepseek-v4-flash' },
+      ...profiles.map(({ key, provider, label }) => ({ key, provider, label })),
+    ]);
     http.expectOne('/api/dialogs').flush([]);
     http.expectOne('/api/dialogs').flush(dialog());
     fixture.detectChanges();
@@ -103,6 +114,71 @@ describe('App', () => {
     http.expectOne(`/api/dialogs/${id}/agent/memory${query}`).flush({ taskId, ...snapshot });
   }
 
+  it('UX shell keeps the composer free of settings and reveals memory only on request', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    expect(document.title).toBe('Local AI Worker');
+    expect(fixture.nativeElement.textContent).not.toContain('Engineering Review Mentor');
+    expect(fixture.nativeElement.textContent).not.toContain('AI Advent · День 10');
+    expect(fixture.nativeElement.querySelector('.composer .experiment-selector')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.inspector .experiment-selector')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.memory-editor')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.task-scope')).toBeNull();
+    const add = fixture.nativeElement.querySelector('[aria-label="Добавить запись памяти"]') as HTMLButtonElement;
+    add.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.memory-editor')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.memory-layers').textContent).toContain('Краткосрочная');
+  });
+
+  it('UX shell sends only the backend selection key and restores selection per dialog', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    const select = fixture.nativeElement.querySelector('[aria-label="Провайдер API и модель агента"]') as HTMLSelectElement;
+    expect([...select.options].map(option => option.value)).toEqual(['DEEPSEEK', 'WEAK', 'MEDIUM', 'STRONG']);
+    select.value = 'MEDIUM'; select.dispatchEvent(new Event('change')); fixture.detectChanges();
+    const saved = http.expectOne(r => r.method === 'PUT');
+    const ui = structuredClone(saved.request.body.state.ui); saved.flush(dialog());
+    expect(ui.selectedAgentModelKey).toBe('MEDIUM');
+    component.input = 'selected model'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(request.request.body).toEqual({ input: 'selected model', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'MEDIUM' });
+    request.flush({ analysis: 'OpenAI response' }); flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mentor-message').textContent).toContain('GPT-5.6 Terra');
+    component.chooseAgentModel('arbitrary-id'); http.expectNone(r => r.method === 'PUT');
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    expect(component.selectedAgentModelKey).toBeNull();
+    component.openDialog(id); http.expectOne(`/api/dialogs/${id}`).flush(dialog(id, [], ui));
+    flushHealth(); flushTopology(); flushMemory();
+    expect(component.selectedAgentModelKey).toBe('MEDIUM');
+  });
+
+  it('UX shell closes editors and clears drafts and displayed memory when task or dialog changes', () => {
+    component.selectAgent(); flushHealth(); flushTopology();
+    flushMemory(dialog().id, null, { shortTerm: { old: 'previous' }, working: {}, longTerm: {} });
+    component.editMemory('WORKING', 'draft', 'old task'); component.taskEditing = true;
+    const task = '33333333-3333-3333-3333-333333333333';
+    component.taskIdDraft = task; component.applyTaskScope(); flushSave();
+    expect(component.memoryEditing()).toBe(false); expect(component.taskEditing).toBe(false);
+    expect(component.memoryKey).toBe(''); expect(component.memory().shortTerm).toEqual({});
+    flushMemory(dialog().id, task);
+    component.editMemory('SHORT_TERM', 'draft', 'old dialog'); component.input = 'old composer';
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    expect(component.memoryEditing()).toBe(false); expect(component.memoryValue).toBe('');
+    expect(component.input).toBe(''); expect(component.appliedTaskId).toBeNull();
+  });
+
+  it('UX shell defaults new agent dialogs to the catalog default without moving old dialogs to OpenAI', async () => {
+    component.newDialog();
+    const b = '22222222-2222-2222-2222-222222222222';
+    http.expectOne('/api/dialogs').flush({ ...dialog(b), state: {} });
+    flushHealth(); flushTopology(b); flushMemory(b); fixture.detectChanges();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(component.experiment).toBe('AGENT'); expect(component.selectedAgentModelKey).toBeNull();
+    const select = fixture.nativeElement.querySelector('[aria-label="Провайдер API и модель агента"]') as HTMLSelectElement;
+    expect(select.value).toBe('DEEPSEEK');
+  });
+
   it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {
     const a = dialog().id;
     const b = '22222222-2222-2222-2222-222222222222';
@@ -122,7 +198,7 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('mat-progress-bar')).not.toBeNull();
     component.analyze();
     const first = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(first.request.body).toEqual({ input: 'fact A', contextMode: 'FULL', recentMessageCount: 4 });
+    expect(first.request.body).toEqual({ input: 'fact A', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK' });
     first.flush({ analysis: '## Запомнил\n<img src=x onerror=alert(1)>', metrics: {
       currentRequestTokens: 2, contextTokens: 12, responseTokens: 5,
       providerUsage: { promptTokens: 20, completionTokens: 6, totalTokens: 26 },
@@ -132,13 +208,15 @@ describe('App', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.analysis-text h2')?.textContent).toBe('Запомнил');
     expect(fixture.nativeElement.querySelector('.analysis-text img')).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('локальная оценка, не токенизация провайдера');
-    expect(fixture.nativeElement.textContent).toContain('2 / 12 / 5');
-    expect(fixture.nativeElement.textContent).toContain('20 / 6 / 26');
+    const details = fixture.nativeElement.querySelector('.technical-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('Локальная оценка токенов');
+    expect(details.textContent).toContain('2 / 12 / 5');
+    expect(details.textContent).toContain('20 / 6 / 26');
 
     component.input = 'follow-up A'; component.analyze();
     const followUp = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(followUp.request.body).toEqual({ input: 'follow-up A', contextMode: 'FULL', recentMessageCount: 4 });
+    expect(followUp.request.body).toEqual({ input: 'follow-up A', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK' });
     followUp.flush({ analysis: 'answer A' });
     const save = http.expectOne(r => r.method === 'PUT');
     const archive = structuredClone(save.request.body.state);
@@ -149,7 +227,7 @@ describe('App', () => {
     component.newDialog(); http.expectOne('/api/dialogs').flush(dialog(b));
     component.experiment = 'AGENT'; component.input = 'question B'; component.analyze();
     const requestB = http.expectOne(`/api/dialogs/${b}/agent/messages`);
-    expect(requestB.request.body).toEqual({ input: 'question B', contextMode: 'FULL', recentMessageCount: 4 });
+    expect(requestB.request.body).toEqual({ input: 'question B', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK' });
     requestB.flush({ analysis: 'no context B' });
     const saveB = http.expectOne(r => r.method === 'PUT');
     expect(saveB.request.body.state.exchanges).toHaveLength(1);
@@ -167,7 +245,7 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).not.toContain('question B');
     component.input = 'back to A'; component.analyze();
     const returnA = http.expectOne(`/api/dialogs/${a}/agent/messages`);
-    expect(returnA.request.body).toEqual({ input: 'back to A', contextMode: 'FULL', recentMessageCount: 4 });
+    expect(returnA.request.body).toEqual({ input: 'back to A', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK' });
     returnA.flush({ analysis: 'still A' }); flushSave();
   });
 
@@ -180,7 +258,7 @@ describe('App', () => {
     expect(fixture.nativeElement.querySelector('.memory-layers')?.textContent).toContain('SATURN');
     expect(fixture.nativeElement.querySelector('.memory-layers')?.textContent).toContain('Java');
 
-    component.memoryScope = 'WORKING'; component.memoryKey = 'database'; component.memoryValue = 'PostgreSQL';
+    component.editMemory('WORKING', 'database', 'PostgreSQL');
     fixture.detectChanges();
     const saveButton = [...fixture.nativeElement.querySelectorAll('.memory-editor button')]
       .find((button: HTMLButtonElement) => button.textContent?.includes('Сохранить')) as HTMLButtonElement;
@@ -289,7 +367,7 @@ describe('App', () => {
     http.expectNone(route);
     component.input = 'next'; component.analyze();
     const request = http.expectOne(route);
-    expect(request.request.body).toEqual({ input: 'next', contextMode: 'FULL', recentMessageCount: 4 });
+    expect(request.request.body).toEqual({ input: 'next', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK' });
     request.flush({ analysis: 'recovered' }); flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('recovered');
   });
@@ -298,7 +376,7 @@ describe('App', () => {
     component.experiment = 'AGENT'; component.contextMode = 'SUMMARY_RECENT'; component.recentMessageCount = 3;
     component.input = 'compare context'; component.analyze();
     const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
-    expect(request.request.body).toEqual({ input: 'compare context', contextMode: 'SUMMARY_RECENT', recentMessageCount: 3 });
+    expect(request.request.body).toEqual({ input: 'compare context', contextMode: 'SUMMARY_RECENT', recentMessageCount: 3, agentModelKey: 'DEEPSEEK' });
     request.flush({ analysis: 'compressed answer', metrics: {
       currentRequestTokens: 4, contextTokens: 18, responseTokens: 6,
       providerUsage: { promptTokens: 30, completionTokens: 8, totalTokens: 38 },
@@ -317,14 +395,14 @@ describe('App', () => {
     component.experiment = 'AGENT'; component.contextMode = 'SLIDING_WINDOW'; component.recentMessageCount = 2;
     component.input = 'window probe'; component.analyze();
     let request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
-    expect(request.request.body).toEqual({ input: 'window probe', contextMode: 'SLIDING_WINDOW', recentMessageCount: 2 });
+    expect(request.request.body).toEqual({ input: 'window probe', contextMode: 'SLIDING_WINDOW', recentMessageCount: 2, agentModelKey: 'DEEPSEEK' });
     request.flush({ analysis: 'window answer', metrics: { currentRequestTokens: 1, contextTokens: 5, responseTokens: 2 },
       summaryMetrics: null, factsMetrics: [], contextMetadata: { mode: 'SLIDING_WINDOW', recentMessageCount: 2, summary: null, summarizedMessageCount: 0 } });
     flushSave();
 
     component.contextMode = 'STICKY_FACTS'; component.recentMessageCount = 3; component.input = 'facts probe'; component.analyze();
     request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
-    expect(request.request.body).toEqual({ input: 'facts probe', contextMode: 'STICKY_FACTS', recentMessageCount: 3 });
+    expect(request.request.body).toEqual({ input: 'facts probe', contextMode: 'STICKY_FACTS', recentMessageCount: 3, agentModelKey: 'DEEPSEEK' });
     request.flush({ analysis: 'facts answer', metrics: { currentRequestTokens: 1, contextTokens: 7, responseTokens: 2 },
       summaryMetrics: null, factsMetrics: [{ currentRequestTokens: 2, contextTokens: 4, responseTokens: 3 }],
       contextMetadata: { mode: 'STICKY_FACTS', recentMessageCount: 3, summary: null, summarizedMessageCount: 0,
@@ -420,9 +498,11 @@ describe('App', () => {
       { status: 502, statusText: 'Bad Gateway' });
     flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('main failed');
-    expect(fixture.nativeElement.textContent).toContain('Sticky facts maintenance · calls: 1');
-    expect(fixture.nativeElement.textContent).toContain('2 / 4 / 3');
-    expect(fixture.nativeElement.textContent).not.toContain('Day 8/9 · локальная оценка');
+    const details = fixture.nativeElement.querySelector('.technical-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('Sticky facts maintenance · calls: 1');
+    expect(details.textContent).toContain('2 / 4 / 3');
+    expect(details.textContent).not.toContain('Day 8/9');
   });
 
   it('renders summary maintenance metrics alongside an Agent error without main metrics', () => {
@@ -432,9 +512,11 @@ describe('App', () => {
       { status: 413, statusText: 'Payload Too Large' });
     flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('main overflow');
-    expect(fixture.nativeElement.textContent).toContain('Summary generation');
-    expect(fixture.nativeElement.textContent).toContain('5 / 8 / 2');
-    expect(fixture.nativeElement.textContent).not.toContain('Day 8/9 · локальная оценка');
+    const details = fixture.nativeElement.querySelector('.technical-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('Summary generation');
+    expect(details.textContent).toContain('5 / 8 / 2');
+    expect(details.textContent).not.toContain('Day 8/9');
   });
 
   it('blocks branch send during topology loading and shows the next completed response with metrics', () => {
@@ -457,7 +539,7 @@ describe('App', () => {
 
     component.analyze();
     const request = http.expectOne(`/api/dialogs/${id}/agent/messages`);
-    expect(request.request.body).toEqual({ input: 'branch turn', contextMode: 'FULL', recentMessageCount: 4, branchId: 'branch-a' });
+    expect(request.request.body).toEqual({ input: 'branch turn', contextMode: 'FULL', recentMessageCount: 4, agentModelKey: 'DEEPSEEK', branchId: 'branch-a' });
     request.flush({ analysis: 'branch response', metrics: { currentRequestTokens: 1, contextTokens: 2, responseTokens: 3, providerUsage: null },
       summaryMetrics: null, factsMetrics: [], contextMetadata: { mode: 'FULL', recentMessageCount: 4, summary: null, summarizedMessageCount: 0 } });
     flushSave(); fixture.detectChanges();

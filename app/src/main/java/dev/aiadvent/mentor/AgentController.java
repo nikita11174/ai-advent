@@ -29,9 +29,9 @@ class AgentController {
             throw new IllegalArgumentException("Input must not be empty.");
         }
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                request.branchId(), request.taskId());
+                request.branchId(), request.taskId(), request.agentModelKey());
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
-                reply.contextMetadata());
+                reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -72,15 +72,18 @@ class AgentController {
     }
 
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
-                        UUID taskId) {
+                        UUID taskId, String agentModelKey) {
+        AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
+            this(input, contextMode, recentMessageCount, branchId, taskId, null);
+        }
         AgentRequest(String input) {
-            this(input, null, null, null, null);
+            this(input, null, null, null, null, null);
         }
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
                          java.util.List<TokenMetrics> factsMetrics,
-                          ContextMetadata contextMetadata) {
+                          ContextMetadata contextMetadata, String agentModelKey) {
     }
 
     record AgentError(String error, String rawResponse, TokenMetrics summaryMetrics,
