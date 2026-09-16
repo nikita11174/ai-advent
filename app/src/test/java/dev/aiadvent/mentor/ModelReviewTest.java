@@ -72,11 +72,11 @@ class ModelReviewTest {
 
     @Test
     void agentMessagesPreserveRolesAndContentWithoutReviewInstruction() throws Exception {
-        var messages = java.util.List.of(new ConversationContext.Message("system", "agent instruction"),
-                new ConversationContext.Message("user", "earlier"),
-                new ConversationContext.Message("assistant", "answer"),
-                new ConversationContext.Message("user", "memory reference"),
-                new ConversationContext.Message("user", "current"));
+        var messages = java.util.List.of(new AgentModelMessage("system", "agent instruction"),
+                new AgentModelMessage("user", "earlier"),
+                new AgentModelMessage("assistant", "answer"),
+                new AgentModelMessage("user", "memory reference"),
+                new AgentModelMessage("user", "current"));
         assertNull(client.complete(ModelProfile.resolve("WEAK"), messages, null, null).error());
         var body = json.readTree(requestBody.get());
         assertEquals(5, body.path("input").size());

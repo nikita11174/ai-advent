@@ -53,40 +53,28 @@ final class EngineeringReviewAgent {
         this.branchId = branchId;
     }
 
-    EngineeringReviewAgent(UUID dialogId, AgentConfig config, ConversationContext context,
-                           DeepSeekClient client, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
-                           AgentSummaryStore summaries, ConversationSummaryService summaryService,
-                           StickyFactsStore factsStore, StickyFactsService factsService,
-                           ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
-                           ContextPolicy slidingWindowPolicy, ContextPolicy stickyFactsPolicy,
-                           AgentBranchStore branches, String branchId) {
-        this(dialogId, config, context, new DeepSeekAgentModelExecutor(client), histories, tokenEstimator,
-                summaries, summaryService, factsStore, factsService, fullPolicy, summaryRecentPolicy,
-                slidingWindowPolicy, stickyFactsPolicy, branches, branchId);
-    }
-
-    AgentReply reply(String input) throws IOException, DeepSeekException {
+    AgentReply reply(String input) throws IOException, ModelExecutionException {
         return reply(input, ContextMode.FULL, 4);
     }
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, AgentMemory.Snapshot.empty(null));
     }
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, defaultExecutor, config, true);
     }
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
-                     AgentModelExecutor executor, AgentConfig requestConfig) throws IOException, DeepSeekException {
+                     AgentModelExecutor executor, AgentConfig requestConfig) throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, boolean legacyMaintenanceCalls)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
@@ -153,7 +141,7 @@ final class EngineeringReviewAgent {
                     outbound = List.copyOf(assembled);
                 }
                 long contextTokens = tokenEstimator.estimateMessagesWithinLimit(outbound, config.contextTokenLimit());
-                AgentModelExecutor.Completion completion = executor.complete(outbound, requestConfig);
+                AgentModelExecutor.Completion completion = executor.complete(toModelRequest(outbound, requestConfig));
                 String analysis = completion.content();
                 List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
                 if (branchId == null) {
@@ -168,7 +156,7 @@ final class EngineeringReviewAgent {
                         new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
                                 summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts,
                                 memory.usage()));
-            } catch (IOException | DeepSeekException | ContextLimitExceededException exception) {
+            } catch (IOException | ModelExecutionException | ContextLimitExceededException exception) {
                 if (summaryMetrics != null || !factsMetrics.isEmpty()) {
                     throw new MaintenanceMetricsException(exception, summaryMetrics, List.copyOf(factsMetrics));
                 }
@@ -182,7 +170,7 @@ final class EngineeringReviewAgent {
     private StickyFacts reconcile(StickyFacts stored, List<ConversationContext.Message> raw,
                                   int committedUserMessages, List<TokenMetrics> metrics, AgentModelExecutor executor,
                                   AgentConfig requestConfig, boolean legacyMaintenanceCalls)
-            throws DeepSeekException {
+            throws ModelExecutionException {
         StickyFacts facts = stored.coveredUserMessageCount() <= committedUserMessages
                 ? stored : StickyFacts.empty();
         int start = facts.coveredUserMessageCount();
@@ -194,6 +182,12 @@ final class EngineeringReviewAgent {
             metrics.add(update.metrics());
         }
         return facts;
+    }
+
+    private static AgentModelRequest toModelRequest(List<ConversationContext.Message> messages, AgentConfig config) {
+        return new AgentModelRequest(messages.stream()
+                .map(message -> new AgentModelMessage(message.role(), message.content()))
+                .toList(), config.model(), config.temperature(), config.maxTokens());
     }
 
     private void saveDerivedState(ConversationSummary summaryCandidate, StickyFacts factsCandidate) {

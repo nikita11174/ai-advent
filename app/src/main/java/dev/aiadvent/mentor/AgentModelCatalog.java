@@ -8,10 +8,11 @@ import java.util.List;
 @Component
 class AgentModelCatalog {
     static final String DEFAULT_KEY = "DEEPSEEK";
-    private final DeepSeekAgentModelExecutor deepSeek;
+    private final AgentModelExecutor deepSeek;
     private final OpenAiAgentModelExecutor openAi;
 
-    AgentModelCatalog(DeepSeekAgentModelExecutor deepSeek, OpenAiAgentModelExecutor openAi) {
+    AgentModelCatalog(@org.springframework.beans.factory.annotation.Qualifier("deepSeekAgentModelExecutor")
+                      AgentModelExecutor deepSeek, OpenAiAgentModelExecutor openAi) {
         this.deepSeek = deepSeek;
         this.openAi = openAi;
     }

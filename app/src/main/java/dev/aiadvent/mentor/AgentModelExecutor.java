@@ -1,9 +1,7 @@
 package dev.aiadvent.mentor;
 
-import java.util.List;
-
-interface AgentModelExecutor {
-    Completion complete(List<ConversationContext.Message> messages, AgentConfig config) throws DeepSeekException;
+public interface AgentModelExecutor {
+    Completion complete(AgentModelRequest request) throws ModelExecutionException;
 
     record Completion(String content, ProviderUsage usage) {
     }

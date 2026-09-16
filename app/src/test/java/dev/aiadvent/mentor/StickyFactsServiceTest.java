@@ -10,10 +10,10 @@ import static org.mockito.Mockito.*;
 class StickyFactsServiceTest {
     @Test
     void parsesFactsAndKeepsProviderUsageSeparate() throws Exception {
-        DeepSeekClient client = mock(DeepSeekClient.class);
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
         var usage = new ProviderUsage(20L, 7L, 27L);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn(new DeepSeekClient.Completion("{\"facts\":{\"project\":\"Helios\"}}", "stop", usage));
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenReturn(new AgentModelExecutor.Completion("{\"facts\":{\"project\":\"Helios\"}}", usage));
         var service = new StickyFactsService(client, new ApproximateTokenEstimator(),
                 new ObjectMapper().findAndRegisterModules());
 
@@ -27,19 +27,19 @@ class StickyFactsServiceTest {
 
     @Test
     void rejectsMalformedFactsResponse() throws Exception {
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn(new DeepSeekClient.Completion("null", "stop", null));
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenReturn(new AgentModelExecutor.Completion("null", null));
         var service = new StickyFactsService(client, new ApproximateTokenEstimator(),
                 new ObjectMapper().findAndRegisterModules());
 
-        assertThrows(DeepSeekException.class, () -> service.update(StickyFacts.empty(), "input",
+        assertThrows(ModelExecutionException.class, () -> service.update(StickyFacts.empty(), "input",
                 AgentConfig.defaults(), 1));
     }
 
     @Test
     void rejectsAnOverLimitExtractionPromptBeforeCallingTheProvider() {
-        DeepSeekClient client = mock(DeepSeekClient.class);
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
         var service = new StickyFactsService(client, new ApproximateTokenEstimator(),
                 new ObjectMapper().findAndRegisterModules());
 

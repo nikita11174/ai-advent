@@ -22,15 +22,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AgentController.class)
-@Import({AgentDialogService.class, AgentModelCatalog.class, DeepSeekAgentModelExecutor.class, OpenAiAgentModelExecutor.class})
+@Import({AgentDialogService.class, AgentModelCatalog.class, OpenAiAgentModelExecutor.class})
 @TestPropertySource(properties = "mentor.agent.context-token-limit=1")
 class AgentControllerTest {
     @Autowired
     private MockMvc mvc;
     @MockitoBean
     private DialogStore store;
-    @MockitoBean
-    private DeepSeekClient client;
+    @MockitoBean(name = "deepSeekAgentModelExecutor")
+    private AgentModelExecutor client;
     @MockitoBean
     private OpenAiResponsesClient openAi;
     @MockitoBean
@@ -69,10 +69,10 @@ class AgentControllerTest {
         String route = "/api/dialogs/" + UUID.randomUUID() + "/agent/messages";
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
+        when(client.complete(any(AgentModelRequest.class))).thenAnswer(call -> {
             entered.countDown();
             assertTrue(release.await(5, TimeUnit.SECONDS));
-            return new DeepSeekClient.Completion("answer", "stop", null);
+            return new AgentModelExecutor.Completion("answer", null);
         });
         var first = new FutureTask<>(() -> mvc.perform(post(route).contentType("application/json")
                 .content("{\"input\":\"first\"}"))
@@ -87,7 +87,7 @@ class AgentControllerTest {
             thread.join(5000);
         }
         first.get(5, TimeUnit.SECONDS);
-        verify(client).complete(anyList(), anyString(), isNull(), isNull());
+        verify(client).complete(any(AgentModelRequest.class));
     }
 
     @Test
@@ -116,7 +116,7 @@ class AgentControllerTest {
                 .content("{\"input\":\"hello\"}"))
                 .andExpect(status().isInternalServerError());
         verifyNoInteractions(client);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenThrow(new DeepSeekException("Unavailable"));
+        when(client.complete(any(AgentModelRequest.class))).thenThrow(new ModelExecutionException("Unavailable"));
         mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
                 .content("{\"input\":\"hello\"}"))
                 .andExpect(status().isBadGateway())
@@ -145,7 +145,7 @@ class AgentControllerTest {
         var maintenance = new TokenMetrics(2, 3, 4, null);
         when(factsService.update(any(), eq("hello"), any(), eq(1), any()))
                 .thenReturn(new StickyFactsGeneration(new StickyFacts(1, java.util.Map.of("project", "Helios")), maintenance));
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenThrow(new DeepSeekException("Unavailable"));
+        when(client.complete(any(AgentModelRequest.class))).thenThrow(new ModelExecutionException("Unavailable"));
 
         mvc.perform(post("/api/dialogs/" + dialogId + "/agent/messages").contentType("application/json")
                         .content("{\"input\":\"hello\",\"contextMode\":\"STICKY_FACTS\"}"))
@@ -160,8 +160,8 @@ class AgentControllerTest {
         UUID taskId = UUID.randomUUID();
         when(memories.load(dialogId, taskId)).thenReturn(new AgentMemory.Snapshot(taskId,
                 java.util.Map.of("codeword", "SATURN"), java.util.Map.of(), java.util.Map.of()));
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn(new DeepSeekClient.Completion("answer", "stop", null));
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenReturn(new AgentModelExecutor.Completion("answer", null));
 
         String response = mvc.perform(post("/api/dialogs/{id}/agent/messages", dialogId)
                         .contentType("application/json")

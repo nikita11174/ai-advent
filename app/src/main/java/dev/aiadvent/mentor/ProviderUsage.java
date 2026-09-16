@@ -1,7 +1,7 @@
 package dev.aiadvent.mentor;
 
-record ProviderUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
-    ProviderUsage {
+public record ProviderUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
+    public ProviderUsage {
         if ((promptTokens != null && promptTokens < 0)
                 || (completionTokens != null && completionTokens < 0)
                 || (totalTokens != null && totalTokens < 0)) {

@@ -21,33 +21,34 @@ class StickyFactsService {
     private final ApproximateTokenEstimator estimator;
     private final ObjectMapper json;
 
-    StickyFactsService(DeepSeekClient client, ApproximateTokenEstimator estimator, ObjectMapper json) {
-        this.defaultExecutor = new DeepSeekAgentModelExecutor(client);
+    StickyFactsService(@org.springframework.beans.factory.annotation.Qualifier("deepSeekAgentModelExecutor")
+                       AgentModelExecutor defaultExecutor, ApproximateTokenEstimator estimator, ObjectMapper json) {
+        this.defaultExecutor = defaultExecutor;
         this.estimator = estimator;
         this.json = json;
     }
 
     StickyFactsGeneration update(StickyFacts current, String input, AgentConfig config, int coveredCount)
-            throws DeepSeekException {
+            throws ModelExecutionException {
         return update(current, input, config, coveredCount, defaultExecutor);
     }
 
     StickyFactsGeneration update(StickyFacts current, String input, AgentConfig config, int coveredCount,
-                                AgentModelExecutor executor) throws DeepSeekException {
+                                AgentModelExecutor executor) throws ModelExecutionException {
         String existing = json.valueToTree(current.facts()).toString();
         String request = "Existing facts:\n" + existing + "\n\nNew user message:\n" + input;
         List<ConversationContext.Message> prompt = List.of(
                 new ConversationContext.Message("system", FACTS_SYSTEM_PROMPT),
                 new ConversationContext.Message("user", request));
         long contextTokens = estimator.estimateMessagesWithinLimit(prompt, config.contextTokenLimit());
-        AgentModelExecutor.Completion completion = executor.complete(prompt, config);
+        AgentModelExecutor.Completion completion = executor.complete(toModelRequest(prompt, config));
         StickyFacts facts = parse(completion.content(), coveredCount);
         TokenMetrics metrics = new TokenMetrics(estimator.estimateText(input), contextTokens,
                 estimator.estimateText(completion.content()), completion.usage());
         return new StickyFactsGeneration(facts, metrics);
     }
 
-    private StickyFacts parse(String content, int coveredCount) throws DeepSeekException {
+    private StickyFacts parse(String content, int coveredCount) throws ModelExecutionException {
         try {
             JsonNode root = json.readTree(content);
             JsonNode factsNode = root == null ? null : root.path("facts");
@@ -65,7 +66,13 @@ class StickyFactsService {
             }
             return new StickyFacts(coveredCount, facts);
         } catch (JsonProcessingException | IllegalArgumentException exception) {
-            throw new DeepSeekException("DeepSeek returned malformed sticky facts.", content);
+            throw new ModelExecutionException("DeepSeek returned malformed sticky facts.", content, exception);
         }
+    }
+
+    private static AgentModelRequest toModelRequest(List<ConversationContext.Message> messages, AgentConfig config) {
+        return new AgentModelRequest(messages.stream()
+                .map(message -> new AgentModelMessage(message.role(), message.content()))
+                .toList(), config.model(), config.temperature(), config.maxTokens());
     }
 }

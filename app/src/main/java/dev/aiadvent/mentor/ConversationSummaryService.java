@@ -16,20 +16,21 @@ class ConversationSummaryService {
     private final AgentModelExecutor defaultExecutor;
     private final ApproximateTokenEstimator estimator;
 
-    ConversationSummaryService(DeepSeekClient client, ApproximateTokenEstimator estimator) {
-        this.defaultExecutor = new DeepSeekAgentModelExecutor(client);
+    ConversationSummaryService(@org.springframework.beans.factory.annotation.Qualifier("deepSeekAgentModelExecutor")
+                               AgentModelExecutor defaultExecutor, ApproximateTokenEstimator estimator) {
+        this.defaultExecutor = defaultExecutor;
         this.estimator = estimator;
     }
 
     SummaryGeneration generate(List<ConversationContext.Message> olderMessages,
                                ConversationSummary previous, AgentConfig config, int coveredCount)
-            throws DeepSeekException {
+            throws ModelExecutionException {
         return generate(olderMessages, previous, config, coveredCount, defaultExecutor);
     }
 
     SummaryGeneration generate(List<ConversationContext.Message> olderMessages,
                                ConversationSummary previous, AgentConfig config, int coveredCount,
-                               AgentModelExecutor executor) throws DeepSeekException {
+                               AgentModelExecutor executor) throws ModelExecutionException {
         String source = olderMessages.stream()
                 .map(message -> message.role() + ": " + message.content())
                 .collect(Collectors.joining("\n\n"));
@@ -39,9 +40,15 @@ class ConversationSummaryService {
                 new ConversationContext.Message("system", SUMMARY_SYSTEM_PROMPT),
                 new ConversationContext.Message("user", request));
         long contextTokens = estimator.estimateMessagesWithinLimit(prompt, config.contextTokenLimit());
-        AgentModelExecutor.Completion completion = executor.complete(prompt, config);
+        AgentModelExecutor.Completion completion = executor.complete(toModelRequest(prompt, config));
         TokenMetrics metrics = new TokenMetrics(estimator.estimateText(request), contextTokens,
                 estimator.estimateText(completion.content()), completion.usage());
         return new SummaryGeneration(new ConversationSummary(coveredCount, completion.content()), metrics);
+    }
+
+    private static AgentModelRequest toModelRequest(List<ConversationContext.Message> messages, AgentConfig config) {
+        return new AgentModelRequest(messages.stream()
+                .map(message -> new AgentModelMessage(message.role(), message.content()))
+                .toList(), config.model(), config.temperature(), config.maxTokens());
     }
 }

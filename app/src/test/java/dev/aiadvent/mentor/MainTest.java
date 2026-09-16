@@ -25,17 +25,20 @@ class MainTest {
 
     @Test
     void buildsOrderedAgentRequestsWithOnlyConfiguredOptions() throws Exception {
-        var messages = List.of(new ConversationContext.Message("system", "instruction"),
-                new ConversationContext.Message("user", "first"),
-                new ConversationContext.Message("assistant", "answer"),
-                new ConversationContext.Message("user", "follow-up"));
-        JsonNode defaults = JSON.readTree(client.buildConversationRequestBody(messages, "deepseek-v4-flash", null, null));
+        var transport = new DeepSeekTransport(null, JSON, "test-key");
+        var messages = List.of(new AgentModelMessage("system", "instruction"),
+                new AgentModelMessage("user", "first"),
+                new AgentModelMessage("assistant", "answer"),
+                new AgentModelMessage("user", "follow-up"));
+        JsonNode defaults = JSON.readTree(transport.buildRequestBody(
+                new AgentModelRequest(messages, "deepseek-v4-flash", null, null)));
         assertEquals(JSON.valueToTree(messages), defaults.path("messages"));
         assertEquals("deepseek-v4-flash", defaults.path("model").textValue());
         assertEquals(false, defaults.path("stream").booleanValue());
         assertEquals("disabled", defaults.path("thinking").path("type").textValue());
         assertEquals(4, defaults.size());
-        JsonNode configured = JSON.readTree(client.buildConversationRequestBody(messages, "another-model", 0.7, 450));
+        JsonNode configured = JSON.readTree(transport.buildRequestBody(
+                new AgentModelRequest(messages, "another-model", 0.7, 450)));
         assertEquals(JSON.valueToTree(messages), configured.path("messages"));
         assertEquals("another-model", configured.path("model").textValue());
         assertEquals(0.7, configured.path("temperature").doubleValue());
@@ -52,21 +55,22 @@ class MainTest {
                 "{\"choices\":[{\"message\":{\"content\":\"answer\"}}]}");
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenReturn(response);
-        var transport = spy(new DeepSeekClient(http, JSON, "test-key"));
+        var transport = spy(new DeepSeekTransport(http, JSON, "test-key"));
         var histories = mock(AgentHistoryStore.class);
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
-                new ConversationContext(AgentConfig.defaults().systemPrompt()), transport, histories,
+                new ConversationContext(AgentConfig.defaults().systemPrompt()),
+                new DeepSeekAgentModelExecutor(transport), histories,
                 new ApproximateTokenEstimator(), mock(AgentSummaryStore.class),
                 mock(ConversationSummaryService.class), mock(StickyFactsStore.class), mock(StickyFactsService.class),
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
                 new StickyFactsContextPolicy(), mock(AgentBranchStore.class), null);
 
-        assertThrows(DeepSeekException.class, () -> agent.reply("failed"));
+        assertThrows(ModelExecutionException.class, () -> agent.reply("failed"));
         assertEquals("answer", agent.reply("next").analysis());
 
-        verify(transport).complete(List.of(
-                new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
-                new ConversationContext.Message("user", "next")), "deepseek-v4-flash", null, null);
+        verify(transport).complete(new AgentModelRequest(List.of(
+                new AgentModelMessage("system", AgentConfig.defaults().systemPrompt()),
+                new AgentModelMessage("user", "next")), "deepseek-v4-flash", null, null));
         verify(histories).save(any(), anyList());
         verify(http, times(2)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
     }

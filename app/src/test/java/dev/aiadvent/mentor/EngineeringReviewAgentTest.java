@@ -21,7 +21,7 @@ class EngineeringReviewAgentTest {
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
     @TempDir
     Path directory;
-    private final DeepSeekClient client = mock(DeepSeekClient.class);
+    private final AgentModelExecutor client = mock(AgentModelExecutor.class);
     private final AgentHistoryStore histories = mock(AgentHistoryStore.class);
     private final AgentSummaryStore summaries = mock(AgentSummaryStore.class);
     private final ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
@@ -33,25 +33,30 @@ class EngineeringReviewAgentTest {
     void sendsTheWholeConversationAndPersistsCompletedSnapshots() throws Exception {
         AgentConfig config = AgentConfig.defaults();
         var agent = agent(UUID.randomUUID(), config);
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("answer1"), completion("answer2"), completion("answer3"));
 
         assertEquals("answer1", agent.reply(" user1\n").analysis());
         assertEquals("answer2", agent.reply("user2").analysis());
         assertEquals("answer3", agent.reply("user3").analysis());
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(3)).complete(messages.capture(), eq(config.model()), isNull(), isNull());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(3)).complete(messages.capture());
         var system = new ConversationContext.Message("system", config.systemPrompt());
-        assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n")), messages.getAllValues().get(0));
-        assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n"),
-                new ConversationContext.Message("assistant", "answer1"), new ConversationContext.Message("user", "user2")),
-                messages.getAllValues().get(1));
-        assertEquals(List.of(system, new ConversationContext.Message("user", " user1\n"),
-                new ConversationContext.Message("assistant", "answer1"), new ConversationContext.Message("user", "user2"),
-                new ConversationContext.Message("assistant", "answer2"), new ConversationContext.Message("user", "user3")),
-                messages.getAllValues().get(2));
-        assertThrows(UnsupportedOperationException.class, () -> messages.getValue().clear());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", " user1\n")), messages.getAllValues().get(0).messages());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", " user1\n"),
+                new AgentModelMessage("assistant", "answer1"), new AgentModelMessage("user", "user2")),
+                messages.getAllValues().get(1).messages());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", " user1\n"),
+                new AgentModelMessage("assistant", "answer1"), new AgentModelMessage("user", "user2"),
+                new AgentModelMessage("assistant", "answer2"), new AgentModelMessage("user", "user3")),
+                messages.getAllValues().get(2).messages());
+        assertThrows(UnsupportedOperationException.class, () -> messages.getValue().messages().clear());
+        for (AgentModelRequest request : messages.getAllValues()) {
+            assertEquals(config.model(), request.model());
+            assertNull(request.temperature());
+            assertNull(request.maxTokens());
+        }
         verify(histories, times(3)).save(any(), anyList());
     }
 
@@ -59,19 +64,19 @@ class EngineeringReviewAgentTest {
     void providerFailureLeavesRuntimeAndPersistedHistoryUnchanged() throws Exception {
         AgentConfig config = AgentConfig.defaults();
         var agent = agent(UUID.randomUUID(), config);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn(completion("answer1")).thenThrow(new DeepSeekException("Unavailable"))
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenReturn(completion("answer1")).thenThrow(new ModelExecutionException("Unavailable"))
                 .thenReturn(completion("answer2"));
 
         agent.reply("user1");
-        assertThrows(DeepSeekException.class, () -> agent.reply("failed input"));
+        assertThrows(ModelExecutionException.class, () -> agent.reply("failed input"));
         assertEquals("answer2", agent.reply("user2").analysis());
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
-                new ConversationContext.Message("user", "user1"), new ConversationContext.Message("assistant", "answer1"),
-                new ConversationContext.Message("user", "user2")), messages.getValue());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(3)).complete(messages.capture());
+        assertEquals(List.of(new AgentModelMessage("system", config.systemPrompt()),
+                new AgentModelMessage("user", "user1"), new AgentModelMessage("assistant", "answer1"),
+                new AgentModelMessage("user", "user2")), messages.getValue().messages());
         verify(histories, times(2)).save(any(), anyList());
     }
 
@@ -80,7 +85,7 @@ class EngineeringReviewAgentTest {
         AgentConfig config = AgentConfig.defaults();
         UUID id = UUID.randomUUID();
         var agent = agent(id, config);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("answer1"), completion("lost answer"), completion("answer2"));
         doNothing().doThrow(new IOException("storage unavailable")).doNothing().when(histories).save(eq(id), anyList());
 
@@ -88,11 +93,11 @@ class EngineeringReviewAgentTest {
         assertThrows(IOException.class, () -> agent.reply("not saved"));
         assertEquals("answer2", agent.reply("user2").analysis());
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
-                new ConversationContext.Message("user", "user1"), new ConversationContext.Message("assistant", "answer1"),
-                new ConversationContext.Message("user", "user2")), messages.getValue());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(3)).complete(messages.capture());
+        assertEquals(List.of(new AgentModelMessage("system", config.systemPrompt()),
+                new AgentModelMessage("user", "user1"), new AgentModelMessage("assistant", "answer1"),
+                new AgentModelMessage("user", "user2")), messages.getValue().messages());
     }
 
     @Test
@@ -100,8 +105,8 @@ class EngineeringReviewAgentTest {
         AgentConfig config = AgentConfig.defaults();
         var agent = agent(UUID.randomUUID(), config);
         ProviderUsage usage = new ProviderUsage(101L, 23L, 124L);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
-                .thenReturn(new DeepSeekClient.Completion("answer", "stop", usage));
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenReturn(new AgentModelExecutor.Completion("answer", usage));
 
         AgentReply reply = agent.reply("request");
 
@@ -124,7 +129,7 @@ class EngineeringReviewAgentTest {
         AgentConfig config = new AgentConfig(base.model(), base.systemPrompt(), base.temperature(), base.maxTokens(),
                 Math.toIntExact(estimator.estimateMessages(acceptedNext)));
         var agent = agent(UUID.randomUUID(), config);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("answer"), completion("next answer"));
 
         agent.reply("first");
@@ -132,9 +137,10 @@ class EngineeringReviewAgentTest {
                 () -> agent.reply("this input is deliberately too long for the configured limit"));
         assertEquals("next answer", agent.reply("next").analysis());
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(2)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertEquals(acceptedNext, messages.getValue());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(2)).complete(messages.capture());
+        assertEquals(acceptedNext.stream().map(message -> new AgentModelMessage(message.role(), message.content())).toList(),
+                messages.getValue().messages());
         verify(histories, times(2)).save(any(), anyList());
     }
 
@@ -142,15 +148,15 @@ class EngineeringReviewAgentTest {
     void agentsUseTheirOwnConfiguration() throws Exception {
         var first = agent(UUID.randomUUID(), new AgentConfig("model-a", "instruction A", 0.0, 450, null));
         var second = agent(UUID.randomUUID(), new AgentConfig("model-b", "instruction B", 1.2, 900, null));
-        when(client.complete(anyList(), anyString(), anyDouble(), anyInt())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
 
         first.reply("A");
         second.reply("B");
 
-        verify(client).complete(List.of(new ConversationContext.Message("system", "instruction A"),
-                new ConversationContext.Message("user", "A")), "model-a", 0.0, 450);
-        verify(client).complete(List.of(new ConversationContext.Message("system", "instruction B"),
-                new ConversationContext.Message("user", "B")), "model-b", 1.2, 900);
+        verify(client).complete(new AgentModelRequest(List.of(new AgentModelMessage("system", "instruction A"),
+                new AgentModelMessage("user", "A")), "model-a", 0.0, 450));
+        verify(client).complete(new AgentModelRequest(List.of(new AgentModelMessage("system", "instruction B"),
+                new AgentModelMessage("user", "B")), "model-b", 1.2, 900));
     }
 
     @Test
@@ -159,8 +165,9 @@ class EngineeringReviewAgentTest {
         var second = agent(UUID.randomUUID(), AgentConfig.defaults());
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
-            List<ConversationContext.Message> messages = call.getArgument(0);
+        when(client.complete(any(AgentModelRequest.class))).thenAnswer(call -> {
+            AgentModelRequest request = call.getArgument(0);
+            List<AgentModelMessage> messages = request.messages();
             if (messages.getLast().content().equals("A1")) {
                 entered.countDown();
                 assertTrue(release.await(5, TimeUnit.SECONDS));
@@ -179,10 +186,11 @@ class EngineeringReviewAgentTest {
         }
         assertEquals("answer", inFlight.get(5, TimeUnit.SECONDS).analysis());
         first.reply("A2");
-        verify(client, times(3)).complete(anyList(), anyString(), isNull(), isNull());
-        verify(client).complete(List.of(new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
-                new ConversationContext.Message("user", "A1"), new ConversationContext.Message("assistant", "answer"),
-                new ConversationContext.Message("user", "A2")), AgentConfig.defaults().model(), null, null);
+        verify(client, times(3)).complete(any(AgentModelRequest.class));
+        verify(client).complete(new AgentModelRequest(List.of(
+                new AgentModelMessage("system", AgentConfig.defaults().systemPrompt()),
+                new AgentModelMessage("user", "A1"), new AgentModelMessage("assistant", "answer"),
+                new AgentModelMessage("user", "A2")), AgentConfig.defaults().model(), null, null));
     }
 
     @Test
@@ -213,7 +221,7 @@ class EngineeringReviewAgentTest {
         when(summaries.load(id)).thenReturn(java.util.Optional.empty());
         when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
                 .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary of u1"), summaryMetrics));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("a3"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("a3"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
@@ -221,13 +229,13 @@ class EngineeringReviewAgentTest {
 
         AgentReply reply = agent.reply("u3", ContextMode.SUMMARY_RECENT, 3);
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
-        assertEquals(List.of(system, new ConversationContext.Message("system", "summary of u1"),
-                new ConversationContext.Message("assistant", "a1"),
-                new ConversationContext.Message("user", "u2"),
-                new ConversationContext.Message("assistant", "a2"),
-                new ConversationContext.Message("user", "u3")), outbound.getValue());
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client).complete(outbound.capture());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("system", "summary of u1"),
+                new AgentModelMessage("assistant", "a1"),
+                new AgentModelMessage("user", "u2"),
+                new AgentModelMessage("assistant", "a2"),
+                new AgentModelMessage("user", "u3")), outbound.getValue().messages());
         assertEquals(summaryMetrics, reply.summaryMetrics());
         assertEquals(ContextMode.SUMMARY_RECENT, reply.contextMetadata().mode());
         assertEquals(3, reply.contextMetadata().recentMessageCount());
@@ -242,13 +250,13 @@ class EngineeringReviewAgentTest {
                 new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1")));
         when(summaries.load(id)).thenReturn(java.util.Optional.empty());
         when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
-                .thenThrow(new DeepSeekException("summary unavailable"));
+                .thenThrow(new ModelExecutionException("summary unavailable"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                 new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
 
-        assertThrows(DeepSeekException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
+        assertThrows(ModelExecutionException.class, () -> agent.reply("u2", ContextMode.SUMMARY_RECENT, 1));
         verifyNoInteractions(client);
         verify(histories, never()).save(any(), anyList());
         verify(summaries, never()).save(any(), any());
@@ -290,7 +298,7 @@ class EngineeringReviewAgentTest {
                 new ApproximateTokenEstimator(), summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                 new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
 
         assertEquals("answer", agent.reply("u2", ContextMode.SUMMARY_RECENT, 1).analysis());
         verify(histories).save(eq(id), anyList());
@@ -304,7 +312,7 @@ class EngineeringReviewAgentTest {
                 new ConversationContext.Message("user", "u1"), new ConversationContext.Message("assistant", "a1"),
                 new ConversationContext.Message("user", "u2"), new ConversationContext.Message("assistant", "a2"),
                 new ConversationContext.Message("user", "u3"), new ConversationContext.Message("assistant", "a3")));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
@@ -312,11 +320,11 @@ class EngineeringReviewAgentTest {
 
         agent.reply("pending", ContextMode.SLIDING_WINDOW, 2);
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
-        assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt()),
-                new ConversationContext.Message("user", "u3"), new ConversationContext.Message("assistant", "a3"),
-                new ConversationContext.Message("user", "pending")), outbound.getValue());
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client).complete(outbound.capture());
+        assertEquals(List.of(new AgentModelMessage("system", config.systemPrompt()),
+                new AgentModelMessage("user", "u3"), new AgentModelMessage("assistant", "a3"),
+                new AgentModelMessage("user", "pending")), outbound.getValue().messages());
         verifyNoInteractions(summaryService, factsService, factsStore);
     }
 
@@ -329,7 +337,7 @@ class EngineeringReviewAgentTest {
         var context = new ConversationContext(List.of(new ConversationContext.Message("system", config.systemPrompt()),
                 new ConversationContext.Message("user", "deadline changed"),
                 new ConversationContext.Message("assistant", "acknowledged")));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("{\"facts\":{\"deadline\":\"31 October\",\"project\":\"Helios\"}}"),
                         completion("answer"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
@@ -340,9 +348,9 @@ class EngineeringReviewAgentTest {
 
         AgentReply reply = agent.reply("what is the deadline?", ContextMode.STICKY_FACTS, 2);
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client, times(2)).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
-        assertTrue(outbound.getAllValues().get(1).get(1).content().contains("31 October"));
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(2)).complete(outbound.capture());
+        assertTrue(outbound.getAllValues().get(1).messages().get(1).content().contains("31 October"));
         assertEquals(1, reply.factsMetrics().size());
         assertEquals(new StickyFacts(2, java.util.Map.of("deadline", "31 October", "project", "Helios")),
                 store.load(id).orElseThrow());
@@ -354,10 +362,10 @@ class EngineeringReviewAgentTest {
         UUID id = UUID.randomUUID();
         when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
         when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
-                .thenThrow(new DeepSeekException("facts unavailable"));
+                .thenThrow(new ModelExecutionException("facts unavailable"));
         var agent = agent(id, config);
 
-        assertThrows(DeepSeekException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
+        assertThrows(ModelExecutionException.class, () -> agent.reply("pending", ContextMode.STICKY_FACTS, 2));
 
         verifyNoInteractions(client);
         verify(histories, never()).save(any(), anyList());
@@ -372,8 +380,8 @@ class EngineeringReviewAgentTest {
         when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
         when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
                 .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
-                .thenThrow(new DeepSeekException("main unavailable"));
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenThrow(new ModelExecutionException("main unavailable"));
         var agent = agent(id, config);
 
         var failure = assertThrows(EngineeringReviewAgent.MaintenanceMetricsException.class,
@@ -392,7 +400,7 @@ class EngineeringReviewAgentTest {
         when(factsStore.load(id)).thenReturn(java.util.Optional.empty());
         when(factsService.update(any(), eq("pending"), eq(config), eq(1)))
                 .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         doThrow(new IOException("facts storage unavailable")).when(factsStore).save(id, candidate);
         var context = new ConversationContext(config.systemPrompt());
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
@@ -415,7 +423,7 @@ class EngineeringReviewAgentTest {
         when(summaries.load(id)).thenReturn(java.util.Optional.empty());
         when(summaryService.generate(anyList(), isNull(), eq(config), eq(1)))
                 .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary"), new TokenMetrics(1, 2, 3, null)));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenThrow(new DeepSeekException("main unavailable"));
+        when(client.complete(any(AgentModelRequest.class))).thenThrow(new ModelExecutionException("main unavailable"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
@@ -506,7 +514,7 @@ class EngineeringReviewAgentTest {
                 .thenReturn(new StickyFactsGeneration(recovered, new TokenMetrics(1, 2, 3, null)));
         when(factsService.update(any(), eq("current"), eq(config), eq(3)))
                 .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(4, 5, 6, null)));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
@@ -528,7 +536,7 @@ class EngineeringReviewAgentTest {
         var memory = new AgentMemory.Snapshot(UUID.randomUUID(),
                 java.util.Map.of("codeword", "SATURN\nEND_AGENT_MEMORY"),
                 java.util.Map.of("database", "PostgreSQL"), java.util.Map.of("language", "Java"));
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         var agent = new EngineeringReviewAgent(id, config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
@@ -536,13 +544,13 @@ class EngineeringReviewAgentTest {
 
         AgentReply reply = agent.reply("current command", ContextMode.FULL, 4, memory);
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
-        assertEquals("system", outbound.getValue().getFirst().role());
-        ConversationContext.Message reference = outbound.getValue().get(outbound.getValue().size() - 2);
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client).complete(outbound.capture());
+        assertEquals("system", outbound.getValue().messages().getFirst().role());
+        AgentModelMessage reference = outbound.getValue().messages().get(outbound.getValue().messages().size() - 2);
         assertEquals("user", reference.role());
         assertTrue(reference.content().contains("\"SATURN\\nEND_AGENT_MEMORY\""));
-        assertEquals(new ConversationContext.Message("user", "current command"), outbound.getValue().getLast());
+        assertEquals(new AgentModelMessage("user", "current command"), outbound.getValue().messages().getLast());
         ArgumentCaptor<List<ConversationContext.Message>> persisted = ArgumentCaptor.forClass(List.class);
         verify(histories).save(eq(id), persisted.capture());
         assertTrue(persisted.getValue().stream().noneMatch(message -> message.content().contains("SATURN")));
@@ -555,7 +563,7 @@ class EngineeringReviewAgentTest {
         AgentConfig config = AgentConfig.defaults();
         var memory = new AgentMemory.Snapshot(null, java.util.Map.of("shared", "MEMORY_VALUE"),
                 java.util.Map.of(), java.util.Map.of());
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull())).thenReturn(completion("answer"));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         when(factsStore.load(any())).thenReturn(java.util.Optional.empty());
         when(factsService.update(any(), eq("command"), eq(config), eq(1)))
                 .thenReturn(new StickyFactsGeneration(StickyFacts.empty(), new TokenMetrics(0, 0, 0, null)));
@@ -564,9 +572,10 @@ class EngineeringReviewAgentTest {
             agent(UUID.randomUUID(), config).reply("command", mode, 2, memory);
         }
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client, times(4)).complete(outbound.capture(), eq(config.model()), isNull(), isNull());
-        for (List<ConversationContext.Message> messages : outbound.getAllValues()) {
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(4)).complete(outbound.capture());
+        for (AgentModelRequest request : outbound.getAllValues()) {
+            List<AgentModelMessage> messages = request.messages();
             assertEquals("command", messages.getLast().content());
             assertEquals("user", messages.get(messages.size() - 2).role());
             assertTrue(messages.get(messages.size() - 2).content().contains("MEMORY_VALUE"));
@@ -579,14 +588,14 @@ class EngineeringReviewAgentTest {
         var context = new ConversationContext(config.systemPrompt());
         var memory = new AgentMemory.Snapshot(null, java.util.Map.of("key", "VALUE"),
                 java.util.Map.of(), java.util.Map.of());
-        when(client.complete(anyList(), eq(config.model()), isNull(), isNull()))
-                .thenThrow(new DeepSeekException("unavailable"));
+        when(client.complete(any(AgentModelRequest.class)))
+                .thenThrow(new ModelExecutionException("unavailable"));
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), config, context, client, histories,
                 new ApproximateTokenEstimator(), summaries, summaryService, factsStore, factsService,
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
                 new StickyFactsContextPolicy(), branches, null);
 
-        assertThrows(DeepSeekException.class, () -> agent.reply("command", ContextMode.FULL, 4, memory));
+        assertThrows(ModelExecutionException.class, () -> agent.reply("command", ContextMode.FULL, 4, memory));
 
         assertEquals(List.of(new ConversationContext.Message("system", config.systemPrompt())), context.snapshot());
         verify(histories, never()).save(any(), anyList());
@@ -599,7 +608,7 @@ class EngineeringReviewAgentTest {
                 new StickyFactsContextPolicy(), branches, null);
     }
 
-    private DeepSeekClient.Completion completion(String content) {
-        return new DeepSeekClient.Completion(content, "stop", null);
+    private AgentModelExecutor.Completion completion(String content) {
+        return new AgentModelExecutor.Completion(content, null);
     }
 }

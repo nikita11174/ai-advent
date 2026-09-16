@@ -44,11 +44,11 @@ class OpenAiResponsesClient {
 
     Result analyze(ModelProfile model, String input) {
         return complete(model, java.util.List.of(
-                new ConversationContext.Message("system", INSTRUCTION),
-                new ConversationContext.Message("user", input)), null, PRESET.maxOutputTokens);
+                new AgentModelMessage("system", INSTRUCTION),
+                new AgentModelMessage("user", input)), null, PRESET.maxOutputTokens);
     }
 
-    Result complete(ModelProfile model, java.util.List<ConversationContext.Message> input,
+    Result complete(ModelProfile model, java.util.List<AgentModelMessage> input,
                     Double temperature, Integer maxTokens) {
         Instant startedAt = Instant.now();
         if (apiKey == null || apiKey.isBlank() || "PASTE_KEY_HERE".equals(apiKey)) {

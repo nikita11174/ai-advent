@@ -2,19 +2,21 @@ package dev.aiadvent.mentor;
 
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-
 @Component
 class DeepSeekAgentModelExecutor implements AgentModelExecutor {
-    private final DeepSeekClient client;
+    private final DeepSeekTransport transport;
 
-    DeepSeekAgentModelExecutor(DeepSeekClient client) {
-        this.client = client;
+    DeepSeekAgentModelExecutor(DeepSeekTransport transport) {
+        this.transport = transport;
     }
 
     @Override
-    public Completion complete(List<ConversationContext.Message> messages, AgentConfig config) throws DeepSeekException {
-        DeepSeekClient.Completion completion = client.complete(messages, config.model(), config.temperature(), config.maxTokens());
-        return new Completion(completion.content(), completion.usage());
+    public Completion complete(AgentModelRequest request) throws ModelExecutionException {
+        try {
+            DeepSeekTransport.Completion completion = transport.complete(request);
+            return new Completion(completion.content(), completion.usage());
+        } catch (DeepSeekException exception) {
+            throw new ModelExecutionException(exception.getMessage(), exception.rawResponse(), exception);
+        }
     }
 }

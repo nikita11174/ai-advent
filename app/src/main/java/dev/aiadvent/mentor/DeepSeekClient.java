@@ -3,21 +3,13 @@ package dev.aiadvent.mentor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
 public class DeepSeekClient {
-    private static final URI API_URI = URI.create("https://api.deepseek.com/chat/completions");
     private static final String MODEL = "deepseek-v4-flash";
     private static final String SYSTEM_PROMPT = """
             You are an engineering review mentor.
@@ -26,14 +18,16 @@ public class DeepSeekClient {
             Respond in Russian.
             Format the response using Markdown when it improves readability.""";
 
-    private final HttpClient httpClient;
     private final ObjectMapper json;
-    private final String apiKey;
+    private final DeepSeekTransport transport;
 
     DeepSeekClient(HttpClient httpClient, ObjectMapper json, String apiKey) {
-        this.httpClient = httpClient;
+        this(new DeepSeekTransport(httpClient, json, apiKey), json);
+    }
+
+    DeepSeekClient(DeepSeekTransport transport, ObjectMapper json) {
+        this.transport = transport;
         this.json = json;
-        this.apiKey = apiKey;
     }
 
     public String analyze(String input) throws DeepSeekException {
@@ -42,23 +36,27 @@ public class DeepSeekClient {
 
     String analyzeWithSystem(String systemPrompt, String input) throws DeepSeekException {
         try {
-            return send(input, buildFreeRequestBody(systemPrompt, input)).content();
-        } catch (JsonProcessingException e) {
-            throw new DeepSeekException("Could not create the DeepSeek request.", e);
+            String requestBody = buildFreeRequestBody(systemPrompt, input);
+            requireInput(input);
+            return transport.send(requestBody).content();
+        } catch (JsonProcessingException exception) {
+            throw new DeepSeekException("Could not create the DeepSeek request.", exception);
         }
     }
 
     String analyzeAtTemperature(String systemPrompt, String input, double temperature) throws DeepSeekException {
         try {
-            return send(input, buildTemperatureRequestBody(systemPrompt, input, temperature)).content();
-        } catch (JsonProcessingException e) {
-            throw new DeepSeekException("Could not create the temperature DeepSeek request.", e);
+            String requestBody = buildTemperatureRequestBody(systemPrompt, input, temperature);
+            requireInput(input);
+            return transport.send(requestBody).content();
+        } catch (JsonProcessingException exception) {
+            throw new DeepSeekException("Could not create the temperature DeepSeek request.", exception);
         }
     }
 
     ControlledAnalysis analyzeControlled(String input, ReviewControls controls) throws DeepSeekException {
         ReviewControls validatedControls = controls.validated();
-        Completion completion = send(input, buildControlledRequestBody(input, validatedControls));
+        Completion completion = completion(transport.send(buildControlledRequestBody(input, validatedControls)));
         return validateControlledCompletion(completion, validatedControls);
     }
 
@@ -72,65 +70,6 @@ public class DeepSeekClient {
                 completion.content());
     }
 
-    private Completion send(String input, String requestBody) throws DeepSeekException {
-        requireInput(input);
-        return send(requestBody);
-    }
-
-    Completion complete(List<ConversationContext.Message> messages, String model, Double temperature, Integer maxTokens)
-            throws DeepSeekException {
-        try {
-            return send(buildConversationRequestBody(messages, model, temperature, maxTokens));
-        } catch (JsonProcessingException e) {
-            throw new DeepSeekException("Could not create the DeepSeek conversation request.", e);
-        }
-    }
-
-    String buildConversationRequestBody(List<ConversationContext.Message> messages, String model,
-                                        Double temperature, Integer maxTokens) throws JsonProcessingException {
-        ObjectNode root = json.createObjectNode();
-        root.put("model", model);
-        root.put("stream", false);
-        root.putObject("thinking").put("type", "disabled");
-        if (temperature != null) root.put("temperature", temperature);
-        if (maxTokens != null) root.put("max_tokens", maxTokens);
-        ArrayNode orderedMessages = root.putArray("messages");
-        for (ConversationContext.Message message : messages) {
-            orderedMessages.addObject().put("role", message.role()).put("content", message.content());
-        }
-        return json.writeValueAsString(root);
-    }
-
-    private Completion send(String requestBody) throws DeepSeekException {
-        requireApiKey();
-
-        HttpRequest request = HttpRequest.newBuilder(API_URI)
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-                .build();
-
-        HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            throw new DeepSeekException("DeepSeek request failed due to a transport problem.", e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new DeepSeekException("DeepSeek request was interrupted.", e);
-        }
-
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new DeepSeekException("DeepSeek API returned HTTP " + response.statusCode() + ".");
-        }
-
-        try {
-            return extractCompletion(response.body());
-        } catch (JsonProcessingException e) {
-            throw new DeepSeekException("DeepSeek returned a malformed response.", e);
-        }
-    }
-
     String buildRequestBody(String input) throws JsonProcessingException {
         return buildFreeRequestBody(input);
     }
@@ -140,39 +79,19 @@ public class DeepSeekClient {
     }
 
     String buildFreeRequestBody(String systemPrompt, String input) throws JsonProcessingException {
-        ObjectNode root = json.createObjectNode();
-        root.put("model", MODEL);
-        root.put("stream", false);
-        root.putObject("thinking").put("type", "disabled");
-
-        ArrayNode messages = root.putArray("messages");
-        messages.addObject().put("role", "system").put("content", systemPrompt);
-        messages.addObject().put("role", "user").put("content", input);
-        return json.writeValueAsString(root);
+        return transport.buildRequestBody(freeRequest(systemPrompt, input));
     }
 
     String buildTemperatureRequestBody(String systemPrompt, String input, double temperature)
             throws JsonProcessingException {
-        ObjectNode root = (ObjectNode) json.readTree(buildFreeRequestBody(systemPrompt, input));
-        root.put("temperature", temperature);
-        return json.writeValueAsString(root);
+        return transport.buildRequestBody(temperatureRequest(systemPrompt, input, temperature));
     }
 
     String buildControlledRequestBody(String input, ReviewControls controls) throws DeepSeekException {
         requireInput(input);
         ReviewControls validated = controls.validated();
-        ObjectNode root = json.createObjectNode();
-        root.put("model", MODEL);
-        root.put("stream", false);
-        root.put("max_tokens", validated.maxTokens());
-        root.putObject("thinking").put("type", "disabled");
-        root.putObject("response_format").put("type", "json_object");
-
-        ArrayNode messages = root.putArray("messages");
-        messages.addObject().put("role", "system").put("content", controlledPrompt(validated));
-        messages.addObject().put("role", "user").put("content", input);
         try {
-            return json.writeValueAsString(root);
+            return transport.buildRequestBody(controlledRequest(input, validated), true);
         } catch (JsonProcessingException e) {
             throw new DeepSeekException("Could not create the controlled DeepSeek request.", e);
         }
@@ -183,20 +102,7 @@ public class DeepSeekClient {
     }
 
     Completion extractCompletion(String responseBody) throws JsonProcessingException, DeepSeekException {
-        JsonNode root = json.readTree(responseBody);
-        JsonNode choice = root.path("choices").path(0);
-        JsonNode content = choice.path("message").path("content");
-        if (!content.isTextual() || content.textValue().isBlank()) {
-            throw new DeepSeekException("DeepSeek returned an unexpected response without analysis text.");
-        }
-        JsonNode finishReason = choice.path("finish_reason");
-        JsonNode usage = root.path("usage");
-        ProviderUsage providerUsage = usage.isObject()
-                ? new ProviderUsage(number(usage, "prompt_tokens"), number(usage, "completion_tokens"),
-                number(usage, "total_tokens"))
-                : null;
-        return new Completion(content.textValue(), finishReason.isTextual() ? finishReason.textValue() : "stop",
-                providerUsage);
+        return completion(transport.extractCompletion(responseBody));
     }
 
     ControlledReview parseControlledReview(String raw, ReviewControls controls) throws DeepSeekException {
@@ -280,21 +186,29 @@ public class DeepSeekClient {
         return new DeepSeekException("DeepSeek returned a controlled response with " + reason + ".", raw);
     }
 
-    private void requireApiKey() throws DeepSeekException {
-        if (apiKey == null || apiKey.isBlank() || "PASTE_KEY_HERE".equals(apiKey)) {
-            throw new DeepSeekException("DEEPSEEK_API_KEY is missing or still contains the placeholder.");
-        }
+    private static Completion completion(DeepSeekTransport.Completion completion) {
+        return new Completion(completion.content(), completion.finishReason(), completion.usage());
+    }
+
+    private static AgentModelRequest freeRequest(String systemPrompt, String input) {
+        return new AgentModelRequest(List.of(new AgentModelMessage("system", systemPrompt),
+                new AgentModelMessage("user", input)), MODEL, null, null);
+    }
+
+    private static AgentModelRequest temperatureRequest(String systemPrompt, String input, double temperature) {
+        return new AgentModelRequest(List.of(new AgentModelMessage("system", systemPrompt),
+                new AgentModelMessage("user", input)), MODEL, temperature, null);
+    }
+
+    private static AgentModelRequest controlledRequest(String input, ReviewControls controls) {
+        return new AgentModelRequest(List.of(new AgentModelMessage("system", controlledPrompt(controls)),
+                new AgentModelMessage("user", input)), MODEL, null, controls.maxTokens());
     }
 
     private static void requireInput(String input) throws DeepSeekException {
         if (input == null || input.isBlank()) {
             throw new DeepSeekException("Input must not be empty.");
         }
-    }
-
-    private static Long number(JsonNode node, String field) {
-        JsonNode value = node.path(field);
-        return value.isIntegralNumber() && value.canConvertToLong() ? value.longValue() : null;
     }
 
     record Completion(String content, String finishReason, ProviderUsage usage) {

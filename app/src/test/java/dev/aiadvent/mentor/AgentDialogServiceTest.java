@@ -34,8 +34,8 @@ class AgentDialogServiceTest {
         dialogs.update(a.toString(), new DialogStore.DialogUpdate("archive", json.readTree(
                 "{\"exchanges\":[{\"mode\":\"AGENT\",\"input\":\"old fact\",\"free\":{\"analysis\":\"old answer\"}}]}")));
         byte[] originalArchive = Files.readAllBytes(directory.resolve("dialogs").resolve(a + ".json"));
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("answer A"), completion("answer B"), completion("follow-up A"),
                         completion("restored answer"));
         var service = service(dialogs, client, histories);
@@ -45,18 +45,18 @@ class AgentDialogServiceTest {
         service.reply(UUID.fromString(a.toString().toUpperCase()), "A2");
         service(dialogs, client, histories).reply(a, "after restart");
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(4)).complete(messages.capture(), anyString(), isNull(), isNull());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(4)).complete(messages.capture());
         var system = new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt());
-        assertEquals(List.of(system, new ConversationContext.Message("user", "A1")), messages.getAllValues().get(0));
-        assertEquals(List.of(system, new ConversationContext.Message("user", "B1")), messages.getAllValues().get(1));
-        assertEquals(List.of(system, new ConversationContext.Message("user", "A1"),
-                new ConversationContext.Message("assistant", "answer A"), new ConversationContext.Message("user", "A2")),
-                messages.getAllValues().get(2));
-        assertEquals(List.of(system, new ConversationContext.Message("user", "A1"),
-                new ConversationContext.Message("assistant", "answer A"), new ConversationContext.Message("user", "A2"),
-                new ConversationContext.Message("assistant", "follow-up A"),
-                new ConversationContext.Message("user", "after restart")), messages.getAllValues().get(3));
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", "A1")), messages.getAllValues().get(0).messages());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", "B1")), messages.getAllValues().get(1).messages());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", "A1"),
+                new AgentModelMessage("assistant", "answer A"), new AgentModelMessage("user", "A2")),
+                messages.getAllValues().get(2).messages());
+        assertEquals(List.of(new AgentModelMessage(system.role(), system.content()), new AgentModelMessage("user", "A1"),
+                new AgentModelMessage("assistant", "answer A"), new AgentModelMessage("user", "A2"),
+                new AgentModelMessage("assistant", "follow-up A"),
+                new AgentModelMessage("user", "after restart")), messages.getAllValues().get(3).messages());
         assertArrayEquals(originalArchive, Files.readAllBytes(directory.resolve("dialogs").resolve(a + ".json")));
         assertEquals(2, dialogs.list().size());
     }
@@ -70,7 +70,7 @@ class AgentDialogServiceTest {
         Path history = directory.resolve("histories").resolve(id + ".json");
         Files.createDirectories(history.getParent());
         Files.writeString(history, "{\"messages\":[{\"role\":\"user\",\"content\":\"invalid\"}]}");
-        DeepSeekClient client = mock(DeepSeekClient.class);
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
 
         assertThrows(IOException.class, () -> service(dialogs, client, histories).reply(id, "next"));
         verifyNoInteractions(client);
@@ -83,12 +83,15 @@ class AgentDialogServiceTest {
         var firstHistories = new AgentHistoryStore(directory.resolve("histories"), json);
         var firstSummaries = new AgentSummaryStore(directory.resolve("summaries"), json);
         UUID id = UUID.fromString(dialogs.create().id());
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("a1"), completion("a2"), completion("a3"), completion("compressed"),
                         completion("restored"));
         ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
         when(summaryService.generate(anyList(), isNull(), any(), eq(4)))
+                .thenReturn(new SummaryGeneration(new ConversationSummary(4, "remembered summary"),
+                        new TokenMetrics(3, 8, 4, null)));
+        when(summaryService.generate(anyList(), isNull(), any(), eq(4), any()))
                 .thenReturn(new SummaryGeneration(new ConversationSummary(4, "remembered summary"),
                         new TokenMetrics(3, 8, 4, null)));
         var firstService = new AgentDialogService(dialogs, client, firstHistories, new ApproximateTokenEstimator(),
@@ -100,7 +103,7 @@ class AgentDialogServiceTest {
         firstService.reply(id, "u2");
         firstService.reply(id, "u3");
         firstService.reply(id, "u4", ContextMode.SUMMARY_RECENT, 2);
-        verify(summaryService).generate(anyList(), isNull(), any(), eq(4));
+        verify(summaryService).generate(anyList(), isNull(), any(), eq(4), any());
         assertEquals(9, firstHistories.load(id).orElseThrow().size());
 
         ConversationSummaryService restoredSummaryService = mock(ConversationSummaryService.class);
@@ -114,10 +117,10 @@ class AgentDialogServiceTest {
 
         verifyNoInteractions(restoredSummaryService);
         assertEquals(11, restoredHistories.load(id).orElseThrow().size());
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(5)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertEquals(new ConversationContext.Message("system", "remembered summary"),
-                messages.getValue().get(1));
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(5)).complete(messages.capture());
+        assertEquals(new AgentModelMessage("system", "remembered summary"),
+                messages.getValue().messages().get(1));
     }
 
     @Test
@@ -132,8 +135,8 @@ class AgentDialogServiceTest {
                 new ConversationContext.Message("user", "shared decision"),
                 new ConversationContext.Message("assistant", "acknowledged"));
         histories.save(id, base);
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull()))
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class)))
                 .thenReturn(completion("A answer"), completion("B answer"), completion("A follow-up"));
         ConversationSummaryService summaryService = mock(ConversationSummaryService.class);
         StickyFactsService factsService = mock(StickyFactsService.class);
@@ -147,10 +150,10 @@ class AgentDialogServiceTest {
         service.reply(id, "PostgreSQL", ContextMode.FULL, 4, branchA.id());
         service.reply(id, "ClickHouse", ContextMode.FULL, 4, branchB.id());
 
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(2)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertTrue(messages.getAllValues().get(0).stream().noneMatch(message -> message.content().equals("ClickHouse")));
-        assertTrue(messages.getAllValues().get(1).stream().noneMatch(message -> message.content().equals("PostgreSQL")));
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(2)).complete(messages.capture());
+        assertTrue(messages.getAllValues().get(0).messages().stream().noneMatch(message -> message.content().equals("ClickHouse")));
+        assertTrue(messages.getAllValues().get(1).messages().stream().noneMatch(message -> message.content().equals("PostgreSQL")));
 
         var restarted = new AgentDialogService(dialogs, client, new AgentHistoryStore(directory.resolve("histories"), json),
                 new ApproximateTokenEstimator(), new AgentSummaryStore(directory.resolve("summaries"), json),
@@ -158,9 +161,9 @@ class AgentDialogServiceTest {
                 new AgentMemoryStore(directory.resolve("memory"), json), 0);
 
         restarted.reply(id, "A follow-up", ContextMode.FULL, 4, branchA.id());
-        verify(client, times(3)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertTrue(messages.getValue().stream().anyMatch(message -> message.content().equals("PostgreSQL")));
-        assertTrue(messages.getValue().stream().noneMatch(message -> message.content().equals("ClickHouse")));
+        verify(client, times(3)).complete(messages.capture());
+        assertTrue(messages.getValue().messages().stream().anyMatch(message -> message.content().equals("PostgreSQL")));
+        assertTrue(messages.getValue().messages().stream().noneMatch(message -> message.content().equals("ClickHouse")));
     }
 
     @Test
@@ -171,10 +174,10 @@ class AgentDialogServiceTest {
         var branchStore = new AgentBranchStore(directory.resolve("branches"), json);
         UUID id = UUID.fromString(dialogs.create().id());
         histories.save(id, List.of(new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt())));
-        DeepSeekClient client = mock(DeepSeekClient.class);
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
         var entered = new CountDownLatch(2);
         var release = new CountDownLatch(1);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
+        when(client.complete(any(AgentModelRequest.class))).thenAnswer(call -> {
             entered.countDown();
             assertTrue(release.await(5, TimeUnit.SECONDS));
             return completion("answer");
@@ -205,13 +208,13 @@ class AgentDialogServiceTest {
     void concurrentFirstRequestsUseOneAgent() throws Exception {
         DialogStore dialogs = mock(DialogStore.class);
         AgentHistoryStore histories = mock(AgentHistoryStore.class);
-        DeepSeekClient client = mock(DeepSeekClient.class);
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
         UUID id = UUID.randomUUID();
         when(histories.load(id)).thenReturn(Optional.empty());
         var start = new CyclicBarrier(2);
         var providerEntered = new CountDownLatch(1);
         var releaseProvider = new CountDownLatch(1);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenAnswer(call -> {
+        when(client.complete(any(AgentModelRequest.class))).thenAnswer(call -> {
             providerEntered.countDown();
             assertTrue(releaseProvider.await(5, TimeUnit.SECONDS));
             return completion("answer");
@@ -240,11 +243,11 @@ class AgentDialogServiceTest {
         }
         assertTrue(List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS)).containsAll(List.of("busy", "answer")));
         service.reply(id, "follow-up");
-        ArgumentCaptor<List<ConversationContext.Message>> messages = ArgumentCaptor.forClass(List.class);
-        verify(client, times(2)).complete(messages.capture(), anyString(), isNull(), isNull());
-        assertEquals(List.of(messages.getAllValues().getFirst().getFirst(), messages.getAllValues().getFirst().getLast(),
-                new ConversationContext.Message("assistant", "answer"), new ConversationContext.Message("user", "follow-up")),
-                messages.getValue());
+        ArgumentCaptor<AgentModelRequest> messages = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(2)).complete(messages.capture());
+        assertEquals(List.of(messages.getAllValues().getFirst().messages().getFirst(), messages.getAllValues().getFirst().messages().getLast(),
+                new AgentModelMessage("assistant", "answer"), new AgentModelMessage("user", "follow-up")),
+                messages.getValue().messages());
     }
 
     @Test
@@ -257,8 +260,8 @@ class AgentDialogServiceTest {
         UUID dialogB = UUID.fromString(dialogs.create().id());
         UUID taskA = UUID.randomUUID();
         UUID taskB = UUID.randomUUID();
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn(completion("answer"));
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
                 mock(StickyFactsService.class), mock(AgentBranchStore.class), memoryStore, 0);
@@ -270,11 +273,11 @@ class AgentDialogServiceTest {
         service.reply(dialogB, "B", ContextMode.FULL, 4, null, taskA);
         service.reply(dialogB, "B2", ContextMode.FULL, 4, null, taskB);
 
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client, times(3)).complete(outbound.capture(), anyString(), isNull(), isNull());
-        String first = outbound.getAllValues().get(0).get(outbound.getAllValues().get(0).size() - 2).content();
-        String sharedTask = outbound.getAllValues().get(1).get(outbound.getAllValues().get(1).size() - 2).content();
-        String otherTask = outbound.getAllValues().get(2).get(outbound.getAllValues().get(2).size() - 2).content();
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(3)).complete(outbound.capture());
+        String first = outbound.getAllValues().get(0).messages().get(outbound.getAllValues().get(0).messages().size() - 2).content();
+        String sharedTask = outbound.getAllValues().get(1).messages().get(outbound.getAllValues().get(1).messages().size() - 2).content();
+        String otherTask = outbound.getAllValues().get(2).messages().get(outbound.getAllValues().get(2).messages().size() - 2).content();
         assertTrue(first.contains("SATURN") && first.contains("PostgreSQL") && first.contains("Java"));
         assertFalse(sharedTask.contains("SATURN"));
         assertTrue(sharedTask.contains("PostgreSQL") && sharedTask.contains("Java"));
@@ -295,8 +298,8 @@ class AgentDialogServiceTest {
         var branchStore = new AgentBranchStore(directory.resolve("branches"), json);
         var memoryStore = new AgentMemoryStore(directory.resolve("memory"), json);
         UUID dialogId = UUID.fromString(dialogs.create().id());
-        DeepSeekClient client = mock(DeepSeekClient.class);
-        when(client.complete(anyList(), anyString(), isNull(), isNull())).thenReturn(completion("answer"));
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
         var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
                 mock(StickyFactsService.class), branchStore, memoryStore, 0);
@@ -310,19 +313,19 @@ class AgentDialogServiceTest {
 
         List<ConversationContext.Message> branchHistory = branchStore.loadBranch(dialogId, branch.id());
         assertTrue(branchHistory.stream().noneMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
-        ArgumentCaptor<List<ConversationContext.Message>> outbound = ArgumentCaptor.forClass(List.class);
-        verify(client).complete(outbound.capture(), anyString(), isNull(), isNull());
-        assertTrue(outbound.getValue().stream().anyMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client).complete(outbound.capture());
+        assertTrue(outbound.getValue().messages().stream().anyMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
     }
 
-    private AgentDialogService service(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories) {
+    private AgentDialogService service(DialogStore dialogs, AgentModelExecutor client, AgentHistoryStore histories) {
         return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
                 mock(StickyFactsService.class), mock(AgentBranchStore.class),
                 new AgentMemoryStore(directory.resolve("memory"), new ObjectMapper().findAndRegisterModules()), 0);
     }
 
-    private DeepSeekClient.Completion completion(String content) {
-        return new DeepSeekClient.Completion(content, "stop", null);
+    private AgentModelExecutor.Completion completion(String content) {
+        return new AgentModelExecutor.Completion(content, null);
     }
 }

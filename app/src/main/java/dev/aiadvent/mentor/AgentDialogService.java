@@ -23,18 +23,18 @@ class AgentDialogService {
     private final AgentModelCatalog models;
     private final ConcurrentHashMap<AgentKey, EngineeringReviewAgent> agents = new ConcurrentHashMap<>();
 
-    AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
+    AgentDialogService(DialogStore dialogs, AgentModelExecutor executor, AgentHistoryStore histories,
                        ApproximateTokenEstimator tokenEstimator,
                        AgentSummaryStore summaries, ConversationSummaryService summaryService,
                        StickyFactsStore factsStore, StickyFactsService factsService,
                        AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
-        this(dialogs, client, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, new AgentModelCatalog(new DeepSeekAgentModelExecutor(client), null));
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
+                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null));
     }
 
     @org.springframework.beans.factory.annotation.Autowired
-    AgentDialogService(DialogStore dialogs, DeepSeekClient client, AgentHistoryStore histories,
+    AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
                        ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
                        ConversationSummaryService summaryService, StickyFactsStore factsStore,
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
@@ -53,22 +53,22 @@ class AgentDialogService {
     }
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         return reply(dialogId, input, mode, recentMessageCount, null);
     }
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         return reply(dialogId, input, mode, recentMessageCount, branchId, null);
     }
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
-                     UUID taskId) throws IOException, DeepSeekException {
+                     UUID taskId) throws IOException, ModelExecutionException {
         return reply(dialogId, input, mode, recentMessageCount, branchId, taskId, null);
     }
 
     AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
-                     UUID taskId, String agentModelKey) throws IOException, DeepSeekException {
+                     UUID taskId, String agentModelKey) throws IOException, ModelExecutionException {
         AgentModelCatalog.Selection model = models.resolve(agentModelKey);
         if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
             throw new IllegalArgumentException("Branch messages use FULL context only.");
@@ -97,7 +97,7 @@ class AgentDialogService {
                 model.executor(), defaultConfig.withModel(model.model()));
     }
 
-    AgentReply reply(UUID dialogId, String input) throws IOException, DeepSeekException {
+    AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
         return reply(dialogId, input, ContextMode.FULL, 4);
     }
 

@@ -19,7 +19,12 @@ public class EngineeringReviewMentorApplication {
     }
 
     @Bean
-    DeepSeekClient deepSeekClient(HttpClient httpClient, ObjectMapper objectMapper) {
-        return new DeepSeekClient(httpClient, objectMapper, System.getenv("DEEPSEEK_API_KEY"));
+    DeepSeekTransport deepSeekTransport(HttpClient httpClient, ObjectMapper objectMapper) {
+        return new DeepSeekTransport(httpClient, objectMapper, System.getenv("DEEPSEEK_API_KEY"));
+    }
+
+    @Bean
+    DeepSeekClient deepSeekClient(DeepSeekTransport transport, ObjectMapper objectMapper) {
+        return new DeepSeekClient(transport, objectMapper);
     }
 }

@@ -24,7 +24,7 @@ class AgentController {
 
     @PostMapping
     AgentResponse reply(@PathVariable UUID id, @RequestBody AgentRequest request)
-            throws IOException, DeepSeekException {
+            throws IOException, ModelExecutionException {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
@@ -58,15 +58,21 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
+    @ExceptionHandler(ModelExecutionException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    ReviewController.ApiError modelFailure(ModelExecutionException exception) {
+        return new ReviewController.ApiError(exception.getMessage(), exception.rawResponse());
+    }
+
     @ExceptionHandler(EngineeringReviewAgent.MaintenanceMetricsException.class)
     ResponseEntity<AgentError> maintenanceFailure(EngineeringReviewAgent.MaintenanceMetricsException exception) {
         Throwable cause = exception.getCause();
         HttpStatus status = cause instanceof EngineeringReviewAgent.ContextLimitExceededException
                 ? HttpStatus.PAYLOAD_TOO_LARGE
-                : cause instanceof DeepSeekException ? HttpStatus.BAD_GATEWAY
+                : cause instanceof ModelExecutionException ? HttpStatus.BAD_GATEWAY
                 : cause instanceof IOException ? HttpStatus.INTERNAL_SERVER_ERROR
                 : HttpStatus.BAD_REQUEST;
-        String rawResponse = cause instanceof DeepSeekException deepSeekException ? deepSeekException.rawResponse() : null;
+        String rawResponse = cause instanceof ModelExecutionException modelException ? modelException.rawResponse() : null;
         return ResponseEntity.status(status).body(new AgentError(cause.getMessage(), rawResponse,
                 exception.summaryMetrics(), exception.factsMetrics()));
     }
