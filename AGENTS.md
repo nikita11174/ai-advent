@@ -10,7 +10,8 @@
 1. Прочитать `docs/PRODUCT-MANIFEST.md` — product authority.
 2. Прочитать `docs/ARCHITECTURE.md` — architecture-boundary authority.
 3. Прочитать `docs/CURRENT-STATE.md` — operational source of truth.
-4. Прочитать документ текущего challenge task в `docs/tasks/`, если он существует.
+4. Прочитать документ текущего challenge task в `docs/tasks/`, только если он существует и нужен
+   для текущего scope.
 5. Прочитать `README.md`, когда нужны команды build/test/run.
 6. Проверить `git status`, затем staged и unstaged diff.
 7. Сверить фактическое состояние working tree с `CURRENT-STATE.md`; при конфликте сначала
@@ -26,16 +27,13 @@
   До этого предложения и рекомендации агента остаются рекомендациями, не решениями владельца.
 - Перед изменениями кратко назвать что меняется, зачем и какой слой затронут.
 - Не уничтожать, не откатывать и не перезаписывать незавершённую работу другого агента.
+- `docs/**` is owner-private local state and must not be staged/committed unless explicitly authorized for publication.
 - Продолжать существующее решение. Начинать заново можно только при подтверждённой проблеме и с
   зафиксированным обоснованием.
 - Делать минимальное корректное изменение без speculative abstractions, массового форматирования
   и unrelated cleanup.
-- Существенные решения и изменения scope фиксировать в текущем task document; актуальный итог и
-  следующий шаг — в `docs/CURRENT-STATE.md`.
-- После substantial planning/implementation/review сохранить concise run evidence в
-  `docs/agent-runs/DAY-XX.md`. Детальный prompt/final report при наличии сохранять только в
-  ignored `docs/local/agent-sessions/`; local history не является canonical truth и не содержит
-  secrets.
+- Документация и evidence подчиняются канонической global policy. Обновлять существующий
+  authoritative документ только когда его owned truth материально изменился.
 - Тестировать изменённое подходящими targeted checks. Не объявлять DONE без evidence; явно
   указывать, что не проверено.
 - Не выполнять commit, push, merge, rebase или удаление веток без явной команды владельца.
@@ -55,6 +53,7 @@
 
 ## Browser verification
 
+- Выбор browser automation tool и fallback policy определяет каноническая global policy.
 - Единственный routine/default viewport — desktop **1440×1000**; сохранять desktop layout.
 - Не выполнять mobile/tablet/responsive проверки и не включать device/mobile emulation по умолчанию.
 - В обычной проверке не уменьшать viewport ниже 1440×1000; завершать работу при 1440×1000.
@@ -63,7 +62,7 @@
 
 ## Lightweight workflow
 
-Для простой и ясной задачи достаточно: `implement -> verify -> record evidence`. Research,
+Для простой и ясной задачи достаточно: `implement -> verify -> compact chat result`. Research,
 отдельный planning round и independent review не являются обязательными стадиями.
 
 Дополнительного агента подключать только для конкретной открытой неизвестности или оправданной
@@ -74,5 +73,3 @@
 который может изменить implementation или decision; не проводить broad audit «на всякий случай».
 Для нетривиального цикла явно задать: Goal → Evidence/Context → Constraints → Done when.
 Для follow-up в той же сессии использовать delta prompt, а не повторять полный handoff.
-
-Полный flow и handoff описаны в `docs/WORKFLOW.md`.
