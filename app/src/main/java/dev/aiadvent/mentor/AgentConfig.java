@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+
 import java.util.Set;
 
 record AgentConfig(String model, String systemPrompt, Double temperature, Integer maxTokens,
@@ -24,7 +26,7 @@ record AgentConfig(String model, String systemPrompt, Double temperature, Intege
     }
 
     static AgentConfig defaults(Integer contextTokenLimit) {
-        return new AgentConfig("deepseek-v4-flash", """
+        return new AgentConfig(AgentModelCatalog.DEFAULT_MODEL, """
                 You are an engineering review mentor.
                 Analyze the provided code or engineering question.
                 Explain potential engineering risks clearly and concisely.

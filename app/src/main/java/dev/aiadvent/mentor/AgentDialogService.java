@@ -1,5 +1,9 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+import dev.aiadvent.mentor.model.AgentModelExecutor;
+import dev.aiadvent.mentor.model.ModelExecutionException;
+
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 

@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.DeepSeekException;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;

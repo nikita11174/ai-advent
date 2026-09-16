@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.DeepSeekException;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;

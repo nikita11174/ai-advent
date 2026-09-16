@@ -1,5 +1,8 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.OpenAiResponsesClient;
+import dev.aiadvent.mentor.model.ModelProfile;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;

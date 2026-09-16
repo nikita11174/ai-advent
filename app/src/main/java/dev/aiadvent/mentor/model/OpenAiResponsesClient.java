@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,7 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 
 @Component
-class OpenAiResponsesClient {
+public class OpenAiResponsesClient {
     static final String INSTRUCTION = """
             You are an engineering review mentor.
             Analyze the provided code and identify real engineering risks and practical reliability improvements.
@@ -42,7 +42,7 @@ class OpenAiResponsesClient {
         this.json = json; this.http = http; this.endpoint = endpoint; this.timeout = timeout; this.apiKey = apiKey;
     }
 
-    Result analyze(ModelProfile model, String input) {
+    public Result analyze(ModelProfile model, String input) {
         return complete(model, java.util.List.of(
                 new AgentModelMessage("system", INSTRUCTION),
                 new AgentModelMessage("user", input)), null, PRESET.maxOutputTokens);
@@ -146,9 +146,9 @@ class OpenAiResponsesClient {
         JsonNode value = node.path(key); return value.isIntegralNumber() && value.canConvertToLong() ? value.longValue() : null;
     }
 
-    record Preset(String version, String developerInstruction, String reasoningEffort, int maxOutputTokens,
+    public record Preset(String version, String developerInstruction, String reasoningEffort, int maxOutputTokens,
                   String serviceTier, boolean stream, boolean store) { }
-    record Result(ModelProfile model, String returnedModel, String status, String incompleteReason,
+    public record Result(ModelProfile model, String returnedModel, String status, String incompleteReason,
                   String serviceTier, String startedAt, Long apiLatencyMs, Integer httpStatus, String analysis,
                   ModelProfile.Usage usage, ModelProfile.Cost cost, Preset configuration, String error) { }
 }

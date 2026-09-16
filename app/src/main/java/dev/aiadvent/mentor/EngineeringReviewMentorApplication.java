@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.DeepSeekTransport;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

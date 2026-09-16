@@ -1,5 +1,14 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.ModelTestFixtures;
+
+import dev.aiadvent.mentor.model.AgentModelMessage;
+import dev.aiadvent.mentor.model.AgentModelRequest;
+import dev.aiadvent.mentor.model.DeepSeekException;
+import dev.aiadvent.mentor.model.DeepSeekTransport;
+import dev.aiadvent.mentor.model.ModelExecutionException;
+import dev.aiadvent.mentor.model.ProviderUsage;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -59,7 +68,7 @@ class MainTest {
         var histories = mock(AgentHistoryStore.class);
         var agent = new EngineeringReviewAgent(UUID.randomUUID(), AgentConfig.defaults(),
                 new ConversationContext(AgentConfig.defaults().systemPrompt()),
-                new DeepSeekAgentModelExecutor(transport), histories,
+                ModelTestFixtures.deepSeekExecutor(transport), histories,
                 new ApproximateTokenEstimator(), mock(AgentSummaryStore.class),
                 mock(ConversationSummaryService.class), mock(StickyFactsStore.class), mock(StickyFactsService.class),
                 new FullContextPolicy(), new SummaryRecentContextPolicy(), new SlidingWindowContextPolicy(),
@@ -68,7 +77,7 @@ class MainTest {
         assertThrows(ModelExecutionException.class, () -> agent.reply("failed"));
         assertEquals("answer", agent.reply("next").analysis());
 
-        verify(transport).complete(new AgentModelRequest(List.of(
+        ModelTestFixtures.complete(verify(transport), new AgentModelRequest(List.of(
                 new AgentModelMessage("system", AgentConfig.defaults().systemPrompt()),
                 new AgentModelMessage("user", "next")), "deepseek-v4-flash", null, null));
         verify(histories).save(any(), anyList());

@@ -1,5 +1,13 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.ModelTestFixtures;
+
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+import dev.aiadvent.mentor.model.AgentModelExecutor;
+import dev.aiadvent.mentor.model.AgentModelRequest;
+import dev.aiadvent.mentor.model.ModelExecutionException;
+import dev.aiadvent.mentor.model.OpenAiResponsesClient;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AgentController.class)
-@Import({AgentDialogService.class, AgentModelCatalog.class, OpenAiAgentModelExecutor.class})
+@Import({AgentDialogService.class, AgentModelCatalog.class, ModelTestFixtures.class})
 @TestPropertySource(properties = "mentor.agent.context-token-limit=1")
 class AgentControllerTest {
     @Autowired

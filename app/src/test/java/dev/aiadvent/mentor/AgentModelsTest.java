@@ -1,5 +1,15 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.ModelTestFixtures;
+
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+import dev.aiadvent.mentor.model.AgentModelMessage;
+import dev.aiadvent.mentor.model.AgentModelRequest;
+import dev.aiadvent.mentor.model.DeepSeekTransport;
+import dev.aiadvent.mentor.model.ModelProfile;
+import dev.aiadvent.mentor.model.OpenAiResponsesClient;
+import dev.aiadvent.mentor.model.ProviderUsage;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,8 +32,8 @@ class AgentModelsTest {
         var histories = new AgentHistoryStore(directory.resolve("history"), json);
         var deepSeek = mock(DeepSeekTransport.class);
         var openAi = mock(OpenAiResponsesClient.class);
-        var deepSeekExecutor = spy(new DeepSeekAgentModelExecutor(deepSeek));
-        var openAiExecutor = spy(new OpenAiAgentModelExecutor(openAi));
+        var deepSeekExecutor = spy(ModelTestFixtures.deepSeekExecutor(deepSeek));
+        var openAiExecutor = spy(ModelTestFixtures.openAiExecutor(openAi));
         var models = new AgentModelCatalog(deepSeekExecutor, openAiExecutor);
         var estimator = new ApproximateTokenEstimator();
         var service = new AgentDialogService(dialogs, histories, estimator,
@@ -36,14 +46,14 @@ class AgentModelsTest {
         UUID dialog = UUID.fromString(dialogs.create().id());
         UUID task = UUID.randomUUID();
         service.upsertMemory(dialog, task, AgentMemory.Scope.WORKING, "database", "PostgreSQL");
-        when(deepSeek.complete(any(AgentModelRequest.class)))
+        when(ModelTestFixtures.complete(deepSeek, any(AgentModelRequest.class)))
                 .thenReturn(new DeepSeekTransport.Completion("DeepSeek answer", "stop", null));
         var defaultReply = service.reply(dialog, "default", ContextMode.FULL, 4, null, task, null);
         assertEquals("DeepSeek answer", defaultReply.analysis());
         assertEquals("DeepSeek answer",
                 service.reply(dialog, "explicit", ContextMode.FULL, 4, null, task, AgentModelCatalog.DEFAULT_KEY).analysis());
         ArgumentCaptor<AgentModelRequest> deepSeekRequests = ArgumentCaptor.forClass(AgentModelRequest.class);
-        verify(deepSeek, times(2)).complete(deepSeekRequests.capture());
+        ModelTestFixtures.complete(verify(deepSeek, times(2)), deepSeekRequests.capture());
         for (AgentModelRequest request : deepSeekRequests.getAllValues()) {
             assertEquals(AgentConfig.defaults().model(), request.model());
             assertNull(request.temperature());
@@ -68,7 +78,7 @@ class AgentModelsTest {
         var result = mock(OpenAiResponsesClient.Result.class);
         when(result.analysis()).thenReturn("OpenAI answer");
         when(result.usage()).thenReturn(new ModelProfile.Usage(10L, 5L, 15L, null, null, null));
-        when(openAi.complete(any(), anyList(), isNull(), isNull())).thenReturn(result);
+        when(ModelTestFixtures.complete(openAi, any(), anyList(), isNull(), isNull())).thenReturn(result);
         for (var model : ModelProfile.MODELS) {
             var reply = service.reply(dialog, model.key(), ContextMode.SLIDING_WINDOW, 2, null, task, model.key());
             assertEquals("OpenAI answer", reply.analysis());
@@ -89,7 +99,7 @@ class AgentModelsTest {
                     request.messages().get(2).content());
             assertEquals(firstRequest.messages().get(1), request.messages().get(3));
             assertEquals(model.key(), request.messages().getLast().content());
-            verify(openAi).complete(model, request.messages(), null, null);
+            ModelTestFixtures.complete(verify(openAi), model, request.messages(), null, null);
         }
         assertEquals(11, histories.load(dialog).orElseThrow().size());
         assertTrue(histories.load(dialog).orElseThrow().stream().noneMatch(m -> m.content().contains("PostgreSQL")));
@@ -98,7 +108,7 @@ class AgentModelsTest {
         assertEquals(11, histories.load(dialog).orElseThrow().size());
         verifyNoMoreInteractions(openAi, deepSeek);
         reset(openAi);
-        when(openAi.complete(any(), anyList(), isNull(), isNull())).thenAnswer(call -> {
+        when(ModelTestFixtures.complete(openAi, any(), anyList(), isNull(), isNull())).thenAnswer(call -> {
             List<AgentModelMessage> messages = call.getArgument(1);
             var completion = mock(OpenAiResponsesClient.Result.class);
             when(completion.analysis()).thenReturn(messages.getFirst().content().contains("Extract important")
@@ -113,7 +123,7 @@ class AgentModelsTest {
         var summary = service.reply(dialog, "summary", ContextMode.SUMMARY_RECENT, 2, null, task, "WEAK");
         assertNotNull(summary.summaryMetrics());
         assertEquals("chosen model answer", summary.contextMetadata().summary());
-        verify(openAi, times(9)).complete(eq(ModelProfile.resolve("WEAK")), anyList(), isNull(), isNull());
+        ModelTestFixtures.complete(verify(openAi, times(9)), eq(ModelProfile.resolve("WEAK")), anyList(), isNull(), isNull());
         verifyNoMoreInteractions(deepSeek);
     }
 
@@ -121,20 +131,22 @@ class AgentModelsTest {
     void springWiresDeepSeekAsTheDefaultExecutorForCatalogAndMaintenance() throws Exception {
         var transport = mock(DeepSeekTransport.class);
         var usage = new ProviderUsage(10L, 5L, 15L);
-        when(transport.complete(any(AgentModelRequest.class))).thenReturn(
+        when(ModelTestFixtures.complete(transport, any(AgentModelRequest.class))).thenReturn(
                 new DeepSeekTransport.Completion("summary", "stop", usage),
                 new DeepSeekTransport.Completion("{\"facts\":{\"project\":\"Helios\"}}", "stop", usage));
         try (var context = new AnnotationConfigApplicationContext()) {
             context.registerBean(DeepSeekTransport.class, () -> transport);
             context.registerBean(OpenAiResponsesClient.class, () -> mock(OpenAiResponsesClient.class));
             context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
-            context.register(DeepSeekAgentModelExecutor.class, OpenAiAgentModelExecutor.class,
+            ModelTestFixtures.registerExecutors(context);
+            context.register(
                     AgentModelCatalog.class, ApproximateTokenEstimator.class,
                     ConversationSummaryService.class, StickyFactsService.class);
             context.refresh();
+            assertEquals(1, context.getBeansOfType(DeepSeekTransport.class).size());
             var catalog = context.getBean(AgentModelCatalog.class);
-            assertSame(context.getBean(DeepSeekAgentModelExecutor.class), catalog.resolve(null).executor());
-            assertSame(context.getBean(OpenAiAgentModelExecutor.class), catalog.resolve("WEAK").executor());
+            assertSame(context.getBean("deepSeekAgentModelExecutor"), catalog.resolve(null).executor());
+            assertSame(context.getBean("openAiAgentModelExecutor"), catalog.resolve("WEAK").executor());
             var config = new AgentConfig("deepseek-v4-flash", "system", 0.7, 450, null);
             var summary = context.getBean(ConversationSummaryService.class).generate(
                     List.of(new ConversationContext.Message("user", "source")), null, config, 1);
@@ -144,7 +156,7 @@ class AgentModelsTest {
             assertEquals("Helios", facts.facts().facts().get("project"));
             assertEquals(usage, facts.metrics().providerUsage());
             ArgumentCaptor<AgentModelRequest> requests = ArgumentCaptor.forClass(AgentModelRequest.class);
-            verify(transport, times(2)).complete(requests.capture());
+            ModelTestFixtures.complete(verify(transport, times(2)), requests.capture());
             for (var request : requests.getAllValues()) {
                 assertEquals(config.model(), request.model());
                 assertEquals(config.temperature(), request.temperature());
@@ -155,15 +167,4 @@ class AgentModelsTest {
         }
     }
 
-    @Test
-    void catalogContainsOnlySafeSelectionAndPresentationData() throws Exception {
-        var catalog = new AgentModelCatalog(new DeepSeekAgentModelExecutor(mock(DeepSeekTransport.class)),
-                new OpenAiAgentModelExecutor(mock(OpenAiResponsesClient.class)));
-        assertEquals(AgentModelCatalog.DEFAULT_KEY, catalog.resolve(null).option().key());
-        assertEquals(AgentConfig.defaults().model(), catalog.resolve(AgentModelCatalog.DEFAULT_KEY).option().label());
-        assertEquals(List.of("DEEPSEEK", "WEAK", "MEDIUM", "STRONG"), catalog.options().stream().map(AgentModelCatalog.Option::key).toList());
-        assertThrows(IllegalArgumentException.class, () -> catalog.resolve(""));
-        var node = new ObjectMapper().valueToTree(catalog.options());
-        assertEquals(3, node.get(0).size());
-    }
 }

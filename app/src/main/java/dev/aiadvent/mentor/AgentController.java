@@ -1,5 +1,8 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+import dev.aiadvent.mentor.model.ModelExecutionException;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;

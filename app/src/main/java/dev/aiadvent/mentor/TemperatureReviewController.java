@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.DeepSeekException;
+
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;

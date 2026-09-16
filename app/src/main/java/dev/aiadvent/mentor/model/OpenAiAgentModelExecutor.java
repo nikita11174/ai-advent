@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 import org.springframework.stereotype.Component;
 

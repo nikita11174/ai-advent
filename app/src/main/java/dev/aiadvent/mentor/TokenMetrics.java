@@ -1,5 +1,7 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.ProviderUsage;
+
 record TokenMetrics(long currentRequestTokens, long contextTokens, long responseTokens,
                     ProviderUsage providerUsage) {
     TokenMetrics {

@@ -1,5 +1,11 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.AgentModelMessage;
+import dev.aiadvent.mentor.model.AgentModelRequest;
+import dev.aiadvent.mentor.model.DeepSeekException;
+import dev.aiadvent.mentor.model.DeepSeekTransport;
+import dev.aiadvent.mentor.model.ProviderUsage;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

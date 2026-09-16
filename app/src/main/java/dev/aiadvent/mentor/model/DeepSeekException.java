@@ -1,17 +1,17 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 public class DeepSeekException extends Exception {
     private final String rawResponse;
 
-    DeepSeekException(String message) {
+    public DeepSeekException(String message) {
         this(message, null, null);
     }
 
-    DeepSeekException(String message, Throwable cause) {
+    public DeepSeekException(String message, Throwable cause) {
         this(message, null, cause);
     }
 
-    DeepSeekException(String message, String rawResponse) {
+    public DeepSeekException(String message, String rawResponse) {
         this(message, rawResponse, null);
     }
 
@@ -20,7 +20,7 @@ public class DeepSeekException extends Exception {
         this.rawResponse = rawResponse;
     }
 
-    String rawResponse() {
+    public String rawResponse() {
         return rawResponse;
     }
 }

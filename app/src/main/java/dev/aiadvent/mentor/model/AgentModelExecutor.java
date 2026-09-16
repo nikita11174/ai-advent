@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 public interface AgentModelExecutor {
     Completion complete(AgentModelRequest request) throws ModelExecutionException;

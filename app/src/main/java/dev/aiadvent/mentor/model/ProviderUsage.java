@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 public record ProviderUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
     public ProviderUsage {

@@ -1,5 +1,11 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.ModelTestFixtures;
+
+import dev.aiadvent.mentor.model.AgentModelCatalog;
+import dev.aiadvent.mentor.model.AgentModelExecutor;
+import dev.aiadvent.mentor.model.OpenAiResponsesClient;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -17,7 +23,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AgentMemoryController.class)
-@Import({AgentDialogService.class, AgentModelCatalog.class, OpenAiAgentModelExecutor.class})
+@Import({AgentDialogService.class, AgentModelCatalog.class, ModelTestFixtures.class})
 class AgentMemoryControllerTest {
     @Autowired
     private MockMvc mvc;

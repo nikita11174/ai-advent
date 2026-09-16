@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 public class ModelExecutionException extends Exception {
     private final String rawResponse;

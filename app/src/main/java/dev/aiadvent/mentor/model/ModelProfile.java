@@ -1,16 +1,16 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 import java.math.BigDecimal;
 import java.util.List;
 
-record ModelProfile(String key, String label, String provider, String modelId, String modelUrl,
+public record ModelProfile(String key, String label, String provider, String modelId, String modelUrl,
                     Pricing pricing) {
-    static final List<ModelProfile> MODELS = List.of(
+    public static final List<ModelProfile> MODELS = List.of(
             profile("WEAK", "Luna", "0.20", "0.02", "0.25", "1.20"),
             profile("MEDIUM", "Terra", "2.00", "0.20", "2.50", "12.00"),
             profile("STRONG", "Sol", "4.00", "0.40", "5.00", "20.00"));
 
-    static ModelProfile resolve(String key) {
+    public static ModelProfile resolve(String key) {
         return MODELS.stream().filter(model -> model.key.equals(key)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Неизвестная модель Day 5."));
     }
@@ -26,7 +26,7 @@ record ModelProfile(String key, String label, String provider, String modelId, S
                         "https://developers.openai.com/api/docs/guides/prompt-caching")));
     }
 
-    record Pricing(String id, String checkedAt, String currency, long unit, String serviceTier,
+    public record Pricing(String id, String checkedAt, String currency, long unit, String serviceTier,
                    long maxInputTokens, BigDecimal inputRate, BigDecimal cachedRate,
                    BigDecimal writeRate, BigDecimal outputRate, List<String> sources) {
         Cost calculate(Usage usage, String actualTier) {
@@ -54,7 +54,7 @@ record ModelProfile(String key, String label, String provider, String modelId, S
         Cost unknown(String reason) { return new Cost("UNKNOWN", null, reason, this); }
     }
 
-    record Usage(Long inputTokens, Long outputTokens, Long totalTokens, Long cachedInputTokens,
+    public record Usage(Long inputTokens, Long outputTokens, Long totalTokens, Long cachedInputTokens,
                  Long cacheWriteInputTokens, Long reasoningTokens) { }
-    record Cost(String status, String amount, String reason, Pricing snapshot) { }
+    public record Cost(String status, String amount, String reason, Pricing snapshot) { }
 }

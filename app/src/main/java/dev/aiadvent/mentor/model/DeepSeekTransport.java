@@ -1,4 +1,4 @@
-package dev.aiadvent.mentor;
+package dev.aiadvent.mentor.model;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,14 +13,14 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 
-final class DeepSeekTransport {
+public final class DeepSeekTransport {
     private static final URI API_URI = URI.create("https://api.deepseek.com/chat/completions");
 
     private final HttpClient httpClient;
     private final ObjectMapper json;
     private final String apiKey;
 
-    DeepSeekTransport(HttpClient httpClient, ObjectMapper json, String apiKey) {
+    public DeepSeekTransport(HttpClient httpClient, ObjectMapper json, String apiKey) {
         this.httpClient = httpClient;
         this.json = json;
         this.apiKey = apiKey;
@@ -38,11 +38,11 @@ final class DeepSeekTransport {
         }
     }
 
-    String buildRequestBody(AgentModelRequest request) throws JsonProcessingException {
+    public String buildRequestBody(AgentModelRequest request) throws JsonProcessingException {
         return buildRequestBody(request, false);
     }
 
-    String buildRequestBody(AgentModelRequest request, boolean jsonObjectResponse) throws JsonProcessingException {
+    public String buildRequestBody(AgentModelRequest request, boolean jsonObjectResponse) throws JsonProcessingException {
         ObjectNode root = json.createObjectNode();
         root.put("model", request.model());
         root.put("stream", false);
@@ -57,7 +57,7 @@ final class DeepSeekTransport {
         return json.writeValueAsString(root);
     }
 
-    Completion extractCompletion(String responseBody) throws JsonProcessingException, DeepSeekException {
+    public Completion extractCompletion(String responseBody) throws JsonProcessingException, DeepSeekException {
         JsonNode root = json.readTree(responseBody);
         JsonNode choice = root.path("choices").path(0);
         JsonNode content = choice.path("message").path("content");
@@ -74,7 +74,7 @@ final class DeepSeekTransport {
                 providerUsage);
     }
 
-    Completion send(String requestBody) throws DeepSeekException {
+    public Completion send(String requestBody) throws DeepSeekException {
         requireApiKey();
         HttpRequest request = HttpRequest.newBuilder(API_URI)
                 .header("Authorization", "Bearer " + apiKey)
@@ -111,6 +111,6 @@ final class DeepSeekTransport {
         return value.isIntegralNumber() && value.canConvertToLong() ? value.longValue() : null;
     }
 
-    record Completion(String content, String finishReason, ProviderUsage usage) {
+    public record Completion(String content, String finishReason, ProviderUsage usage) {
     }
 }

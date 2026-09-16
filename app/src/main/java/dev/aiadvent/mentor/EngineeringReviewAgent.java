@@ -1,5 +1,10 @@
 package dev.aiadvent.mentor;
 
+import dev.aiadvent.mentor.model.AgentModelExecutor;
+import dev.aiadvent.mentor.model.AgentModelMessage;
+import dev.aiadvent.mentor.model.AgentModelRequest;
+import dev.aiadvent.mentor.model.ModelExecutionException;
+
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
