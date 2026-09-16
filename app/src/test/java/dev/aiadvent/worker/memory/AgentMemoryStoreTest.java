@@ -1,4 +1,4 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

@@ -1,4 +1,4 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,43 +10,45 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.UUID;
 
 @Component
-class AgentHistoryStore {
+public class StickyFactsStore {
     private final Path directory;
     private final ObjectMapper json;
 
     @Autowired
-    AgentHistoryStore(@Value("${mentor.agent-histories.directory:docs/local/agent-histories}") Path directory,
-                      ObjectMapper json) {
+    public StickyFactsStore(@Value("${mentor.sticky-facts.directory:docs/local/agent-facts}") Path directory,
+                     ObjectMapper json) {
         this.directory = directory.toAbsolutePath().normalize();
         this.json = json;
     }
 
-    Optional<List<ConversationContext.Message>> load(UUID dialogId) throws IOException {
+    public Optional<StickyFacts> load(UUID dialogId) throws IOException {
         Path path = path(dialogId);
         if (!Files.exists(path)) {
             return Optional.empty();
         }
         try {
-            HistoryDocument document = json.readValue(path.toFile(), HistoryDocument.class);
-            ConversationContext.validate(document.messages());
-            return Optional.of(List.copyOf(document.messages()));
+            FactsDocument document = json.readValue(path.toFile(), FactsDocument.class);
+            if (document == null) {
+                throw new IllegalArgumentException("Facts document is empty.");
+            }
+            return Optional.of(new StickyFacts(document.coveredUserMessageCount(), document.facts()));
         } catch (IllegalArgumentException exception) {
-            throw new IOException("Agent history is malformed.", exception);
+            throw new IOException("Sticky facts are malformed.", exception);
         }
     }
 
-    void save(UUID dialogId, List<ConversationContext.Message> messages) throws IOException {
-        ConversationContext.validate(messages);
-        ensureDirectory();
+    public void save(UUID dialogId, StickyFacts facts) throws IOException {
+        Files.createDirectories(directory);
         Path destination = path(dialogId);
         Path temporary = Files.createTempFile(directory, dialogId.toString(), ".tmp");
         try {
-            json.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), new HistoryDocument(messages));
+            json.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(),
+                    new FactsDocument(facts.coveredUserMessageCount(), new LinkedHashMap<>(facts.facts())));
             try {
                 Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException ignored) {
@@ -65,10 +67,6 @@ class AgentHistoryStore {
         return path;
     }
 
-    private void ensureDirectory() throws IOException {
-        Files.createDirectories(directory);
-    }
-
-    record HistoryDocument(List<ConversationContext.Message> messages) {
+    record FactsDocument(int coveredUserMessageCount, LinkedHashMap<String, String> facts) {
     }
 }

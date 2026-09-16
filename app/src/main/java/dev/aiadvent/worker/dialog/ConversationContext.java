@@ -1,38 +1,38 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.dialog;
 
 import java.util.ArrayList;
 import java.util.List;
 
-final class ConversationContext {
+public final class ConversationContext {
     private List<Message> messages;
 
-    ConversationContext(String systemPrompt) {
+    public ConversationContext(String systemPrompt) {
         this(List.of(new Message("system", systemPrompt)));
     }
 
-    ConversationContext(List<Message> messages) {
+    public ConversationContext(List<Message> messages) {
         validate(messages);
         this.messages = List.copyOf(messages);
     }
 
-    List<Message> withUserMessage(String input) {
+    public List<Message> withUserMessage(String input) {
         var request = new ArrayList<>(messages);
         request.add(new Message("user", input));
         return List.copyOf(request);
     }
 
-    List<Message> snapshot() {
+    public List<Message> snapshot() {
         return messages;
     }
 
-    List<Message> withCompletedTurn(String input, String analysis) {
+    public List<Message> withCompletedTurn(String input, String analysis) {
         var completed = new ArrayList<>(messages);
         completed.add(new Message("user", input));
         completed.add(new Message("assistant", analysis));
         return List.copyOf(completed);
     }
 
-    void commit(List<Message> completed) {
+    public void commit(List<Message> completed) {
         if (completed.size() != messages.size() + 2
                 || !completed.subList(0, messages.size()).equals(messages)) {
             throw new IllegalArgumentException("Completed turn does not extend the current conversation.");
@@ -41,7 +41,7 @@ final class ConversationContext {
         messages = List.copyOf(completed);
     }
 
-    static void validate(List<Message> messages) {
+    public static void validate(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             throw new IllegalArgumentException("Agent history must contain a system message.");
         }
@@ -55,6 +55,6 @@ final class ConversationContext {
         }
     }
 
-    record Message(String role, String content) {
+    public record Message(String role, String content) {
     }
 }

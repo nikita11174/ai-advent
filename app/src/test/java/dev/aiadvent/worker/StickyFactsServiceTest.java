@@ -1,5 +1,8 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.memory.StickyFacts;
+import dev.aiadvent.worker.context.ApproximateTokenEstimator;
+import dev.aiadvent.worker.context.ContextLimitExceededException;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
@@ -48,7 +51,7 @@ class StickyFactsServiceTest {
         var service = new StickyFactsService(client, new ApproximateTokenEstimator(),
                 new ObjectMapper().findAndRegisterModules());
 
-        assertThrows(ConversationAgent.ContextLimitExceededException.class,
+        assertThrows(ContextLimitExceededException.class,
                 () -> service.update(StickyFacts.empty(), "input", new AgentConfig("model", "system", null, null, 1), 1));
 
         verifyNoInteractions(client);

@@ -1,4 +1,4 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,18 +14,18 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Component
-class AgentSummaryStore {
+public class AgentSummaryStore {
     private final Path directory;
     private final ObjectMapper json;
 
     @Autowired
-    AgentSummaryStore(@Value("${mentor.agent-summaries.directory:docs/local/agent-summaries}") Path directory,
+    public AgentSummaryStore(@Value("${mentor.agent-summaries.directory:docs/local/agent-summaries}") Path directory,
                       ObjectMapper json) {
         this.directory = directory.toAbsolutePath().normalize();
         this.json = json;
     }
 
-    Optional<ConversationSummary> load(UUID dialogId) throws IOException {
+    public Optional<ConversationSummary> load(UUID dialogId) throws IOException {
         Path path = path(dialogId);
         if (!Files.exists(path)) {
             return Optional.empty();
@@ -41,7 +41,7 @@ class AgentSummaryStore {
         }
     }
 
-    void save(UUID dialogId, ConversationSummary summary) throws IOException {
+    public void save(UUID dialogId, ConversationSummary summary) throws IOException {
         Path destination = path(dialogId);
         Files.createDirectories(directory);
         Path temporary = Files.createTempFile(directory, dialogId.toString(), ".tmp");

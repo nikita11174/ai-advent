@@ -1,5 +1,20 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.dialog.AgentBranchStore;
+import dev.aiadvent.worker.dialog.AgentHistoryStore;
+import dev.aiadvent.worker.dialog.ConversationContext;
+import dev.aiadvent.worker.memory.AgentMemory;
+import dev.aiadvent.worker.memory.AgentSummaryStore;
+import dev.aiadvent.worker.memory.ConversationSummary;
+import dev.aiadvent.worker.memory.StickyFacts;
+import dev.aiadvent.worker.memory.StickyFactsStore;
+import dev.aiadvent.worker.context.ApproximateTokenEstimator;
+import dev.aiadvent.worker.context.ContextMode;
+import dev.aiadvent.worker.context.ContextLimitExceededException;
+import dev.aiadvent.worker.context.FullContextPolicy;
+import dev.aiadvent.worker.context.SlidingWindowContextPolicy;
+import dev.aiadvent.worker.context.StickyFactsContextPolicy;
+import dev.aiadvent.worker.context.SummaryRecentContextPolicy;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelMessage;
 import dev.aiadvent.worker.model.AgentModelRequest;
@@ -139,7 +154,7 @@ class ConversationAgentTest {
                 .thenReturn(completion("answer"), completion("next answer"));
 
         agent.reply("first");
-        assertThrows(ConversationAgent.ContextLimitExceededException.class,
+        assertThrows(ContextLimitExceededException.class,
                 () -> agent.reply("this input is deliberately too long for the configured limit"));
         assertEquals("next answer", agent.reply("next").analysis());
 
@@ -454,7 +469,7 @@ class ConversationAgentTest {
                 .thenReturn(new SummaryGeneration(new ConversationSummary(1, "summary"), new TokenMetrics(1, 2, 3, null)));
         var estimator = mock(ApproximateTokenEstimator.class);
         when(estimator.estimateMessagesWithinLimit(anyList(), eq(10)))
-                .thenThrow(new ConversationAgent.ContextLimitExceededException(11, 10));
+                .thenThrow(new ContextLimitExceededException(11, 10));
         var agent = new ConversationAgent(id, config, context, client, histories, estimator, summaries, summaryService,
                 factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                 new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
@@ -478,7 +493,7 @@ class ConversationAgentTest {
                 .thenReturn(new StickyFactsGeneration(candidate, new TokenMetrics(1, 2, 3, null)));
         var estimator = mock(ApproximateTokenEstimator.class);
         when(estimator.estimateMessagesWithinLimit(anyList(), eq(10)))
-                .thenThrow(new ConversationAgent.ContextLimitExceededException(11, 10));
+                .thenThrow(new ContextLimitExceededException(11, 10));
         var agent = new ConversationAgent(id, config, new ConversationContext("system"), client, histories, estimator,
                 summaries, summaryService, factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
                 new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, null);
@@ -496,7 +511,7 @@ class ConversationAgentTest {
     void rejectsAnOverLimitSummaryPromptBeforeCallingTheProvider() {
         var service = new ConversationSummaryService(client, new ApproximateTokenEstimator());
 
-        assertThrows(ConversationAgent.ContextLimitExceededException.class,
+        assertThrows(ContextLimitExceededException.class,
                 () -> service.generate(List.of(new ConversationContext.Message("user", "input")), null,
                         new AgentConfig("model", "system", null, null, 1), 1));
 

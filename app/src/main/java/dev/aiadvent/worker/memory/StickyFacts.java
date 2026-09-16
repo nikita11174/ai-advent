@@ -1,11 +1,11 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Collections;
 
-record StickyFacts(int coveredUserMessageCount, Map<String, String> facts) {
-    StickyFacts {
+public record StickyFacts(int coveredUserMessageCount, Map<String, String> facts) {
+    public StickyFacts {
         if (coveredUserMessageCount < 0 || facts == null) {
             throw new IllegalArgumentException("Sticky facts state is invalid.");
         }
@@ -19,11 +19,11 @@ record StickyFacts(int coveredUserMessageCount, Map<String, String> facts) {
         facts = Collections.unmodifiableMap(copy);
     }
 
-    static StickyFacts empty() {
+    public static StickyFacts empty() {
         return new StickyFacts(0, Map.of());
     }
 
-    String asPrompt() {
+    public String asPrompt() {
         if (facts.isEmpty()) {
             return "Sticky facts: none";
         }

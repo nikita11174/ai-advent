@@ -1,5 +1,6 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.context;
 
+import dev.aiadvent.worker.dialog.ConversationContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

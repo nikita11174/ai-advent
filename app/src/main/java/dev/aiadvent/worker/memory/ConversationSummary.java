@@ -1,7 +1,7 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
-record ConversationSummary(int summarizedMessageCount, String summary) {
-    ConversationSummary {
+public record ConversationSummary(int summarizedMessageCount, String summary) {
+    public ConversationSummary {
         if (summarizedMessageCount < 1 || summary == null || summary.isBlank()) {
             throw new IllegalArgumentException("Conversation summary must cover messages and contain text.");
         }

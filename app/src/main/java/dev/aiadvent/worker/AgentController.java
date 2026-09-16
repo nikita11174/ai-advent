@@ -1,5 +1,9 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.dialog.DialogStore;
+import dev.aiadvent.worker.dialog.AgentBranchStore;
+import dev.aiadvent.worker.context.ContextMode;
+import dev.aiadvent.worker.context.ContextLimitExceededException;
 import dev.aiadvent.worker.model.AgentModelCatalog;
 import dev.aiadvent.worker.model.ModelExecutionException;
 
@@ -55,9 +59,9 @@ class AgentController {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
-    @ExceptionHandler(ConversationAgent.ContextLimitExceededException.class)
+    @ExceptionHandler(ContextLimitExceededException.class)
     @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
-    ReviewController.ApiError contextLimit(ConversationAgent.ContextLimitExceededException exception) {
+    ReviewController.ApiError contextLimit(ContextLimitExceededException exception) {
         return new ReviewController.ApiError(exception.getMessage(), null);
     }
 
@@ -70,7 +74,7 @@ class AgentController {
     @ExceptionHandler(ConversationAgent.MaintenanceMetricsException.class)
     ResponseEntity<AgentError> maintenanceFailure(ConversationAgent.MaintenanceMetricsException exception) {
         Throwable cause = exception.getCause();
-        HttpStatus status = cause instanceof ConversationAgent.ContextLimitExceededException
+        HttpStatus status = cause instanceof ContextLimitExceededException
                 ? HttpStatus.PAYLOAD_TOO_LARGE
                 : cause instanceof ModelExecutionException ? HttpStatus.BAD_GATEWAY
                 : cause instanceof IOException ? HttpStatus.INTERNAL_SERVER_ERROR

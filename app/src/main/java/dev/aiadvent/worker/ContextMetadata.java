@@ -1,5 +1,8 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.memory.AgentMemory;
+import dev.aiadvent.worker.memory.StickyFacts;
+import dev.aiadvent.worker.context.ContextMode;
 import java.util.List;
 
 record ContextMetadata(ContextMode mode, int recentMessageCount, String summary,

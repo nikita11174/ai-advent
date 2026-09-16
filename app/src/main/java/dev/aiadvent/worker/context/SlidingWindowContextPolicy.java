@@ -1,9 +1,12 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.context;
 
+import dev.aiadvent.worker.dialog.ConversationContext;
+import dev.aiadvent.worker.memory.ConversationSummary;
+import dev.aiadvent.worker.memory.StickyFacts;
 import java.util.ArrayList;
 import java.util.List;
 
-final class SlidingWindowContextPolicy implements ContextPolicy {
+public final class SlidingWindowContextPolicy implements ContextPolicy {
     @Override
     public List<ConversationContext.Message> build(List<ConversationContext.Message> rawMessages,
                                                     String input, ConversationSummary summary, StickyFacts facts,

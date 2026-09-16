@@ -1,6 +1,6 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.context;
 
-enum ContextMode {
+public enum ContextMode {
     FULL,
     SUMMARY_RECENT,
     SLIDING_WINDOW,

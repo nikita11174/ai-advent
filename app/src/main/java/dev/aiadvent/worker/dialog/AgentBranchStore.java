@@ -1,4 +1,4 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.dialog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,18 +17,18 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Component
-class AgentBranchStore {
+public class AgentBranchStore {
     private final Path directory;
     private final ObjectMapper json;
 
     @Autowired
-    AgentBranchStore(@Value("${mentor.agent-branches.directory:docs/local/agent-branches}") Path directory,
+    public AgentBranchStore(@Value("${mentor.agent-branches.directory:docs/local/agent-branches}") Path directory,
                      ObjectMapper json) {
         this.directory = directory.toAbsolutePath().normalize();
         this.json = json;
     }
 
-    synchronized Checkpoint createCheckpoint(UUID dialogId, List<ConversationContext.Message> baseHistory)
+    public synchronized Checkpoint createCheckpoint(UUID dialogId, List<ConversationContext.Message> baseHistory)
             throws IOException {
         ConversationContext.validate(baseHistory);
         Topology topology = load(dialogId).orElse(new Topology(List.of()));
@@ -37,7 +37,7 @@ class AgentBranchStore {
         return checkpoint;
     }
 
-    synchronized Branch createBranch(UUID dialogId, String checkpointId) throws IOException {
+    public synchronized Branch createBranch(UUID dialogId, String checkpointId) throws IOException {
         Topology topology = requireTopology(dialogId);
         Checkpoint checkpoint = topology.checkpoints().stream()
                 .filter(candidate -> candidate.id().equals(checkpointId))
@@ -54,21 +54,21 @@ class AgentBranchStore {
         return branch;
     }
 
-    synchronized List<Branch> branches(UUID dialogId) throws IOException {
+    public synchronized List<Branch> branches(UUID dialogId) throws IOException {
         return load(dialogId).orElse(new Topology(List.of())).checkpoints().stream()
                 .flatMap(checkpoint -> checkpoint.branches().stream()).toList();
     }
 
-    synchronized List<Checkpoint> checkpoints(UUID dialogId) throws IOException {
+    public synchronized List<Checkpoint> checkpoints(UUID dialogId) throws IOException {
         return load(dialogId).orElse(new Topology(List.of())).checkpoints();
     }
 
-    synchronized List<ConversationContext.Message> loadBranch(UUID dialogId, String branchId) throws IOException {
+    public synchronized List<ConversationContext.Message> loadBranch(UUID dialogId, String branchId) throws IOException {
         return findBranch(dialogId, branchId).orElseThrow(() ->
                 new BranchNotFoundException("Branch not found: " + branchId)).history();
     }
 
-    synchronized void saveBranch(UUID dialogId, String branchId,
+    public synchronized void saveBranch(UUID dialogId, String branchId,
                                  List<ConversationContext.Message> completed) throws IOException {
         ConversationContext.validate(completed);
         Topology topology = requireTopology(dialogId);
@@ -183,14 +183,14 @@ class AgentBranchStore {
     record Topology(List<Checkpoint> checkpoints) {
     }
 
-    record Checkpoint(String id, List<ConversationContext.Message> baseHistory, List<Branch> branches) {
+    public record Checkpoint(String id, List<ConversationContext.Message> baseHistory, List<Branch> branches) {
     }
 
-    record Branch(String id, String checkpointId, List<ConversationContext.Message> history) {
+    public record Branch(String id, String checkpointId, List<ConversationContext.Message> history) {
     }
 
-    static class BranchNotFoundException extends IllegalArgumentException {
-        BranchNotFoundException(String message) {
+    public static class BranchNotFoundException extends IllegalArgumentException {
+        public BranchNotFoundException(String message) {
             super(message);
         }
     }

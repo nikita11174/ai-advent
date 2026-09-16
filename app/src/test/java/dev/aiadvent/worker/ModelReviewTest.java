@@ -1,5 +1,6 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.dialog.DialogStore;
 import dev.aiadvent.worker.model.ModelTestFixtures;
 
 import dev.aiadvent.worker.model.AgentModelMessage;
@@ -20,7 +21,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Clock;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -91,9 +91,9 @@ class ModelReviewTest {
         var exchange = state.putArray("exchanges").addObject().put("input", "benchmark").put("mode", "MODELS")
                 .put("modelConclusion", "Ничья");
         exchange.putObject("modelResults").set("WEAK", json.valueToTree(result));
-        var store = new DialogStore(directory, json, Clock.systemUTC());
+        var store = new DialogStore(directory, json);
         var dialog = store.create(); store.update(dialog.id(), new DialogStore.DialogUpdate("Review", state));
-        var restored = new DialogStore(directory, json, Clock.systemUTC()).load(dialog.id());
+        var restored = new DialogStore(directory, json).load(dialog.id());
         assertEquals(json.readTree(json.writeValueAsString(state)), restored.state());
         assertFalse(json.writeValueAsString(restored).contains(SECRET));
     }

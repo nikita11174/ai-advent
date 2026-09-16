@@ -1,4 +1,4 @@
-package dev.aiadvent.worker;
+package dev.aiadvent.worker.memory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,25 +16,25 @@ import java.util.Map;
 import java.util.UUID;
 
 @Component
-class AgentMemoryStore {
+public class AgentMemoryStore {
     private final Path root;
     private final ObjectMapper json;
 
     @Autowired
-    AgentMemoryStore(@Value("${mentor.agent-memory.directory:docs/local/agent-memory}") Path root,
+    public AgentMemoryStore(@Value("${mentor.agent-memory.directory:docs/local/agent-memory}") Path root,
                      ObjectMapper json) {
         this.root = root.toAbsolutePath().normalize();
         this.json = json;
     }
 
-    synchronized AgentMemory.Snapshot load(UUID dialogId, UUID taskId) throws IOException {
+    public synchronized AgentMemory.Snapshot load(UUID dialogId, UUID taskId) throws IOException {
         return new AgentMemory.Snapshot(taskId,
                 loadEntries(path(AgentMemory.Scope.SHORT_TERM, dialogId)),
                 taskId == null ? Map.of() : loadEntries(path(AgentMemory.Scope.WORKING, taskId)),
                 loadEntries(path(AgentMemory.Scope.LONG_TERM, null)));
     }
 
-    synchronized AgentMemory.Snapshot upsert(UUID dialogId, UUID taskId, AgentMemory.Scope scope,
+    public synchronized AgentMemory.Snapshot upsert(UUID dialogId, UUID taskId, AgentMemory.Scope scope,
                                              String key, String value) throws IOException {
         if (scope == null) {
             throw new IllegalArgumentException("Memory scope is required.");
