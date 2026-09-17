@@ -1,5 +1,7 @@
 package dev.aiadvent.worker;
 
+import dev.aiadvent.worker.review.DeepSeekReviewClient;
+
 import dev.aiadvent.worker.model.DeepSeekTransport;
 
 import com.fasterxml.jackson.databind.ObjectMapper;

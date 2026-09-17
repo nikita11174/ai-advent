@@ -19,7 +19,7 @@ public class AgentModelCatalog {
         this.openAi = openAi;
     }
 
-    List<Option> options() {
+    public List<Option> options() {
         var options = new ArrayList<Option>();
         options.add(new Option(DEFAULT_KEY, "DEEPSEEK", DEFAULT_MODEL));
         for (ModelProfile model : ModelProfile.MODELS) {

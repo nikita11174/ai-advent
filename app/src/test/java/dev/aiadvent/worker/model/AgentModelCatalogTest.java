@@ -1,5 +1,6 @@
 package dev.aiadvent.worker.model;
 
+import dev.aiadvent.worker.api.AgentModelController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
