@@ -14,6 +14,10 @@ import dev.aiadvent.worker.context.ContextMode;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelMessage;
 import dev.aiadvent.worker.model.AgentModelRequest;
+import dev.aiadvent.worker.model.AgentModelCatalog;
+import dev.aiadvent.worker.profile.Profile;
+import dev.aiadvent.worker.profile.ProfileService;
+import dev.aiadvent.worker.profile.ProfileStore;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -331,6 +335,40 @@ class AgentDialogServiceTest {
         ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
         verify(client).complete(outbound.capture());
         assertTrue(outbound.getValue().messages().stream().anyMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
+    }
+
+    @Test
+    void resolvesProfileForBranchWithoutPersistingItAndRejectsUnknownProfilesBeforeTheProvider() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var branches = new AgentBranchStore(directory.resolve("branches"), json);
+        var memories = new AgentMemoryStore(directory.resolve("memory"), json);
+        ProfileService profiles = new ProfileService(new ProfileStore(directory.resolve("profiles"), json));
+        Profile profile = profiles.create("Reviewer", "PROFILE_BRANCH", "Concise", "Markdown");
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
+        var service = new AgentDialogService(dialogs, histories, new ApproximateTokenEstimator(),
+                mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),
+                mock(StickyFactsService.class), branches, memories, 0, new AgentModelCatalog(client, null), profiles);
+        UUID dialogId = UUID.fromString(dialogs.create().id());
+        AgentBranchStore.Branch branch = service.createBranch(dialogId, service.createCheckpoint(dialogId, null).id());
+
+        service.reply(dialogId, "command", ContextMode.FULL, 4, branch.id(), null, null, profile.id());
+
+        ArgumentCaptor<AgentModelRequest> outbound = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client).complete(outbound.capture());
+        assertEquals(1, outbound.getValue().messages().stream()
+                .filter(message -> message.content().contains("PROFILE_BRANCH")).count());
+        assertTrue(branches.loadBranch(dialogId, branch.id()).stream()
+                .noneMatch(message -> message.content().contains("PROFILE_BRANCH")));
+        assertTrue(memories.load(dialogId, null).shortTerm().isEmpty());
+        assertTrue(memories.load(dialogId, null).working().isEmpty());
+        assertTrue(memories.load(dialogId, null).longTerm().isEmpty());
+
+        assertThrows(ProfileService.ProfileNotFoundException.class,
+                () -> service.reply(dialogId, "unknown", ContextMode.FULL, 4, branch.id(), null, null, UUID.randomUUID()));
+        verify(client).complete(any());
     }
 
     @Test

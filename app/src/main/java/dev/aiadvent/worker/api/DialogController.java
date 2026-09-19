@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/dialogs")
@@ -49,6 +50,12 @@ class DialogController {
         return store.update(id, update);
     }
 
+    @PutMapping("/{id}/profile-selection")
+    DialogStore.DialogDocument updateProfileSelection(@PathVariable String id,
+                                                       @RequestBody ProfileSelection selection) throws IOException {
+        return store.updateProfileSelection(id, selection.profileId());
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable java.util.UUID id) throws IOException {
@@ -62,5 +69,8 @@ class DialogController {
     }
 
     record ApiError(String error) {
+    }
+
+    record ProfileSelection(UUID profileId) {
     }
 }

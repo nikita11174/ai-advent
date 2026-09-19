@@ -6,6 +6,7 @@ import dev.aiadvent.worker.context.ContextMode;
 import dev.aiadvent.worker.context.ContextLimitExceededException;
 import dev.aiadvent.worker.model.AgentModelCatalog;
 import dev.aiadvent.worker.model.ModelExecutionException;
+import dev.aiadvent.worker.profile.ProfileService;
 import dev.aiadvent.worker.agent.AgentDialogService;
 import dev.aiadvent.worker.agent.AgentReply;
 import dev.aiadvent.worker.agent.ContextMetadata;
@@ -41,7 +42,7 @@ class AgentController {
             throw new IllegalArgumentException("Input must not be empty.");
         }
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                request.branchId(), request.taskId(), request.agentModelKey());
+                request.branchId(), request.taskId(), request.agentModelKey(), request.profileId());
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
                 reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey());
     }
@@ -55,6 +56,12 @@ class AgentController {
     @ExceptionHandler(AgentBranchStore.BranchNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     ApiError branchNotFound(AgentBranchStore.BranchNotFoundException exception) {
+        return new ApiError(exception.getMessage(), null);
+    }
+
+    @ExceptionHandler(ProfileService.ProfileNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    ApiError profileNotFound(ProfileService.ProfileNotFoundException exception) {
         return new ApiError(exception.getMessage(), null);
     }
 
@@ -90,12 +97,12 @@ class AgentController {
     }
 
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
-                        UUID taskId, String agentModelKey) {
+                        UUID taskId, String agentModelKey, UUID profileId) {
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null);
+            this(input, null, null, null, null, null, null);
         }
     }
 

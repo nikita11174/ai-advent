@@ -2,6 +2,7 @@ package dev.aiadvent.worker.dialog;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -69,6 +70,20 @@ public class DialogStore {
         String title = update.title() == null || update.title().isBlank() ? existing.title() : update.title().trim();
         JsonNode state = update.state() == null ? existing.state() : update.state();
         DialogDocument updated = new DialogDocument(existing.id(), title, existing.createdAt(), clock.instant(), state);
+        write(updated);
+        return updated;
+    }
+
+    public synchronized DialogDocument updateProfileSelection(String id, UUID profileId) throws IOException {
+        DialogDocument existing = load(id);
+        ObjectNode state = (ObjectNode) existing.state().deepCopy();
+        ObjectNode ui = state.withObject("ui");
+        if (profileId == null) {
+            ui.putNull("selectedProfileId");
+        } else {
+            ui.put("selectedProfileId", profileId.toString());
+        }
+        DialogDocument updated = new DialogDocument(existing.id(), existing.title(), existing.createdAt(), clock.instant(), state);
         write(updated);
         return updated;
     }

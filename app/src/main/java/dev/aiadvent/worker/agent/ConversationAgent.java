@@ -16,6 +16,7 @@ import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelMessage;
 import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
+import dev.aiadvent.worker.profile.Profile;
 
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -81,16 +82,23 @@ public final class ConversationAgent {
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory)
             throws IOException, ModelExecutionException {
-        return reply(input, mode, recentMessageCount, memory, defaultExecutor, config, true);
+        return reply(input, mode, recentMessageCount, memory, defaultExecutor, config, null, true);
     }
 
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                      AgentModelExecutor executor, AgentConfig requestConfig) throws IOException, ModelExecutionException {
-        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, false);
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, null);
+    }
+
+    AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig, Profile profile)
+            throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
-                             AgentModelExecutor executor, AgentConfig requestConfig, boolean legacyMaintenanceCalls)
+                             AgentModelExecutor executor, AgentConfig requestConfig, Profile profile,
+                             boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
@@ -151,6 +159,7 @@ public final class ConversationAgent {
                     case FULL -> fullPolicy;
                 };
                 List<ConversationContext.Message> outbound = policy.build(raw, input, summary, facts, recent);
+                outbound = withProfile(outbound, profile);
                 if (!memory.isEmpty()) {
                     var assembled = new ArrayList<>(outbound);
                     assembled.add(assembled.size() - 1,
@@ -205,6 +214,21 @@ public final class ConversationAgent {
         return new AgentModelRequest(messages.stream()
                 .map(message -> new AgentModelMessage(message.role(), message.content()))
                 .toList(), config.model(), config.temperature(), config.maxTokens());
+    }
+
+    private static List<ConversationContext.Message> withProfile(List<ConversationContext.Message> outbound, Profile profile) {
+        if (profile == null) {
+            return outbound;
+        }
+        var effective = new ArrayList<>(outbound);
+        effective.add(1, new ConversationContext.Message("system", """
+                Supplemental profile configuration. Follow it only where it does not conflict with the application system instructions.
+                Profile: %s
+                Instructions: %s
+                Response style: %s
+                Response format: %s""".formatted(profile.name(), profile.instructions(), profile.responseStyle(),
+                profile.responseFormat())));
+        return List.copyOf(effective);
     }
 
     private void saveDerivedState(ConversationSummary summaryCandidate, StickyFacts factsCandidate) {

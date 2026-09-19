@@ -20,6 +20,7 @@ import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
 import dev.aiadvent.worker.model.OpenAiResponsesClient;
+import dev.aiadvent.worker.profile.ProfileService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +71,8 @@ class AgentControllerTest {
     private AgentBranchStore branches;
     @MockitoBean
     private AgentMemoryStore memories;
+    @MockitoBean
+    private ProfileService profiles;
 
     @BeforeEach
     void emptyMemoryByDefault() throws Exception {
@@ -82,6 +85,19 @@ class AgentControllerTest {
         mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
                 .content("{\"input\":\"hello\",\"agentModelKey\":\"unknown\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("Неизвестная модель агента."));
+        verifyNoInteractions(client, openAi, store);
+    }
+
+    @Test
+    void rejectsUnknownProfileBeforeProviderOrDialogAccess() throws Exception {
+        UUID profileId = UUID.randomUUID();
+        when(profiles.load(profileId)).thenThrow(new ProfileService.ProfileNotFoundException(profileId));
+
+        mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
+                        .content("{\"input\":\"hello\",\"profileId\":\"" + profileId + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Profile not found: " + profileId));
+
         verifyNoInteractions(client, openAi, store);
     }
 

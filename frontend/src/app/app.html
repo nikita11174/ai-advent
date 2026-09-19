@@ -43,6 +43,12 @@
             @for (model of agentModelOptions(); track model.key) { <option [value]="model.key">{{ agentModelLabel(model.key) }}</option> }
           </select>
         </label>
+        <label class="agent-model-selector">Профиль
+          <select [ngModel]="selectedProfileId" (ngModelChange)="chooseProfile($event || null)" [disabled]="loading()" aria-label="Профиль агента">
+            <option [ngValue]="null">Без профиля</option>
+            @for (profile of profiles(); track profile.id) { <option [value]="profile.id">{{ profile.name }}</option> }
+          </select>
+        </label>
       } @else { <small>{{ experiment === 'MODELS' ? 'OpenAI · GPT-5.6' : 'DeepSeek API' }} · эксперимент</small> }
     </header>
     @if (agentModelError()) { <div class="catalog-error" role="alert">{{ agentModelError() }} <button mat-button (click)="loadAgentModels()">Повторить</button></div> }
@@ -273,6 +279,24 @@
 
   <app-agent-inspector [open]="inspectorOpen" (closed)="inspectorOpen = false">
     @if (experiment === 'AGENT') {
+      <details class="inspector-section profile-panel" open>
+        <summary>Профиль <small>{{ selectedProfile()?.name ?? 'Без профиля' }}</small></summary>
+        @if (selectedProfile(); as profile) {
+          <dl class="metrics-list"><dt>Profile</dt><dd>{{ profile.name }}</dd><dt>Profile ID</dt><dd>{{ profile.id }}</dd><dt>Profile applied</dt><dd>yes</dd></dl>
+        } @else { <p class="muted">Profile applied: no</p> }
+        @if (profilesError()) { <p class="inline-error" role="alert">{{ profilesError() }}</p> }
+        @if (profileEditing) {
+          <div class="controls-panel">
+            <label>Название<input [(ngModel)]="profileDraft.name" aria-label="Название профиля" /></label>
+            <label>Инструкции<textarea rows="3" [(ngModel)]="profileDraft.instructions" aria-label="Инструкции профиля"></textarea></label>
+            <label>Стиль ответа<input [(ngModel)]="profileDraft.responseStyle" aria-label="Стиль ответа профиля" /></label>
+            <label>Формат ответа<input [(ngModel)]="profileDraft.responseFormat" aria-label="Формат ответа профиля" /></label>
+            <div class="task-actions"><button mat-button type="button" (click)="saveProfile()">Сохранить</button><button mat-button type="button" (click)="cancelProfileEdit()">Отмена</button></div>
+          </div>
+        } @else {
+          <div class="task-actions"><button mat-button type="button" (click)="newProfile()">Создать профиль</button>@if (selectedProfile(); as profile) { <button mat-button type="button" (click)="editProfile(profile)">Изменить</button> }</div>
+        }
+      </details>
       <section class="inspector-section task-panel">
         <div class="section-heading"><h2>Задача</h2><button mat-button type="button" (click)="taskEditing = !taskEditing">{{ taskEditing ? 'Закрыть' : 'Изменить' }}</button></div>
         <div class="task-current"><code [title]="appliedTaskId ?? ''">{{ appliedTaskId ? appliedTaskId.slice(0, 8) : 'Не задана' }}</code>

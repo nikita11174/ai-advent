@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -42,5 +43,17 @@ class DialogControllerTest {
         mvc.perform(delete("/api/dialogs/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("Dialog not found: " + id));
+    }
+
+    @Test
+    void updatesOnlyProfileSelection() throws Exception {
+        UUID dialogId = UUID.randomUUID();
+        UUID profileId = UUID.randomUUID();
+
+        mvc.perform(put("/api/dialogs/{id}/profile-selection", dialogId).contentType("application/json")
+                        .content("{\"profileId\":\"" + profileId + "\"}"))
+                .andExpect(status().isOk());
+
+        verify(store).updateProfileSelection(dialogId.toString(), profileId);
     }
 }

@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,6 +43,25 @@ class DialogStoreTest {
 
         assertEquals(second.id(), laterStore.list().get(0).id());
         assertEquals(first.id(), laterStore.list().get(1).id());
+    }
+
+    @Test
+    void updatesOnlyProfileSelectionWithoutReplacingOtherDialogState() throws Exception {
+        DialogStore store = new DialogStore(directory, json, clock);
+        var created = store.create();
+        UUID profileId = UUID.randomUUID();
+        var state = json.readTree("""
+                {"exchanges":[{"input":"newer"}],"ui":{"selectedAgentModelKey":"MEDIUM","appliedTaskId":"task"}}
+                """);
+        store.update(created.id(), new DialogStore.DialogUpdate("Newer title", state));
+
+        var updated = store.updateProfileSelection(created.id(), profileId);
+
+        assertEquals("Newer title", updated.title());
+        assertEquals("newer", updated.state().path("exchanges").get(0).path("input").textValue());
+        assertEquals("MEDIUM", updated.state().path("ui").path("selectedAgentModelKey").textValue());
+        assertEquals("task", updated.state().path("ui").path("appliedTaskId").textValue());
+        assertEquals(profileId.toString(), updated.state().path("ui").path("selectedProfileId").textValue());
     }
 
     @Test

@@ -9,6 +9,15 @@ interface TestApp {
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
   selectedAgentModelKey: string | null;
+  selectedProfileId: string | null;
+  chooseProfile(id: string | null): void;
+  profiles(): readonly { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string }[];
+  loadProfiles(): void;
+  newProfile(): void;
+  editProfile(profile: { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string }): void;
+  saveProfile(): void;
+  profileDraft: { name: string; instructions: string; responseStyle: string; responseFormat: string };
+  profileEditing: boolean;
   chooseAgentModel(key: string): void;
   editMemory(scope?: 'SHORT_TERM' | 'WORKING' | 'LONG_TERM', key?: string, value?: string): void;
   memoryEditing(): boolean;
@@ -77,6 +86,10 @@ const profiles = ['Luna', 'Terra', 'Sol'].map((name, index) => ({
   key: ['WEAK', 'MEDIUM', 'STRONG'][index], label: `GPT-5.6 ${name}`, provider: 'OPENAI',
   modelId: `gpt-5.6-${name.toLowerCase()}`, modelUrl: `https://developers.openai.com/api/docs/models/gpt-5.6-${name.toLowerCase()}`,
 }));
+const agentProfiles = [
+  { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Краткий инженер', instructions: 'Кратко.', responseStyle: 'technical', responseFormat: 'short' },
+  { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', name: 'Объясняющий инженер', instructions: 'Пошагово.', responseStyle: 'teaching', responseFormat: 'structured' },
+];
 const modelResponse = (index: number) => ({ model: profiles[index], returnedModel: profiles[index].modelId,
   status: 'completed', incompleteReason: null, serviceTier: 'default', apiLatencyMs: 123, startedAt: now,
   analysis: '## Анализ\n\n- Риск\n<img src=x onerror=alert(1)>', error: null,
@@ -100,6 +113,7 @@ describe('App', () => {
       { key: 'DEEPSEEK', provider: 'DEEPSEEK', label: 'deepseek-v4-flash' },
       ...profiles.map(({ key, provider, label }) => ({ key, provider, label })),
     ]);
+    http.expectOne('/api/profiles').flush(agentProfiles);
     http.expectOne('/api/dialogs').flush([]);
     http.expectOne('/api/dialogs').flush(dialog());
     fixture.detectChanges();
@@ -157,6 +171,164 @@ describe('App', () => {
     component.openDialog(id); http.expectOne(`/api/dialogs/${id}`).flush(dialog(id, [], ui));
     flushHealth(); flushTopology(); flushMemory();
     expect(component.selectedAgentModelKey).toBe('MEDIUM');
+  });
+
+  it('loads profiles, renders the no-profile option and persists the selected profile per dialog', () => {
+    const a = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    const selector = fixture.nativeElement.querySelector('[aria-label="Профиль агента"]') as HTMLSelectElement;
+    expect([...selector.options].map(option => option.text)).toEqual(['Без профиля', 'Краткий инженер', 'Объясняющий инженер']);
+    selector.value = agentProfiles[0].id; selector.dispatchEvent(new Event('change'));
+    const saved = http.expectOne(r => r.method === 'PUT');
+    expect(saved.request.body.state.ui.selectedProfileId).toBe(agentProfiles[0].id);
+    saved.flush(dialog());
+
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    expect(component.selectedProfileId).toBeNull();
+    component.openDialog(a); http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, [], { experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id }));
+    flushHealth(); flushTopology(a); flushMemory(a);
+    expect(component.selectedProfileId).toBe(agentProfiles[0].id);
+  });
+
+  it('restores a saved profile after page state reload and falls back for an unresolved profile', () => {
+    const id = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(id); http.expectOne(`/api/dialogs/${id}`).flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[1].id,
+    }));
+    flushHealth(); flushTopology(id); flushMemory(id);
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+
+    const missing = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const unresolvedId = '33333333-3333-3333-3333-333333333333';
+    component.openDialog(unresolvedId);
+    http.expectOne(`/api/dialogs/${unresolvedId}`).flush(dialog(unresolvedId, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: missing,
+    }));
+    flushHealth();
+    flushTopology(unresolvedId); flushMemory(unresolvedId);
+    expect(component.selectedProfileId).toBeNull();
+  });
+
+  it('clears a stale saved profile ID restored after an empty catalog and omits it from the next request', () => {
+    const unknown = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    component.loadProfiles(); http.expectOne('/api/profiles').flush([]);
+    const staleDialogId = '33333333-3333-3333-3333-333333333333';
+    component.openDialog(staleDialogId);
+    http.expectOne(`/api/dialogs/${staleDialogId}`).flush(dialog(staleDialogId, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: unknown,
+    }));
+    flushHealth(); flushTopology(staleDialogId); flushMemory(staleDialogId);
+    expect(component.selectedProfileId).toBeNull();
+
+    component.input = 'without stale profile'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${staleDialogId}/agent/messages`);
+    expect(request.request.body).not.toHaveProperty('profileId');
+    request.flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('keeps a restored profile ID while the catalog is still loading', () => {
+    fixture.destroy();
+    fixture = TestBed.createComponent(App);
+    component = fixture.componentInstance as unknown as TestApp;
+    fixture.detectChanges();
+    http.expectOne('/api/agent-model-options').flush([
+      { key: 'DEEPSEEK', provider: 'DEEPSEEK', label: 'deepseek-v4-flash' },
+      ...profiles.map(({ key, provider, label }) => ({ key, provider, label })),
+    ]);
+    const pendingCatalog = http.expectOne('/api/profiles');
+    http.expectOne('/api/dialogs').flush([]);
+    http.expectOne('/api/dialogs').flush(dialog());
+    const unknown = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    const restoredId = '33333333-3333-3333-3333-333333333333';
+    component.openDialog(restoredId);
+    http.expectOne(`/api/dialogs/${restoredId}`).flush(dialog(restoredId, [], {
+      experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: unknown,
+    }));
+    expect(component.selectedProfileId).toBe(unknown);
+    pendingCatalog.flush([]);
+    expect(component.selectedProfileId).toBeNull();
+  });
+
+  it('sends the selected profile ID and omits it without a profile', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.chooseProfile(agentProfiles[0].id); flushSave();
+    component.input = 'with profile'; component.analyze();
+    const selected = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(selected.request.body.profileId).toBe(agentProfiles[0].id);
+    selected.flush({ analysis: 'answer' }); flushSave();
+
+    component.chooseProfile(null); flushSave();
+    component.input = 'without profile'; component.analyze();
+    const noProfile = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(noProfile.request.body).not.toHaveProperty('profileId');
+    noProfile.flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('creates and edits a profile in the inspector', () => {
+    component.newProfile();
+    component.profileDraft = { name: 'Новый профиль', instructions: 'Точно.', responseStyle: 'technical', responseFormat: 'short' };
+    component.saveProfile();
+    const create = http.expectOne('/api/profiles');
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual(component.profileDraft);
+    const created = { ...component.profileDraft, id: 'cccccccc-cccc-cccc-cccc-cccccccccccc' };
+    create.flush(created);
+    const persisted = http.expectOne(`/api/dialogs/${dialog().id}/profile-selection`);
+    expect(persisted.request.body).toEqual({ profileId: created.id }); persisted.flush(dialog());
+
+    component.editProfile(created); component.profileDraft.responseFormat = 'structured'; component.saveProfile();
+    const update = http.expectOne(`/api/profiles/${created.id}`);
+    expect(update.request.method).toBe('PUT'); expect(update.request.body.responseFormat).toBe('structured');
+    update.flush({ ...created, responseFormat: 'structured' }); flushSave();
+  });
+
+  it('preserves newer origin-dialog UI state while applying a created profile', () => {
+    const a = dialog().id;
+    component.newProfile();
+    component.profileDraft = { name: 'Новый профиль', instructions: 'Точно.', responseStyle: 'technical', responseFormat: 'short' };
+    component.saveProfile();
+    const create = http.expectOne('/api/profiles');
+    component.chooseAgentModel('MEDIUM');
+    const newerState = http.expectOne(`/api/dialogs/${a}`);
+    newerState.flush(dialog(a, [], {
+      experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+      selectedAgentModelKey: 'MEDIUM', appliedTaskId: '33333333-3333-3333-3333-333333333333',
+    }));
+
+    const created = { ...component.profileDraft, id: 'cccccccc-cccc-cccc-cccc-cccccccccccc' };
+    create.flush(created);
+    expect(component.profiles()).toContainEqual(created);
+    const selection = http.expectOne(`/api/dialogs/${a}/profile-selection`);
+    expect(selection.request.body).toEqual({ profileId: created.id });
+    selection.flush(dialog(a, [], {
+      experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+      selectedAgentModelKey: 'MEDIUM', appliedTaskId: '33333333-3333-3333-3333-333333333333', selectedProfileId: created.id,
+    }));
+    expect(component.selectedAgentModelKey).toBe('MEDIUM');
+    expect(component.selectedProfileId).toBe(created.id);
+  });
+
+  it('keeps a newer editor in dialog B when dialog A profile creation resolves', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.newProfile();
+    component.profileDraft = { name: 'Профиль A', instructions: 'A.', responseStyle: 'technical', responseFormat: 'short' };
+    component.saveProfile();
+    const create = http.expectOne('/api/profiles');
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    component.newProfile();
+    component.profileDraft = { name: 'Черновик B', instructions: 'B.', responseStyle: 'teaching', responseFormat: 'structured' };
+
+    const created = { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Профиль A', instructions: 'A.', responseStyle: 'technical', responseFormat: 'short' };
+    create.flush(created);
+    expect(component.currentDialogId()).toBe(b);
+    expect(component.profileEditing).toBe(true);
+    expect(component.profileDraft).toEqual({ name: 'Черновик B', instructions: 'B.', responseStyle: 'teaching', responseFormat: 'structured' });
+    const selection = http.expectOne(`/api/dialogs/${a}/profile-selection`);
+    expect(selection.request.body).toEqual({ profileId: created.id });
+    selection.flush(dialog(a));
   });
 
   it('UX shell closes editors and clears drafts and displayed memory when task or dialog changes', () => {

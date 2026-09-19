@@ -17,6 +17,8 @@ import dev.aiadvent.worker.context.SummaryRecentContextPolicy;
 import dev.aiadvent.worker.model.AgentModelCatalog;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.ModelExecutionException;
+import dev.aiadvent.worker.profile.Profile;
+import dev.aiadvent.worker.profile.ProfileService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +41,7 @@ public class AgentDialogService {
     private final AgentBranchStore branches;
     private final AgentMemoryStore memories;
     private final AgentModelCatalog models;
+    private final ProfileService profiles;
     private final ConcurrentHashMap<AgentKey, ConversationAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, AgentModelExecutor executor, AgentHistoryStore histories,
@@ -48,7 +51,16 @@ public class AgentDialogService {
                        AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null));
+                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null), null);
+    }
+
+    AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models) {
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
+                branches, memories, contextTokenLimit, models, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -56,7 +68,8 @@ public class AgentDialogService {
                        ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
                        ConversationSummaryService summaryService, StickyFactsStore factsStore,
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
-                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models) {
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
+                       ProfileService profiles) {
         this.dialogs = dialogs;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
@@ -67,6 +80,7 @@ public class AgentDialogService {
         this.branches = branches;
         this.memories = memories;
         this.models = models;
+        this.profiles = profiles;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -87,7 +101,13 @@ public class AgentDialogService {
 
     public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey) throws IOException, ModelExecutionException {
+        return reply(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey, null);
+    }
+
+    public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey, UUID profileId) throws IOException, ModelExecutionException {
         AgentModelCatalog.Selection model = models.resolve(agentModelKey);
+        Profile profile = profileId == null ? null : requireProfiles().load(profileId);
         if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
             throw new IllegalArgumentException("Branch messages use FULL context only.");
         }
@@ -112,7 +132,7 @@ public class AgentDialogService {
         }
         AgentMemory.Snapshot memory = memories.load(dialogId, taskId);
         return agent.reply(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()));
+                model.executor(), defaultConfig.withModel(model.model()), profile);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
@@ -173,5 +193,12 @@ public class AgentDialogService {
     }
 
     private record AgentKey(UUID dialogId, String branchId) {
+    }
+
+    private ProfileService requireProfiles() {
+        if (profiles == null) {
+            throw new IllegalStateException("Profile service is unavailable.");
+        }
+        return profiles;
     }
 }

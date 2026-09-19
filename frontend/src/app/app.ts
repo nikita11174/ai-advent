@@ -67,6 +67,7 @@ interface Exchange {
 interface DialogSummary { id: string; title: string; createdAt: string; updatedAt: string; }
 interface DialogUiState {
   selectedAgentModelKey?: string | null;
+  selectedProfileId?: string | null;
   experiment: Experiment; selectedMode: ReviewMode; selectedStrategy: ReasoningStrategy;
   selectedTemperature: Temperature;
   selectedModelKey?: string;
@@ -78,6 +79,8 @@ interface DialogDocument extends DialogSummary { state: { exchanges?: Exchange[]
 interface AgentMessage { role: 'system' | 'user' | 'assistant'; content: string; }
 interface AgentBranch { id: string; checkpointId: string; history: AgentMessage[]; }
 interface AgentCheckpoint { id: string; baseHistory: AgentMessage[]; branches: AgentBranch[]; }
+interface AgentProfile { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string; }
+interface ProfileDraft { name: string; instructions: string; responseStyle: string; responseFormat: string; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
@@ -148,6 +151,15 @@ export class App implements OnInit, OnDestroy {
   protected selectedAgentModelKey: string | null = null;
   protected readonly agentModelOptions = this.agentModelService.options;
   protected readonly agentModelError = this.agentModelService.error;
+  protected readonly profiles = signal<readonly AgentProfile[]>([]);
+  protected readonly profilesError = signal('');
+  private profilesLoaded = false;
+  protected selectedProfileId: string | null = null;
+  protected profileEditing = false;
+  protected editingProfileId: string | null = null;
+  protected profileDraft: ProfileDraft = this.blankProfileDraft();
+  private nextProfileEditorId = 0;
+  private profileEditor: { id: number; dialogId: string | null } | null = null;
   protected readonly memoryScopes: readonly MemoryScope[] = ['SHORT_TERM', 'WORKING', 'LONG_TERM'];
   protected readonly memoryLabels: Record<MemoryScope, string> = {
     SHORT_TERM: 'Краткосрочная', WORKING: 'Рабочая', LONG_TERM: 'Долговременная',
@@ -189,6 +201,7 @@ export class App implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.pageTitle.setTitle('Local AI Worker');
     this.loadAgentModels();
+    this.loadProfiles();
     this.loadDialogList();
     this.heartbeatTimer = setInterval(() => this.checkBackend(), 2000);
   }
@@ -221,6 +234,76 @@ export class App implements OnInit, OnDestroy {
   protected agentModelLabel(key?: string): string {
     const model = this.agentModelOptions().find(option => option.key === key);
     return model ? `${model.provider === 'OPENAI' ? 'OpenAI API' : 'DeepSeek API'} · ${model.label}` : 'Модель не указана';
+  }
+
+  protected loadProfiles(): void {
+    this.http.get<AgentProfile[]>('/api/profiles').subscribe({
+      next: profiles => {
+        this.profiles.set(profiles);
+        this.profilesLoaded = true;
+        this.profilesError.set('');
+        this.normalizeSelectedProfile();
+      },
+      error: () => this.profilesError.set('Не удалось загрузить профили.'),
+    });
+  }
+
+  protected selectedProfile(): AgentProfile | undefined {
+    return this.profiles().find(profile => profile.id === this.selectedProfileId);
+  }
+
+  protected chooseProfile(id: string | null): void {
+    if (this.loading() || (id && !this.profiles().some(profile => profile.id === id))) return;
+    this.selectedProfileId = id;
+    this.persistDialog();
+  }
+
+  protected newProfile(): void {
+    this.editingProfileId = null;
+    this.profileDraft = this.blankProfileDraft();
+    this.profileEditing = true;
+    this.profileEditor = { id: ++this.nextProfileEditorId, dialogId: this.currentDialogId() };
+    this.profilesError.set('');
+  }
+
+  protected editProfile(profile: AgentProfile): void {
+    this.editingProfileId = profile.id;
+    this.profileDraft = { name: profile.name, instructions: profile.instructions,
+      responseStyle: profile.responseStyle, responseFormat: profile.responseFormat };
+    this.profileEditing = true;
+    this.profileEditor = { id: ++this.nextProfileEditorId, dialogId: this.currentDialogId() };
+    this.profilesError.set('');
+  }
+
+  protected cancelProfileEdit(): void {
+    this.profileEditing = false;
+    this.editingProfileId = null;
+    this.profileDraft = this.blankProfileDraft();
+    this.profileEditor = null;
+  }
+
+  protected saveProfile(): void {
+    if (!this.profileDraft.name.trim()) {
+      this.profilesError.set('Название профиля обязательно.');
+      return;
+    }
+    const body = { ...this.profileDraft, name: this.profileDraft.name.trim() };
+    const editingProfileId = this.editingProfileId;
+    const originDialogId = this.currentDialogId();
+    const editor = this.profileEditor;
+    const request = editingProfileId
+      ? this.http.put<AgentProfile>(`/api/profiles/${this.editingProfileId}`, body)
+      : this.http.post<AgentProfile>('/api/profiles', body);
+    request.subscribe({
+      next: profile => {
+        this.profiles.update(items => [...items.filter(item => item.id !== profile.id), profile]
+          .sort((left, right) => left.name.localeCompare(right.name)));
+        if (!editingProfileId && originDialogId) this.selectProfileForDialog(originDialogId, profile.id);
+        if (this.isCurrentProfileEditor(editor)) this.cancelProfileEdit();
+        if (editingProfileId) this.persistDialog();
+      },
+      error: (error: HttpErrorResponse) => this.profilesError.set(error.error?.error ?? 'Не удалось сохранить профиль.'),
+    });
   }
 
   protected editMemory(scope: MemoryScope = 'SHORT_TERM', key = '', value = ''): void {
@@ -546,6 +629,8 @@ export class App implements OnInit, OnDestroy {
     const ui = dialog.state?.ui;
     this.experiment = ui?.experiment ?? (fresh ? 'AGENT' : 'FORMAT'); this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedAgentModelKey = ui?.selectedAgentModelKey ?? null;
+    this.selectedProfileId = ui?.selectedProfileId ?? null;
+    this.normalizeSelectedProfile();
     this.taskEditing = false; this.taskCopyStatus = ''; this.closeMemoryEditor(); this.input = '';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
@@ -617,7 +702,8 @@ export class App implements OnInit, OnDestroy {
     this.prepareAfterSubmit(); this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
       agentModelKey,
-      ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}) };
+      ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
+      ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
@@ -713,6 +799,7 @@ export class App implements OnInit, OnDestroy {
     const title = this.dialogTitle(completed);
     const ui: DialogUiState = { experiment: this.experiment, selectedMode: this.selectedMode,
       selectedAgentModelKey: this.selectedAgentModelKey,
+      selectedProfileId: this.selectedProfileId,
       selectedStrategy: this.selectedStrategy, selectedTemperature: this.selectedTemperature, selectedModelKey: this.selectedModelKey,
       contextMode: this.contextMode, linearContextMode: this.linearContextMode, recentMessageCount: this.recentMessageCount,
       branchId: this.branchId, checkpointId: this.checkpointId, appliedTaskId: this.appliedTaskId };
@@ -733,6 +820,21 @@ export class App implements OnInit, OnDestroy {
   }
   private prepareAfterSubmit(): void { this.input = ''; this.requestScrollToLatest(); this.resetComposerHeight(); }
   private controlsSnapshot(): ReviewControls { return { ...this.controls }; }
+  private blankProfileDraft(): ProfileDraft { return { name: '', instructions: '', responseStyle: '', responseFormat: '' }; }
+  private normalizeSelectedProfile(): void {
+    if (this.profilesLoaded && this.selectedProfileId && !this.selectedProfile()) this.selectedProfileId = null;
+  }
+  private selectProfileForDialog(dialogId: string, profileId: string): void {
+    if (this.currentDialogId() === dialogId) {
+      this.selectedProfileId = profileId;
+    }
+    this.http.put<DialogDocument>(`/api/dialogs/${dialogId}/profile-selection`, { profileId }).subscribe({
+      next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
+    });
+  }
+  private isCurrentProfileEditor(editor: { id: number; dialogId: string | null } | null): boolean {
+    return editor !== null && this.profileEditor?.id === editor.id && this.currentDialogId() === editor.dialogId;
+  }
   private exchange(id: number): Exchange { return this.exchanges().find(exchange => exchange.id === id)!; }
   private startTopologyOperation(): string | null {
     const id = this.currentDialogId();
