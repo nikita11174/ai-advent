@@ -57,6 +57,10 @@ public class AgentHistoryStore {
         }
     }
 
+    public void delete(UUID dialogId) throws IOException {
+        Files.deleteIfExists(path(dialogId));
+    }
+
     private Path path(UUID dialogId) {
         Path path = directory.resolve(dialogId + ".json").normalize();
         if (!path.getParent().equals(directory)) {

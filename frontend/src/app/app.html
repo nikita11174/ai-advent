@@ -16,11 +16,20 @@
     <h2>Диалоги</h2>
     <button mat-flat-button (click)="newDialog()" [disabled]="loading()">+ Новый диалог</button>
     <nav aria-label="История диалогов">
-      @for (dialog of dialogs(); track dialog.id) {
-        <button class="dialog-item" [class.current]="dialog.id === currentDialogId()" [attr.aria-current]="dialog.id === currentDialogId() ? 'page' : null" [title]="dialog.title" [disabled]="loading()" (click)="openDialog(dialog.id)">
-          {{ dialog.title }}
-        </button>
+      @for (dialog of visibleDialogs(); track dialog.id) {
+        <div class="dialog-row" [class.current]="dialog.id === currentDialogId()">
+          <button class="dialog-item" [attr.aria-current]="dialog.id === currentDialogId() ? 'page' : null" [title]="dialog.title" [disabled]="loading()" (click)="openDialog(dialog.id)">
+            {{ dialog.title }}
+          </button>
+          <div class="dialog-actions">
+            <button type="button" class="dialog-more" [attr.aria-label]="'Действия: ' + dialog.title" [disabled]="loading()" (click)="toggleDialogActions(dialog.id, $event)">⋮</button>
+            @if (dialogActionsFor === dialog.id) {
+              <button type="button" class="dialog-delete" (click)="deleteDialog(dialog.id, dialog.title, $event)">Удалить</button>
+            }
+          </div>
+        </div>
       }
+      @if (visibleDialogs().length < dialogs().length) { <button type="button" class="show-more-dialogs" (click)="showMoreDialogs()">Показать ещё</button> }
     </nav>
   </aside>
 

@@ -73,6 +73,13 @@ public class DialogStore {
         return updated;
     }
 
+    public synchronized void delete(String id) throws IOException {
+        Path path = path(id);
+        if (!Files.deleteIfExists(path)) {
+            throw new DialogNotFoundException(id);
+        }
+    }
+
     private void write(DialogDocument dialog) throws IOException {
         ensureDirectory();
         Path destination = path(dialog.id());

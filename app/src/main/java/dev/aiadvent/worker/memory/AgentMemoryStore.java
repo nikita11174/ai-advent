@@ -59,6 +59,10 @@ public class AgentMemoryStore {
         return load(dialogId, taskId);
     }
 
+    public synchronized void deleteShortTerm(UUID dialogId) throws IOException {
+        Files.deleteIfExists(path(AgentMemory.Scope.SHORT_TERM, dialogId));
+    }
+
     private Map<String, String> loadEntries(Path source) throws IOException {
         if (!Files.exists(source)) {
             return Map.of();

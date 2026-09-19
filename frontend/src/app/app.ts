@@ -1,6 +1,6 @@
 import { JsonPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, ElementRef, inject, OnDestroy, OnInit, signal, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Title } from '@angular/platform-browser';
 import { MatButtonModule } from '@angular/material/button';
@@ -177,7 +177,10 @@ export class App implements OnInit, OnDestroy {
   protected readonly referenceFindings = REFERENCE_FINDINGS;
   protected readonly exchanges = signal<readonly Exchange[]>([]);
   protected readonly dialogs = signal<readonly DialogSummary[]>([]);
+  protected readonly visibleDialogCount = signal(15);
+  protected readonly visibleDialogs = computed(() => this.dialogs().slice(0, this.visibleDialogCount()));
   protected readonly currentDialogId = signal<string | null>(null);
+  protected dialogActionsFor: string | null = null;
   protected readonly loading = signal(false);
   protected readonly showLatestButton = signal(false);
   protected readonly sidebarOpen = signal(false);
@@ -355,6 +358,25 @@ export class App implements OnInit, OnDestroy {
   protected openDialog(id: string): void {
     if (this.loading() || id === this.currentDialogId()) return;
     this.http.get<DialogDocument>(`/api/dialogs/${id}`).subscribe({ next: dialog => this.activateDialog(dialog) });
+  }
+
+  protected showMoreDialogs(): void { this.visibleDialogCount.update(count => count + 15); }
+
+  protected toggleDialogActions(id: string, event: Event): void {
+    event.stopPropagation();
+    this.dialogActionsFor = this.dialogActionsFor === id ? null : id;
+  }
+
+  protected deleteDialog(id: string, title: string, event: Event): void {
+    event.stopPropagation();
+    if (this.loading() || !window.confirm(`Удалить диалог «${title}»?`)) return;
+    this.http.delete(`/api/dialogs/${id}`).subscribe({ next: () => {
+      const remaining = this.dialogs().filter(dialog => dialog.id !== id);
+      this.dialogActionsFor = null;
+      this.dialogs.set(remaining);
+      if (id !== this.currentDialogId()) return;
+      if (remaining.length) this.openDialog(remaining[0].id); else this.newDialog();
+    }});
   }
 
   protected toggleSidebar(): void { this.sidebarOpen.update(open => !open); }

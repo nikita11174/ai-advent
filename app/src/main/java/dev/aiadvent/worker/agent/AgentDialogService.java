@@ -161,6 +161,17 @@ public class AgentDialogService {
         return memories.upsert(dialogId, taskId, scope, key, value);
     }
 
+    public void deleteDialog(UUID dialogId) throws IOException {
+        dialogs.load(dialogId.toString());
+        histories.delete(dialogId);
+        summaries.delete(dialogId);
+        factsStore.delete(dialogId);
+        branches.delete(dialogId);
+        memories.deleteShortTerm(dialogId);
+        dialogs.delete(dialogId.toString());
+        agents.keySet().removeIf(key -> key.dialogId().equals(dialogId));
+    }
+
     private record AgentKey(UUID dialogId, String branchId) {
     }
 }

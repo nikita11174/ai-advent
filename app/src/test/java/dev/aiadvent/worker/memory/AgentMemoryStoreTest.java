@@ -60,6 +60,26 @@ class AgentMemoryStoreTest {
     }
 
     @Test
+    void deletesOnlyShortTermMemoryForOneDialog() throws Exception {
+        UUID dialogA = UUID.randomUUID();
+        UUID dialogB = UUID.randomUUID();
+        UUID task = UUID.randomUUID();
+        AgentMemoryStore store = store();
+        store.upsert(dialogA, task, AgentMemory.Scope.SHORT_TERM, "codeword", "SATURN");
+        store.upsert(dialogB, task, AgentMemory.Scope.SHORT_TERM, "other", "KEPT");
+        store.upsert(dialogA, task, AgentMemory.Scope.WORKING, "database", "PostgreSQL");
+        store.upsert(dialogA, task, AgentMemory.Scope.LONG_TERM, "language", "Java");
+
+        store.deleteShortTerm(dialogA);
+
+        AgentMemory.Snapshot deleted = store.load(dialogA, task);
+        assertTrue(deleted.shortTerm().isEmpty());
+        assertEquals("PostgreSQL", deleted.working().get("database"));
+        assertEquals("Java", deleted.longTerm().get("language"));
+        assertEquals("KEPT", store.load(dialogB, task).shortTerm().get("other"));
+    }
+
+    @Test
     void rejectsWorkingWithoutTaskAndBoundedInvalidInput() {
         AgentMemoryStore store = store();
         UUID dialogId = UUID.randomUUID();

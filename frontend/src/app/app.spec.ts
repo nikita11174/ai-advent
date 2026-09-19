@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { App } from './app';
 
 interface TestApp {
@@ -54,6 +55,12 @@ interface TestApp {
   togglePrompt(id: number, strategy: 'SELF_PROMPT'): void;
   newDialog(): void;
   openDialog(id: string): void;
+  showMoreDialogs(): void;
+  toggleDialogActions(id: string, event: Event): void;
+  deleteDialog(id: string, title: string, event: Event): void;
+  dialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
+  visibleDialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
+  currentDialogId(): string | null;
   exchanges(): readonly { temperatureConclusion?: unknown }[];
 }
 
@@ -177,6 +184,59 @@ describe('App', () => {
     expect(component.experiment).toBe('AGENT'); expect(component.selectedAgentModelKey).toBeNull();
     const select = fixture.nativeElement.querySelector('[aria-label="Провайдер API и модель агента"]') as HTMLSelectElement;
     expect(select.value).toBe('DEEPSEEK');
+  });
+
+  it('shows fifteen recent dialogs and reveals the next batch on demand', () => {
+    const dialogs = Array.from({ length: 17 }, (_, index) => ({ ...dialog(`${String(index + 2).padStart(8, '0')}-1111-1111-1111-111111111111`), title: `Dialog ${index + 1}` }));
+    (component as unknown as { dialogs: { set(items: unknown[]): void } }).dialogs.set(dialogs);
+    fixture.detectChanges();
+
+    expect(component.visibleDialogs()).toHaveLength(15);
+    expect(fixture.nativeElement.textContent).toContain('Показать ещё');
+    component.showMoreDialogs(); fixture.detectChanges();
+    expect(component.visibleDialogs()).toHaveLength(17);
+  });
+
+  it('shows the overflow action and keeps the dialog when deletion is cancelled', () => {
+    const id = dialog().id;
+    component.toggleDialogActions(id, new Event('click')); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.dialog-delete')).not.toBeNull();
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    component.deleteDialog(id, 'Новый диалог', new Event('click'));
+
+    http.expectNone(request => request.method === 'DELETE');
+    expect(component.dialogs()).toHaveLength(1);
+  });
+
+  it('deletes a selected dialog and opens the next remaining dialog', () => {
+    const first = dialog().id;
+    const second = '22222222-1111-1111-1111-111111111111';
+    (component as unknown as { dialogs: { set(items: unknown[]): void } }).dialogs.set([
+      { id: first, title: 'First', createdAt: now, updatedAt: now },
+      { id: second, title: 'Second', createdAt: now, updatedAt: now },
+    ]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    component.deleteDialog(first, 'First', new Event('click'));
+    http.expectOne({ method: 'DELETE', url: `/api/dialogs/${first}` }).flush(null);
+    http.expectOne(`/api/dialogs/${second}`).flush(dialog(second));
+
+    expect(component.dialogs().map(item => item.id)).toEqual([second]);
+    expect(component.currentDialogId()).toBe(second);
+  });
+
+  it('creates one empty dialog after deleting the last remaining dialog', () => {
+    const id = dialog().id;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    component.deleteDialog(id, 'Новый диалог', new Event('click'));
+    http.expectOne({ method: 'DELETE', url: `/api/dialogs/${id}` }).flush(null);
+    const replacement = '33333333-1111-1111-1111-111111111111';
+    http.expectOne('/api/dialogs').flush(dialog(replacement));
+
+    expect(component.currentDialogId()).toBe(replacement);
+    expect(component.dialogs().map(item => item.id)).toEqual([replacement]);
   });
 
   it('sends Agent follow-ups by dialog, restores the UI archive and isolates A/B/A', () => {

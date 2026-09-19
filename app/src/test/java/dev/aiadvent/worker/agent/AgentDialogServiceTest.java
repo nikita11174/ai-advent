@@ -333,6 +333,45 @@ class AgentDialogServiceTest {
         assertTrue(outbound.getValue().messages().stream().anyMatch(message -> message.content().contains("MEMORY_ONLY_VALUE")));
     }
 
+    @Test
+    void deletesOnlyDialogOwnedStateAndEvictsCachedAgent() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var summaries = new AgentSummaryStore(directory.resolve("summaries"), json);
+        var facts = new StickyFactsStore(directory.resolve("facts"), json);
+        var branches = new AgentBranchStore(directory.resolve("branches"), json);
+        var memories = new AgentMemoryStore(directory.resolve("memory"), json);
+        UUID deleted = UUID.fromString(dialogs.create().id());
+        UUID kept = UUID.fromString(dialogs.create().id());
+        UUID task = UUID.randomUUID();
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("answer"));
+        var service = new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(), summaries,
+                mock(ConversationSummaryService.class), facts, mock(StickyFactsService.class), branches, memories, 0);
+        service.reply(deleted, "cache", ContextMode.FULL, 4, null, task);
+        histories.save(kept, List.of(new ConversationContext.Message("system", "kept")));
+        summaries.save(deleted, new ConversationSummary(1, "summary"));
+        facts.save(deleted, new dev.aiadvent.worker.memory.StickyFacts(1, java.util.Map.of("fact", "value")));
+        service.createCheckpoint(deleted, null);
+        service.upsertMemory(deleted, task, AgentMemory.Scope.SHORT_TERM, "codeword", "SATURN");
+        service.upsertMemory(deleted, task, AgentMemory.Scope.WORKING, "database", "PostgreSQL");
+        service.upsertMemory(deleted, task, AgentMemory.Scope.LONG_TERM, "language", "Java");
+
+        service.deleteDialog(deleted);
+
+        assertThrows(DialogStore.DialogNotFoundException.class, () -> dialogs.load(deleted.toString()));
+        assertTrue(histories.load(deleted).isEmpty());
+        assertTrue(summaries.load(deleted).isEmpty());
+        assertTrue(facts.load(deleted).isEmpty());
+        assertTrue(branches.checkpoints(deleted).isEmpty());
+        assertTrue(memories.load(deleted, task).shortTerm().isEmpty());
+        assertEquals("PostgreSQL", memories.load(kept, task).working().get("database"));
+        assertEquals("Java", memories.load(kept, task).longTerm().get("language"));
+        assertFalse(histories.load(kept).isEmpty());
+        assertThrows(DialogStore.DialogNotFoundException.class, () -> service.reply(deleted, "resurrect"));
+    }
+
     private AgentDialogService service(DialogStore dialogs, AgentModelExecutor client, AgentHistoryStore histories) {
         return new AgentDialogService(dialogs, client, histories, new ApproximateTokenEstimator(),
                 mock(AgentSummaryStore.class), mock(ConversationSummaryService.class), mock(StickyFactsStore.class),

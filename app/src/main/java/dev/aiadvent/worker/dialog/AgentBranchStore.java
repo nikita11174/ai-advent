@@ -63,6 +63,10 @@ public class AgentBranchStore {
         return load(dialogId).orElse(new Topology(List.of())).checkpoints();
     }
 
+    public synchronized void delete(UUID dialogId) throws IOException {
+        Files.deleteIfExists(path(dialogId));
+    }
+
     public synchronized List<ConversationContext.Message> loadBranch(UUID dialogId, String branchId) throws IOException {
         return findBranch(dialogId, branchId).orElseThrow(() ->
                 new BranchNotFoundException("Branch not found: " + branchId)).history();
