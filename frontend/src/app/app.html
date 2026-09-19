@@ -269,9 +269,9 @@
     <section class="composer-wrap">
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
-        <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="3" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
+        <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><span>Ctrl+Enter — отправить</span><div class="action-buttons">
-          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable()))">Проанализировать</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable()))">Отправить</button>
         </div></div>
       </div>
     </section>

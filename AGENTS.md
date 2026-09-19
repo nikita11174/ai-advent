@@ -54,6 +54,14 @@
 ## Browser verification
 
 - Выбор browser automation tool и fallback policy определяет каноническая global policy.
+- **BROWSER WINDOW OWNERSHIP**
+  - Never resize or reposition the user's existing browser window automatically.
+  - Never maximize, minimize, snap or otherwise change its window bounds.
+  - Preserve the user's current Chrome window geometry.
+  - Do not call `resize_page` / viewport resize merely to satisfy a nominal acceptance resolution.
+  - Responsive-size testing must be an explicit separate task.
+  - If a requested viewport cannot be tested without changing the user's window, report the limitation instead.
+  - A disposable/separate browser may be resized only when explicitly authorized.
 - Единственный routine/default viewport — desktop **1440×1000**; сохранять desktop layout.
 - Не выполнять mobile/tablet/responsive проверки и не включать device/mobile emulation по умолчанию.
 - В обычной проверке не уменьшать viewport ниже 1440×1000; завершать работу при 1440×1000.

@@ -17,6 +17,13 @@ body {
   box-sizing: border-box;
 }
 
+.profile-panel .metrics-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  dt { margin-top: 6px; white-space: nowrap; }
+  dd { overflow-wrap: anywhere; }
+}
+
 .analysis-text {
   overflow-wrap: anywhere;
   h1, h2, h3, h4 { margin: 1.4em 0 0.55em; color: #111c36; line-height: 1.25; }

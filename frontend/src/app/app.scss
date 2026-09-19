@@ -65,7 +65,7 @@ summary { cursor:pointer; font-size:12px; font-weight:650; }
 .raw-json { max-height:260px; margin:10px 0 0; padding:12px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:#dbeafe; background:#111827; border-radius:10px; font:12px/1.55 Consolas,monospace; }
 .composer-wrap { flex:0 0 auto; padding:10px 18px 16px; }
 .composer { width:100%; max-width:1000px; margin:0 auto; padding:10px 12px; background:#fff; border:1px solid #cdd6e4; border-radius:14px; }
-.composer > textarea { display:block; width:100%; min-height:72px; max-height:220px; padding:6px; color:#17223b; background:transparent; border:0; outline:0; resize:none; font:14px/1.6 Consolas,monospace; }
+.composer > textarea { display:block; width:100%; min-height:56px; max-height:220px; padding:6px; color:#17223b; background:transparent; border:0; outline:0; resize:none; font:14px/1.6 Consolas,monospace; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .composer-actions span { color:#7a869e; font-size:11px; }
 .composer-actions button { height:40px; border-radius:10px; }

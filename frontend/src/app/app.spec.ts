@@ -758,7 +758,7 @@ describe('App', () => {
     flushHealth();
     flushMemory(id);
     const button = [...fixture.nativeElement.querySelectorAll('button')]
-      .find((item: HTMLButtonElement) => item.textContent?.trim() === 'Проанализировать') as HTMLButtonElement;
+      .find((item: HTMLButtonElement) => item.textContent?.trim() === 'Отправить') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     component.analyze();
     http.expectNone(`/api/dialogs/${id}/agent/messages`);
