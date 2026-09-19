@@ -75,7 +75,7 @@ graph evidence, выполненная команда, test result или persis
 - Model provider должен оставаться заменяемым. Future capabilities добавляются слоями и
   не меняют смысл существующих слоёв без явной необходимости.
 - Vocabulary remains explicit: Dialog is the communication surface; Memory is retained
-  information; Profile is agent-work configuration; Task is the work unit; TaskState is progress;
+  information; Profile is orchestration configuration describing HOW agents work; Task is the work unit; TaskState is progress;
   Invariant is a non-violable rule; Context is the per-call projection; ModelExecutor executes a
   provider/model request; transition control decides which TaskState changes are legal.
 - Memory retains interaction/state (`SHORT_TERM` dialog, `WORKING` task, `LONG_TERM` user scope);
@@ -100,6 +100,17 @@ plugin framework и универсальная provider platform не входя
 Конкретная граница зафиксирована в `ARCHITECTURE.md`; package/module refactor остаётся
 вне текущего scope.
 
+### Текущий scope: Day 12 Profile
+
+Day 12 реализован в product commit `24a11b1`: Profile — независимая orchestration configuration
+(`id`, `name`, `instructions`, `responseStyle`, `responseFormat`), описывающая HOW работает агент.
+Memory остаётся retained/accumulated information, описывающей WHAT сохранено;
+`Profile config != Memory`. Profile хранится независимо, выбирается per-dialog через UI state,
+optional `profileId` resolves in orchestration and is projected into the effective main model
+context. No-profile сохраняет прежнее поведение. Profile не становится raw history, summary,
+Sticky Facts или Memory bucket; storage не строит provider prompts, а ModelExecutor не зависит от
+Profile persistence.
+
 ## Challenge development strategy
 
 AI Advent остаётся roadmap driver. Долгосрочное vision заранее не реализуется.
@@ -121,11 +132,13 @@ Challenge acceptance criteria
 
 Формула: **не MVP всего продукта, а MVP текущего шага продукта**.
 
-Ожидаемое направление, но не pre-build roadmap: Day 12 — Profile as orchestration configuration,
-not Memory; Day 13 — TaskState happy path and persisted pause/resume; Day 14 — deterministic and
-semantic invariants; Day 15 — controlled TaskState transition graph and red paths. Profile config
-!= Memory, and current Day 11 `taskId` is only a memory scope key until Day 13.
-Further direction: Week 3 — Task/Run state;
+Day 12 Profile — реализованный шаг Week 3. Future only: Day 13 introduces first-class persisted
+Task / TaskState (`stage`, `currentStep`, `expectedAction`) and its happy path with pause/resume;
+Dialog != Task, and current `taskId` is only a `WORKING`-memory scope key until then. Day 14 adds
+invariants while keeping deterministic enforcement distinct from semantic evaluation, not another
+Memory bucket. Day 15 adds explicit controlled TaskState transitions and red-path handling: model
+or user proposes an action, application validates it and owns persisted state mutation.
+Further direction: Week 3 — remaining Task/TaskState, invariants and controlled transitions;
 Week 4 — tool boundary и eventual Codex/Claude delegation через MCP; Week 5 —
 retrieval над кодом и документами; Week 6 — RTX 3090-backed local provider за
 model boundary; Week 7 — orchestration multi-step tasks из существующих

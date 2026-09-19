@@ -16,9 +16,10 @@ Local AI Worker — product identity; Engineering Review Mentor — специа
 | `model` | Neutral execution contract и provider implementations | нет |
 | `dialog` | Canonical conversation, raw history, checkpoints/branches и persistence | нет |
 | `memory` | Retained/derived state и его persistence | нет |
+| `profile` | Orchestration configuration и её независимая JSON persistence | нет |
 | `context` | Per-call projection, token estimation и limits | `dialog`, `memory` |
-| `agent` | Conversation orchestration, main/summary/Sticky Facts calls | `model`, `dialog`, `memory`, `context` |
-| `api` | HTTP boundary | `agent`, `model`, `dialog`, `memory`, `context` |
+| `agent` | Conversation orchestration, main/summary/Sticky Facts calls | `model`, `dialog`, `memory`, `profile`, `context` |
+| `api` | HTTP boundary | `agent`, `model`, `dialog`, `memory`, `profile`, `context` |
 | `review` | Специализированный historical engineering-review use case и его HTTP endpoints | `model` |
 
 Зависимости между capabilities следуют этой таблице; циклов нет. `model` не владеет
@@ -46,10 +47,12 @@ flowchart LR
   API --> Model[model]
   API --> Dialog[dialog]
   API --> Memory[memory]
+  API --> Profile[profile]
   API --> Context[context]
   Agent --> Model
   Agent --> Dialog
   Agent --> Memory
+  Agent --> Profile
   Agent --> Context
   Context --> Dialog
   Context --> Memory
@@ -81,6 +84,30 @@ policy must not destructively mutate canonical raw memory.
 Memory owns retained interaction/state; context/adaptation owns only the projection into one
 effective model request. Storage/state components must not construct provider prompts directly;
 the model/provider execution layer likewise does not own repository or storage concerns.
+
+### Profiles — реализованная граница Day 12
+
+**Profile** — orchestration configuration, описывающая **HOW** работает агент: `id`, `name`,
+`instructions`, `responseStyle` и `responseFormat`. **Memory** — retained/accumulated information,
+описывающая **WHAT** сохранено. `Profile config != Memory`.
+
+`ProfileStore` сохраняет Profile как независимые JSON documents; он не строит provider prompts.
+Profile не записывается в raw dialog history, summary, Sticky Facts, `SHORT_TERM`, `WORKING` или
+`LONG_TERM` Memory. Удаление Dialog не удаляет Profile. `SHORT_TERM` остаётся dialog/chat scope,
+`WORKING` — task scope, `LONG_TERM` — user scope; current single-user/local global representation
+implements the last scope.
+
+Для normal agent message `profileId` optional. `AgentDialogService` resolves an указанную Profile
+до model execution; unknown ID fails explicitly. `ConversationAgent` projects resolved Profile into
+the effective **main** model context ровно один раз как supplemental system message after the base
+system contract. Base contract remains authoritative; without Profile outbound context preserves
+the prior semantics. Token estimation runs after this projection, therefore Profile is included in
+the main context budget and cannot silently vanish when history consumes available budget.
+
+Browser selection is `DialogUiState.selectedProfileId`, not history or Memory. The narrow
+`PUT /api/dialogs/{id}/profile-selection` atomically changes only that field, preserving unrelated
+dialog UI state. `ModelExecutor` receives only its neutral model request and does not depend on
+Profile persistence.
 
 Metrics observe concrete provider calls — request/context/response estimates and
 optional provider usage — but are not agent state. Summary and facts maintenance
@@ -133,20 +160,24 @@ goal, inputs, execution state, tool invocations, model calls, artifacts and
 result. A dialog remains a communication mechanism and may later initiate,
 observe or discuss a Task/Run, but must not be redefined as one.
 
-### Profile, TaskState and controlled transitions
+### Task, TaskState, invariants and controlled transitions
 
-Profile is future orchestration configuration — response style/format, workflow, roles and
-behavioral constraints — and is not Memory. Day 12 may introduce it without reinterpreting
-accumulated `LONG_TERM` information.
+Day 13 is future only: it may introduce a first-class persisted **Task** and happy-path
+**TaskState** with `stage`, `currentStep` and `expectedAction`, at least
+`planning -> execution -> validation -> done`. Dialog != Task; a Task may survive across dialogs,
+and pause/resume must preserve progress. Current `taskId` remains only a `WORKING`-memory scope key
+until then. Day 13 establishes the normal state machine and its controlled application boundary;
+it does not pre-build Day 15 red paths.
 
-Day 13 may introduce a first-class Task and persisted happy-path `TaskState`:
-`planning -> execution -> validation -> done`, including pause/resume. Current Day 11 `taskId`
-remains only a `WORKING`-memory scope key until then.
+Day 14 is future only: **Invariant** is a rule/constraint that must not be violated, not another
+Memory bucket. Deterministic constraints that code can enforce remain distinct from semantic
+constraints that require contextual/model evaluation; no universal rule engine is promised.
 
-Day 14 may introduce invariants as rules that must not be violated, distinguishing deterministic
-constraints from semantic invariants that need contextual/model evaluation. Day 15 may add the
-controlled transition graph and red paths: a model proposes an action, application code validates
-the transition, and only that boundary changes TaskState. Neither is implemented now.
+Day 15 is future only: it may strengthen Day 13 with explicit legal transitions and red-path
+handling. A model or user may propose an action, but application code validates the transition and
+alone mutates persisted TaskState. Required stages cannot be skipped; invalid transitions are
+rejected; allowed rework/backward transitions and pause/resume remain explicit; malformed model
+output cannot corrupt lifecycle.
 
 ### Deterministic tools, retrieval and artifacts
 

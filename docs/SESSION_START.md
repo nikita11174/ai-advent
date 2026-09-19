@@ -26,9 +26,11 @@ Do not restart architecture cleanup. Preserve unrelated private/uncommitted work
 publication authorization.
 
 Day 11 is CLOSED: final video demo PASS, VIDEO RECORDED: YES, and `2ab727f` adds the
-live-smoked supported dialog delete UX. Day 12 is NOT STARTED and requires an explicit owner
-instruction. Profile is orchestration configuration, not Memory; do not preload Days 1–10
-history or pre-build later challenge capabilities.
+live-smoked supported dialog delete UX. Day 12 is CLOSED at product commit `24a11b1`: Profile is
+orchestration configuration describing HOW the agent works, not Memory describing WHAT is retained.
+`Profile config != Memory`; Profile persistence and per-dialog selection are independent of
+history and Memory. Day 13 is NOT STARTED; do not pre-build Task/TaskState, Invariants or controlled
+transitions.
 
 For follow-up work in the same session, use delta context rather than repeating
 this full handoff.

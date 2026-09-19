@@ -10,10 +10,32 @@
 | Поле | Состояние |
 |---|---|
 | Product | Local AI Worker; Engineering Review Mentor — specialized use case |
-| Current milestone | Day 11 CLOSED: implementation complete, structural acceptance accepted, tests/runtime/browser/final video PASS; dialog delete UX live-smoked |
-| Current branch | `day_11`; committed HEAD `2ab727f`; product baseline `b3d4d28` |
-| Current implementation | Day 11 memory, provider/model selection, UX Shell V1 and supported dialog deletion complete; structural refactor complete/accepted |
-| Immediate next step | Day 12 NOT STARTED; ждать явной owner instruction |
+| Current milestone | Day 12 CLOSED: implementation, independent acceptance, browser/runtime acceptance and final video complete |
+| Current branch | `day_12`; Day 12 product commit `24a11b1` |
+| Current implementation | Day 11 memory/provider-model/UX baseline plus Day 12 Profile capability complete; structural refactor remains accepted |
+| Immediate next step | Day 13 NOT STARTED; ждать явной owner instruction |
+
+## Day 12 — CLOSED
+
+- Product commit: `24a11b1 feat: add agent profiles`.
+- `DAY12_CLOSED: YES`; `VIDEO_RECORDED: YES`; `DAY13_STARTED: NO`.
+- Final independent review: **ACCEPTED_WITH_NONBLOCKING_NOTES**; BLOCKER/HIGH/MEDIUM отсутствуют.
+- Profile is orchestration configuration describing **HOW** the agent works; Memory is retained/
+  accumulated information describing **WHAT** is remembered. `Profile config != Memory`.
+- Delivered: Profile domain/store/service/API with independent local JSON persistence; optional
+  normal-message `profileId`; orchestration resolution; supplemental main-context projection and
+  token accounting; Profile selector, «Без профиля», create/edit, safe Inspector metadata and
+  per-dialog `DialogUiState.selectedProfileId`.
+- Isolation: Profile is not raw history, summary, Sticky Facts, `SHORT_TERM`, `WORKING` or
+  `LONG_TERM`; it persists independently of dialog deletion. Provider execution remains unaware
+  of Profile persistence.
+- Consistency fixes: empty catalog stale IDs normalize to «Без профиля» after successful load;
+  async creation is owned by origin dialog/editor operation; narrow
+  `PUT /api/dialogs/{id}/profile-selection` preserves unrelated DialogUiState fields.
+- Verification: frontend 48/48 PASS; relevant backend tests PASS; frontend build PASS;
+  browser A/B/no-profile, restart persistence, refresh and per-dialog selection PASS.
+  Final automated walkthrough PASS; external video recorded and technically verified at
+  `E:\Video-AI\day-12.mkv` (04:10, 1920x1080). `VIDEO_RECORDED: YES`.
 
 ## Structural refactor — OWNER ACCEPTED, 2026-09-17
 
@@ -48,7 +70,7 @@
 | 9 | Complete; FULL/SUMMARY_RECENT and persisted derived summary established; browser comparison executed 2026-09-13: both modes retained four early facts and SUMMARY_RECENT main context was 2007 vs FULL 2492 local estimated tokens (OBS file/submission not verified) |
 | 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed; browser video scenario executed 2026-09-14: Sliding N=2 retained 0/4 early facts, Sticky retained 4/4, branches A=PostgreSQL and B=ClickHouse with sibling isolation PASS (OBS file/submission not verified) |
 | 11 | CLOSED: implementation complete; structural acceptance ACCEPTED; backend targeted tests and frontend 40/40 PASS; runtime/browser acceptance PASS; final video demo PASS and VIDEO RECORDED: YES. `2ab727f` adds live-smoked supported dialog deletion and compact sidebar UX. |
-| 12 | NOT STARTED; await explicit owner instruction |
+| 12 | CLOSED: `24a11b1` Profile capability; final independent review ACCEPTED_WITH_NONBLOCKING_NOTES; tests/runtime/browser PASS; `VIDEO_RECORDED: YES`. |
 
 Week 2 code branches are published on origin: `day_6` at `8b4524f`, `day_7` at
 `69547b3`, `day_8` at `2cf1978`, `day_9` at `13ddba1`, and `day_10` at `98f9112`.
@@ -72,6 +94,12 @@ organizer submissions remain owner-controlled and are not verified here.
   installation representation is the implementation mapping of user-scoped
   `LONG_TERM`; physical storage does not define semantic scope. Memory owns
   retained interaction/state, while context owns the projection into one model call.
+- Profile is independent orchestration configuration, not Memory or Context. `AgentDialogService`
+  resolves an optional Profile for a normal agent message; `ConversationAgent` adds one supplemental
+  main-context instruction after the authoritative base system contract, before token estimation.
+  Profile storage does not build provider prompts and ModelExecutor does not know Profile persistence.
+- Profile selection is per-dialog `DialogUiState`, while Profile documents persist independently of
+  dialog deletion. `PUT /api/dialogs/{id}/profile-selection` changes only `selectedProfileId`.
 - Day 9 real FULL/SUMMARY benchmark metrics are historical; its missing raw
   artifact must not be recreated with new provider calls.
 - Day 10 inherits the generic backend availability indicator; health polling is
@@ -90,17 +118,16 @@ organizer submissions remain owner-controlled and are not verified here.
 
 ## Near-term queue
 
-1. **Day 12 User Profile** — NOT STARTED; requires explicit owner instruction. Profile is
-   orchestration configuration (style, response format, workflow, roles and constraints), not Memory.
-   `Profile config != Memory` and Day 11 `LONG_TERM` remains user-scoped accumulated information.
-2. **Day 13 Task State** — future only: persisted happy-path lifecycle
-   `planning -> execution -> validation -> done`, including pause/resume; a Task may outlive a dialog.
-3. **Day 14 Invariants** — future only: deterministic and semantic constraints remain distinct from
-   dialog and memory; do not build a generic invariant engine.
-4. **Day 15 Controlled transitions** — future only: application code validates allowed TaskState
-   transitions, including invalid/red paths; a model proposes next action but never assigns TaskState.
-5. **Privacy cleanup** — separate maintenance task; do not combine it with Day 11 acceptance or
-   Day 12 implementation.
+1. **Day 13 Task / Task State Machine** — NOT STARTED. First-class persisted Task and TaskState
+   with `stage`, `currentStep`, `expectedAction` and happy path
+   `planning -> execution -> validation -> done`; Dialog != Task, Task may outlive dialogs, and
+   pause/resume preserves progress. Current `taskId` is only the `WORKING`-memory scope key.
+2. **Day 14 Invariants** — NOT STARTED. Rules/constraints remain distinct from Memory; deterministic
+   enforcement and contextual/semantic evaluation remain separate. Do not build a universal engine.
+3. **Day 15 Controlled transitions** — NOT STARTED. Model/user proposes an action; application
+   validates legal TaskState transition and exclusively mutates persisted state. Red paths, invalid
+   skips, rework and malformed model output remain under application control.
+4. **Privacy cleanup** — separate maintenance task; do not combine it with Day 12 closure.
 
 ## Current UI/UX consolidation
 
@@ -108,12 +135,13 @@ Problem: continued challenge increments risk turning the interface into a perman
 engineering form. Target a conversational workspace: dialogs/navigation on the left,
 conversation in the center, a collapsible context inspector on the right, and the composer at
 the bottom. Current scope groups Task, Memory, Context, branches/checkpoints, Metrics,
-run settings and experiments/comparison; Profile is excluded. Meanwhile,
+run settings and experiments/comparison; Day 12 adds Profile selection/create/edit and safe
+Inspector metadata. Meanwhile,
 compact current-state indicators keep technical details available on demand.
 
 Principles: conversation-first, progressive disclosure, normal Russian labels where appropriate,
 and interaction ideas from modern coding assistants without copying branding. Non-goals: a new
-Angular state library, IDE clone, large design-system rewrite, Day 12 Profile or Day 13 Task State.
+Angular state library, IDE clone, large design-system rewrite or Day 13 Task State.
 The owner explicitly expanded backend scope to safe agent provider/model dispatch, while existing
 memory/context/history/topology semantics must remain unchanged.
 
