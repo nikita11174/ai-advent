@@ -74,9 +74,31 @@ graph evidence, выполненная команда, test result или persis
   не являются ContextPolicy.
 - Model provider должен оставаться заменяемым. Future capabilities добавляются слоями и
   не меняют смысл существующих слоёв без явной необходимости.
+- Vocabulary remains explicit: Dialog is the communication surface; Memory is retained
+  information; Profile is agent-work configuration; Task is the work unit; TaskState is progress;
+  Invariant is a non-violable rule; Context is the per-call projection; ModelExecutor executes a
+  provider/model request; transition control decides which TaskState changes are legal.
+- Memory retains interaction/state (`SHORT_TERM` dialog, `WORKING` task, `LONG_TERM` user scope);
+  context/adaptation projects it into an effective request. Storage/state does not build provider
+  prompts directly, and provider execution does not own repository/storage concerns.
 
 Подробный architecture contract находится в
 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
+
+### Текущий scope: выбор модели агента
+
+OWNER APPROVED — 2026-09-16: в рамках [UX Shell V1](tasks/UX-SHELL-V1.md)
+пользователь явно выбирает provider/API и поддерживаемую модель самого агента:
+текущий DeepSeek либо существующие OpenAI модели. Это требование перенесено из
+future direction в текущий product scope; UX Shell V1 и provider/model boundary реализованы.
+Backend владеет безопасным каталогом и concrete mappings; браузер передаёт только
+selection key, без произвольных model IDs, endpoints или credentials.
+Выбор модели меняет только исполнение модельных вызовов, сохраняя историю,
+ContextPolicy, derived memory, Day 11 memory/task scope и branch/checkpoint semantics.
+Provider-agnostic orchestration и небольшой executor boundary обязательны;
+plugin framework и универсальная provider platform не входят в scope.
+Конкретная граница зафиксирована в `ARCHITECTURE.md`; package/module refactor остаётся
+вне текущего scope.
 
 ## Challenge development strategy
 
@@ -99,7 +121,11 @@ Challenge acceptance criteria
 
 Формула: **не MVP всего продукта, а MVP текущего шага продукта**.
 
-Ожидаемое направление, но не pre-build roadmap: Week 3 — Task/Run state;
+Ожидаемое направление, но не pre-build roadmap: Day 12 — Profile as orchestration configuration,
+not Memory; Day 13 — TaskState happy path and persisted pause/resume; Day 14 — deterministic and
+semantic invariants; Day 15 — controlled TaskState transition graph and red paths. Profile config
+!= Memory, and current Day 11 `taskId` is only a memory scope key until Day 13.
+Further direction: Week 3 — Task/Run state;
 Week 4 — tool boundary и eventual Codex/Claude delegation через MCP; Week 5 —
 retrieval над кодом и документами; Week 6 — RTX 3090-backed local provider за
 model boundary; Week 7 — orchestration multi-step tasks из существующих
