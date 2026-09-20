@@ -26,7 +26,9 @@ interface TestApp {
   taskCreationOpen: boolean;
   taskPlanDraft: string;
   taskStepDraft: string;
+  executionResultDraft: string;
   validationEvidenceDraft: string;
+  validationFailureReasonDraft: string;
   currentTask(): { id: string; state: { stage: string; status: string; revision: number } } | null;
   tasks(): readonly { id: string; state: { revision: number } }[];
   chooseTask(id: string | null): void;
@@ -112,7 +114,11 @@ const agentProfiles = [
 ];
 const managedTask = (id = '33333333-3333-3333-3333-333333333333', revision = 0, stage = 'PLANNING', status = 'ACTIVE') => ({
   id, goal: 'Подготовить Java/PostgreSQL engineering solution', state: { stage, currentStep: 'Prepare and approve a plan', expectedAction: 'Approve the plan', status, revision },
-  approvedPlan: '', validationEvidence: '', createdAt: now, updatedAt: now,
+  approvedPlan: '', executionResult: '', validationEvidence: '',
+  allowedActions: status === 'PAUSED' ? ['RESUME'] : stage === 'PLANNING' ? ['APPROVE_PLAN', 'UPDATE_CURRENT_STEP', 'PAUSE']
+    : stage === 'EXECUTION' ? ['START_VALIDATION', 'UPDATE_CURRENT_STEP', 'PAUSE']
+    : stage === 'VALIDATION' ? ['ACCEPT_VALIDATION', 'VALIDATION_FAILED', 'UPDATE_CURRENT_STEP', 'PAUSE'] : [],
+  createdAt: now, updatedAt: now,
 });
 const modelResponse = (index: number) => ({ model: profiles[index], returnedModel: profiles[index].modelId,
   status: 'completed', incompleteReason: null, serviceTier: 'default', apiLatencyMs: 123, startedAt: now,
@@ -1243,7 +1249,7 @@ describe('App', () => {
     const execution = { ...task, state: { ...task.state, stage: 'EXECUTION', currentStep: 'Выполнить', expectedAction: 'UPDATE_CURRENT_STEP', revision: 1 }, approvedPlan: 'Короткий план' }; approve.flush(execution);
     component.taskStepDraft = 'Реализовать'; component.applyTaskAction('UPDATE_CURRENT_STEP');
     const update = http.expectOne(`/api/tasks/${task.id}/actions`); expect(update.request.body.expectedRevision).toBe(1);
-    update.flush({ error: 'stale' }, { status: 409, statusText: 'Conflict' });
+    update.flush({ code: 'STALE_REVISION', error: 'stale' }, { status: 409, statusText: 'Conflict' });
     http.expectOne(`/api/tasks/${task.id}`).flush(execution);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Состояние задачи изменилось');
@@ -1254,17 +1260,17 @@ describe('App', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); selectTask(task); flushMemory(dialog().id, task.id);
     component.applyTaskAction('PAUSE');
     const pause = http.expectOne(`/api/tasks/${task.id}/actions`); expect(pause.request.body).toEqual({ action: 'PAUSE', expectedRevision: 0 });
-    const paused = { ...task, state: { ...task.state, status: 'PAUSED', revision: 1 } }; pause.flush(paused); fixture.detectChanges();
+    const paused = { ...task, state: { ...task.state, status: 'PAUSED', revision: 1 }, allowedActions: ['RESUME'] }; pause.flush(paused); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('На паузе');
     expect(fixture.nativeElement.textContent).toContain('Продолжить');
     component.input = 'Не отправлять'; component.analyze(); http.expectNone(`/api/dialogs/${dialog().id}/agent/messages`);
     component.applyTaskAction('RESUME'); const resume = http.expectOne(`/api/tasks/${task.id}/actions`); expect(resume.request.body.expectedRevision).toBe(1);
-    const execution = { ...task, state: { ...task.state, stage: 'EXECUTION', revision: 2 } }; resume.flush(execution);
-    component.applyTaskAction('START_VALIDATION'); const start = http.expectOne(`/api/tasks/${task.id}/actions`); expect(start.request.body.expectedRevision).toBe(2);
-    const validation = { ...execution, state: { ...execution.state, stage: 'VALIDATION', revision: 3 } }; start.flush(validation);
+    const execution = { ...task, state: { ...task.state, stage: 'EXECUTION', revision: 2 }, allowedActions: ['START_VALIDATION', 'UPDATE_CURRENT_STEP', 'PAUSE'] }; resume.flush(execution);
+    component.executionResultDraft = 'Реализовано'; component.applyTaskAction('START_VALIDATION'); const start = http.expectOne(`/api/tasks/${task.id}/actions`); expect(start.request.body).toEqual({ action: 'START_VALIDATION', expectedRevision: 2, executionResult: 'Реализовано' });
+    const validation = { ...execution, state: { ...execution.state, stage: 'VALIDATION', revision: 3 }, executionResult: 'Реализовано', allowedActions: ['ACCEPT_VALIDATION', 'VALIDATION_FAILED', 'UPDATE_CURRENT_STEP', 'PAUSE'] }; start.flush(validation);
     component.validationEvidenceDraft = 'Проверки прошли'; component.applyTaskAction('ACCEPT_VALIDATION');
     const accept = http.expectOne(`/api/tasks/${task.id}/actions`); expect(accept.request.body).toEqual({ action: 'ACCEPT_VALIDATION', expectedRevision: 3, validationEvidence: 'Проверки прошли' });
-    accept.flush({ ...validation, state: { ...validation.state, stage: 'DONE', status: 'COMPLETED', revision: 4 }, validationEvidence: 'Проверки прошли' }); fixture.detectChanges();
+    accept.flush({ ...validation, state: { ...validation.state, stage: 'DONE', status: 'COMPLETED', revision: 4 }, validationEvidence: 'Проверки прошли', allowedActions: [] }); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Завершено');
     expect(fixture.nativeElement.textContent).toContain('Завершена');
     expect(fixture.nativeElement.textContent).toContain('Доказательства проверки');

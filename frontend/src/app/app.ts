@@ -83,11 +83,12 @@ interface AgentProfile { id: string; name: string; instructions: string; respons
 interface ProfileDraft { name: string; instructions: string; responseStyle: string; responseFormat: string; }
 type TaskStage = 'PLANNING' | 'EXECUTION' | 'VALIDATION' | 'DONE';
 type TaskStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED';
-type TaskAction = 'APPROVE_PLAN' | 'UPDATE_CURRENT_STEP' | 'START_VALIDATION' | 'ACCEPT_VALIDATION' | 'PAUSE' | 'RESUME';
+type TaskAction = 'APPROVE_PLAN' | 'UPDATE_CURRENT_STEP' | 'START_VALIDATION' | 'ACCEPT_VALIDATION' | 'VALIDATION_FAILED' | 'PAUSE' | 'RESUME';
 interface ManagedTask {
   id: string; goal: string;
   state: { stage: TaskStage; currentStep: string; expectedAction: string; status: TaskStatus; revision: number };
-  approvedPlan: string; validationEvidence: string; createdAt: string; updatedAt: string;
+  approvedPlan: string; executionResult: string; validationEvidence: string; allowedActions: readonly TaskAction[];
+  createdAt: string; updatedAt: string;
 }
 type InvariantScope = 'USER' | 'TASK';
 interface Invariant { id: string; scope: InvariantScope; taskId: string | null; name: string; rule: string; }
@@ -180,7 +181,9 @@ export class App implements OnInit, OnDestroy {
   protected taskCreationOpen = false;
   protected taskPlanDraft = '';
   protected taskStepDraft = '';
+  protected executionResultDraft = '';
   protected validationEvidenceDraft = '';
+  protected validationFailureReasonDraft = '';
   protected readonly effectiveInvariants = signal<readonly Invariant[]>([]);
   protected readonly invariantsError = signal('');
   protected invariantEditing = false;
@@ -378,6 +381,8 @@ export class App implements OnInit, OnDestroy {
 
   protected isPausedTask(): boolean { return this.currentTask()?.state.status === 'PAUSED'; }
 
+  protected canTaskAction(action: TaskAction): boolean { return this.currentTask()?.allowedActions?.includes(action) ?? false; }
+
   protected taskLoading(): boolean { return this.taskLoadingDialogs.has(this.currentDialogId() ?? ''); }
 
   protected taskActionBusy(): boolean { return this.taskOperationDialogs.has(this.currentDialogId() ?? ''); }
@@ -413,7 +418,8 @@ export class App implements OnInit, OnDestroy {
         this.appliedTaskId = taskId;
         if (task) this.acceptTask(task, dialogId); else this.currentTask.set(null);
         this.taskStepDraft = task?.state.currentStep ?? ''; this.taskPlanDraft = task?.approvedPlan ?? '';
-        this.validationEvidenceDraft = task?.validationEvidence ?? ''; this.closeMemoryEditor(); this.loadMemory(); this.loadEffectiveInvariants();
+        this.executionResultDraft = task?.executionResult ?? ''; this.validationEvidenceDraft = task?.validationEvidence ?? '';
+        this.validationFailureReasonDraft = ''; this.closeMemoryEditor(); this.loadMemory(); this.loadEffectiveInvariants();
         this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
       },
       error: (error: HttpErrorResponse) => {
@@ -469,17 +475,21 @@ export class App implements OnInit, OnDestroy {
     const body = { action, expectedRevision: task.state.revision,
       ...(action === 'APPROVE_PLAN' ? { approvedPlan: this.taskPlanDraft } : {}),
       ...(action === 'UPDATE_CURRENT_STEP' ? { currentStep: this.taskStepDraft } : {}),
-      ...(action === 'ACCEPT_VALIDATION' ? { validationEvidence: this.validationEvidenceDraft } : {}) };
+      ...(action === 'START_VALIDATION' ? { executionResult: this.executionResultDraft } : {}),
+      ...(action === 'ACCEPT_VALIDATION' ? { validationEvidence: this.validationEvidenceDraft } : {}),
+      ...(action === 'VALIDATION_FAILED' ? { failureReason: this.validationFailureReasonDraft } : {}) };
     this.beginTaskOperation(originDialogId); this.taskError.set('');
     this.http.post<ManagedTask>(`/api/tasks/${task.id}/actions`, body).subscribe({
       next: updated => { this.acceptTask(updated, originDialogId); this.finishTaskOperation(originDialogId); },
       error: (error: HttpErrorResponse) => {
         this.finishTaskOperation(originDialogId);
-        if (error.status === 409) {
+        if (error.status === 409 && error.error?.code === 'STALE_REVISION') {
           if (this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
             this.taskError.set('Состояние задачи изменилось в другом диалоге. Загружена актуальная версия.');
           }
           this.loadCurrentTask(task.id, originDialogId);
+        } else if (error.status === 409 && this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
+          this.taskError.set(error.error?.error ?? 'Действие недоступно в текущем состоянии задачи.');
         } else if (this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
           this.taskError.set(error.error?.error ?? 'Не удалось применить действие задачи.');
         }
@@ -833,7 +843,8 @@ export class App implements OnInit, OnDestroy {
   private setCurrentTask(task: ManagedTask): void {
     this.currentTask.set(task);
     this.taskStepDraft = task.state.currentStep; this.taskPlanDraft = task.approvedPlan;
-    this.validationEvidenceDraft = task.validationEvidence;
+    this.executionResultDraft = task.executionResult; this.validationEvidenceDraft = task.validationEvidence;
+    this.validationFailureReasonDraft = '';
   }
   private beginTaskOperation(dialogId: string): void { this.taskOperationDialogs.add(dialogId); }
   private finishTaskOperation(dialogId: string): void { this.taskOperationDialogs.delete(dialogId); }

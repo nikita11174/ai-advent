@@ -67,17 +67,26 @@ class TaskControllerTest {
                 .thenThrow(new TaskService.TaskRevisionMismatchException(id, 1, 2));
         mvc.perform(post("/api/tasks/{id}/actions", id).contentType("application/json")
                         .content("{\"action\":\"PAUSE\",\"expectedRevision\":1}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.error").isNotEmpty());
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("STALE_REVISION"))
+                .andExpect(jsonPath("$.actualRevision").value(2));
 
         when(tasks.apply(eq(id), any(TaskCommand.StartValidation.class), eq(1L)))
-                .thenThrow(new TaskService.TaskTransitionException("Validation start is not available in PLANNING."));
+                .thenThrow(new TaskService.TaskTransitionException("INVALID_TRANSITION", "Validation start is not available in PLANNING."));
         mvc.perform(post("/api/tasks/{id}/actions", id).contentType("application/json")
-                        .content("{\"action\":\"START_VALIDATION\",\"expectedRevision\":1}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.error").isNotEmpty());
+                        .content("{\"action\":\"START_VALIDATION\",\"expectedRevision\":1,\"executionResult\":\"Result\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("INVALID_TRANSITION"));
 
         mvc.perform(post("/api/tasks/{id}/actions", id).contentType("application/json")
                         .content("{\"action\":\"APPROVE_PLAN\",\"expectedRevision\":1}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("Approved plan is required."));
+
+        mvc.perform(post("/api/tasks/{id}/actions", id).contentType("application/json")
+                        .content("{\"action\":\"PAUSE\"}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("Expected revision is required."));
+
+        mvc.perform(post("/api/tasks/{id}/actions", id).contentType("application/json")
+                        .content("{\"action\":\"START_VALIDATION\",\"expectedRevision\":0}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("Execution result is required."));
 
         when(tasks.load(id)).thenThrow(new TaskStore.TaskNotFoundException(id));
         mvc.perform(get("/api/tasks/{id}", id)).andExpect(status().isNotFound()).andExpect(jsonPath("$.error").isNotEmpty());

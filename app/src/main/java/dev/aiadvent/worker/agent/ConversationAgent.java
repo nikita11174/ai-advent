@@ -18,6 +18,7 @@ import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
 import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.task.Task;
+import dev.aiadvent.worker.task.TaskAction;
 import dev.aiadvent.worker.invariant.Invariant;
 
 import java.util.concurrent.locks.ReentrantLock;
@@ -120,7 +121,14 @@ public final class ConversationAgent {
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                      AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
                      List<Invariant> invariants) throws IOException, ModelExecutionException {
-        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants, false);
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants, List.of());
+    }
+
+    AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
+                     List<Invariant> invariants, List<TaskAction> allowedActions) throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
+                allowedActions, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
@@ -128,12 +136,12 @@ public final class ConversationAgent {
                              boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, null,
-                List.of(), legacyMaintenanceCalls);
+                List.of(), List.of(), legacyMaintenanceCalls);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
-                             List<Invariant> invariants, boolean legacyMaintenanceCalls)
+                             List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
@@ -196,7 +204,7 @@ public final class ConversationAgent {
                 };
                 List<ConversationContext.Message> outbound = policy.build(raw, input, summary, facts, recent);
                 outbound = withProfile(outbound, profile);
-                outbound = withTask(outbound, profile, task);
+                outbound = withTask(outbound, profile, task, allowedActions);
                 outbound = withInvariants(outbound, profile, task, invariants);
                 if (!memory.isEmpty()) {
                     var assembled = new ArrayList<>(outbound);
@@ -278,7 +286,7 @@ public final class ConversationAgent {
     }
 
     private static List<ConversationContext.Message> withTask(List<ConversationContext.Message> outbound, Profile profile,
-                                                               Task task) {
+                                                               Task task, List<TaskAction> allowedActions) {
         if (task == null) {
             return outbound;
         }
@@ -289,8 +297,13 @@ public final class ConversationAgent {
                 Stage: %s
                 Current step: %s
                 Expected action: %s
-                Status: %s%s%s""".formatted(task.id(), task.goal(), task.state().stage(), task.state().currentStep(),
-                task.state().expectedAction(), task.state().status(), optional("Approved plan", task.approvedPlan()),
+                Status: %s
+                Allowed lifecycle actions: %s
+                Required stage ordering: PLANNING -> EXECUTION -> VALIDATION -> DONE.
+                Do not act as though a later lifecycle stage is authorized. If the user asks to skip a required stage,
+                explain the current legal next step instead. This guidance does not grant model output authority to mutate Task state.%s%s%s""".formatted(task.id(), task.goal(), task.state().stage(), task.state().currentStep(),
+                task.state().expectedAction(), task.state().status(), allowedActions,
+                optional("Approved plan", task.approvedPlan()), optional("Execution result", task.executionResult()),
                 optional("Validation evidence", task.validationEvidence()));
         var effective = new ArrayList<>(outbound);
         effective.add(profile == null ? 1 : 2, new ConversationContext.Message("system", context));

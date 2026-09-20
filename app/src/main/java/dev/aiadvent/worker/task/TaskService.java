@@ -66,86 +66,124 @@ public class TaskService {
         if (expectedRevision != current.state().revision()) {
             throw new TaskRevisionMismatchException(taskId, expectedRevision, current.state().revision());
         }
+        requireAllowed(current, command);
         Task updated = applyCommand(current, command, clock.instant());
         return tasks.update(updated);
+    }
+
+    public List<TaskAction> allowedActions(Task task) {
+        TaskState state = task.state();
+        if (state.status() == TaskStatus.PAUSED) {
+            return List.of(TaskAction.RESUME);
+        }
+        if (state.status() != TaskStatus.ACTIVE || state.stage() == TaskStage.DONE) {
+            return List.of();
+        }
+        return switch (state.stage()) {
+            case PLANNING -> List.of(TaskAction.APPROVE_PLAN, TaskAction.UPDATE_CURRENT_STEP, TaskAction.PAUSE);
+            case EXECUTION -> List.of(TaskAction.START_VALIDATION, TaskAction.UPDATE_CURRENT_STEP, TaskAction.PAUSE);
+            case VALIDATION -> List.of(TaskAction.ACCEPT_VALIDATION, TaskAction.VALIDATION_FAILED,
+                    TaskAction.UPDATE_CURRENT_STEP, TaskAction.PAUSE);
+            case DONE -> List.of();
+        };
     }
 
     private Task create(UUID id, String goal) throws IOException {
         Instant now = clock.instant();
         Task task = new Task(id, goal, new TaskState(TaskStage.PLANNING, PLAN_STEP, APPROVE_PLAN,
-                TaskStatus.ACTIVE, 0), "", "", now, now);
+                TaskStatus.ACTIVE, 0), "", "", "", now, now);
         return tasks.create(task);
     }
 
     private static Task applyCommand(Task task, TaskCommand command, Instant now) {
         TaskState state = task.state();
         if (command instanceof TaskCommand.ApprovePlan approvePlan) {
-            requireActiveStage(state, TaskStage.PLANNING, "Plan approval");
             return next(task, new TaskState(TaskStage.EXECUTION, EXECUTION_STEP, UPDATE_EXECUTION,
-                    TaskStatus.ACTIVE, state.revision() + 1), approvePlan.approvedPlan(), task.validationEvidence(), now);
+                    TaskStatus.ACTIVE, state.revision() + 1), approvePlan.approvedPlan(), task.executionResult(), task.validationEvidence(), now);
         }
         if (command instanceof TaskCommand.UpdateCurrentStep updateCurrentStep) {
-            requireActiveUnfinished(state, "Current step update");
             return next(task, new TaskState(state.stage(), updateCurrentStep.currentStep(), state.expectedAction(),
-                    state.status(), state.revision() + 1), task.approvedPlan(), task.validationEvidence(), now);
+                    state.status(), state.revision() + 1), task.approvedPlan(), task.executionResult(), task.validationEvidence(), now);
         }
-        if (command instanceof TaskCommand.StartValidation) {
-            requireActiveStage(state, TaskStage.EXECUTION, "Validation start");
+        if (command instanceof TaskCommand.StartValidation startValidation) {
+            if (task.approvedPlan().isBlank()) {
+                throw new TaskTransitionException("INVALID_TRANSITION", "Validation requires an approved plan.");
+            }
             return next(task, new TaskState(TaskStage.VALIDATION, VALIDATION_STEP, ACCEPT_VALIDATION,
-                    TaskStatus.ACTIVE, state.revision() + 1), task.approvedPlan(), task.validationEvidence(), now);
+                    TaskStatus.ACTIVE, state.revision() + 1), task.approvedPlan(), startValidation.executionResult(), "", now);
         }
         if (command instanceof TaskCommand.AcceptValidation acceptValidation) {
-            requireActiveStage(state, TaskStage.VALIDATION, "Validation acceptance");
             return next(task, new TaskState(TaskStage.DONE, DONE_STEP, NO_ACTION,
-                    TaskStatus.COMPLETED, state.revision() + 1), task.approvedPlan(), acceptValidation.validationEvidence(), now);
+                    TaskStatus.COMPLETED, state.revision() + 1), task.approvedPlan(), task.executionResult(), acceptValidation.validationEvidence(), now);
+        }
+        if (command instanceof TaskCommand.ValidationFailed validationFailed) {
+            return next(task, new TaskState(TaskStage.EXECUTION, "Rework required: " + validationFailed.reason(), UPDATE_EXECUTION,
+                    TaskStatus.ACTIVE, state.revision() + 1), task.approvedPlan(), "", "", now);
         }
         if (command instanceof TaskCommand.Pause) {
-            requireActiveUnfinished(state, "Pause");
             return next(task, new TaskState(state.stage(), state.currentStep(), state.expectedAction(),
-                    TaskStatus.PAUSED, state.revision() + 1), task.approvedPlan(), task.validationEvidence(), now);
+                    TaskStatus.PAUSED, state.revision() + 1), task.approvedPlan(), task.executionResult(), task.validationEvidence(), now);
         }
         if (command instanceof TaskCommand.Resume) {
-            if (state.stage() == TaskStage.DONE) {
-                throw new TaskTransitionException("Completed tasks cannot be resumed.");
-            }
-            if (state.status() != TaskStatus.PAUSED) {
-                throw new TaskTransitionException("Only paused tasks can be resumed.");
-            }
             return next(task, new TaskState(state.stage(), state.currentStep(), state.expectedAction(),
-                    TaskStatus.ACTIVE, state.revision() + 1), task.approvedPlan(), task.validationEvidence(), now);
+                    TaskStatus.ACTIVE, state.revision() + 1), task.approvedPlan(), task.executionResult(), task.validationEvidence(), now);
         }
         throw new IllegalArgumentException("Unsupported task command.");
     }
 
-    private static Task next(Task task, TaskState state, String approvedPlan, String validationEvidence, Instant now) {
-        return new Task(task.id(), task.goal(), state, approvedPlan, validationEvidence, task.createdAt(), now);
+    private static Task next(Task task, TaskState state, String approvedPlan, String executionResult, String validationEvidence, Instant now) {
+        return new Task(task.id(), task.goal(), state, approvedPlan, executionResult, validationEvidence, task.createdAt(), now);
     }
 
-    private static void requireActiveStage(TaskState state, TaskStage stage, String action) {
-        requireActiveUnfinished(state, action);
-        if (state.stage() != stage) {
-            throw new TaskTransitionException(action + " is not available in " + state.stage() + ".");
+    private void requireAllowed(Task task, TaskCommand command) {
+        TaskAction action = action(command);
+        if (task.state().status() == TaskStatus.PAUSED && action != TaskAction.RESUME) {
+            throw new TaskTransitionException("PAUSED", "Task is paused; resume it before changing its lifecycle.");
+        }
+        if (!allowedActions(task).contains(action)) {
+            throw new TaskTransitionException("INVALID_TRANSITION", action + " is not available in "
+                    + task.state().stage() + ".");
         }
     }
 
-    private static void requireActiveUnfinished(TaskState state, String action) {
-        if (state.stage() == TaskStage.DONE || state.status() == TaskStatus.COMPLETED) {
-            throw new TaskTransitionException("Completed tasks cannot be changed.");
-        }
-        if (state.status() != TaskStatus.ACTIVE) {
-            throw new TaskTransitionException(action + " requires an active task.");
-        }
+    private static TaskAction action(TaskCommand command) {
+        if (command instanceof TaskCommand.ApprovePlan) return TaskAction.APPROVE_PLAN;
+        if (command instanceof TaskCommand.UpdateCurrentStep) return TaskAction.UPDATE_CURRENT_STEP;
+        if (command instanceof TaskCommand.StartValidation) return TaskAction.START_VALIDATION;
+        if (command instanceof TaskCommand.AcceptValidation) return TaskAction.ACCEPT_VALIDATION;
+        if (command instanceof TaskCommand.ValidationFailed) return TaskAction.VALIDATION_FAILED;
+        if (command instanceof TaskCommand.Pause) return TaskAction.PAUSE;
+        if (command instanceof TaskCommand.Resume) return TaskAction.RESUME;
+        throw new IllegalArgumentException("Unsupported task command.");
     }
 
     public static class TaskRevisionMismatchException extends IllegalStateException {
+        private final long actualRevision;
+
         public TaskRevisionMismatchException(UUID taskId, long expectedRevision, long actualRevision) {
             super("Task revision is stale for " + taskId + ": expected " + expectedRevision + ", actual " + actualRevision + ".");
+            this.actualRevision = actualRevision;
+        }
+
+        public String code() {
+            return "STALE_REVISION";
+        }
+
+        public long actualRevision() {
+            return actualRevision;
         }
     }
 
     public static class TaskTransitionException extends IllegalStateException {
-        public TaskTransitionException(String message) {
+        private final String code;
+
+        public TaskTransitionException(String code, String message) {
             super(message);
+            this.code = code;
+        }
+
+        public String code() {
+            return code;
         }
     }
 }

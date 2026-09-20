@@ -3,8 +3,13 @@ package dev.aiadvent.worker.task;
 import java.time.Instant;
 import java.util.UUID;
 
-public record Task(UUID id, String goal, TaskState state, String approvedPlan, String validationEvidence,
+public record Task(UUID id, String goal, TaskState state, String approvedPlan, String executionResult, String validationEvidence,
                    Instant createdAt, Instant updatedAt) {
+    public Task(UUID id, String goal, TaskState state, String approvedPlan, String validationEvidence,
+                Instant createdAt, Instant updatedAt) {
+        this(id, goal, state, approvedPlan, "", validationEvidence, createdAt, updatedAt);
+    }
+
     public Task {
         if (id == null) {
             throw new IllegalArgumentException("Task id is required.");
@@ -23,6 +28,7 @@ public record Task(UUID id, String goal, TaskState state, String approvedPlan, S
         }
         goal = goal.trim();
         approvedPlan = emptyWhenMissing(approvedPlan);
+        executionResult = emptyWhenMissing(executionResult);
         validationEvidence = emptyWhenMissing(validationEvidence);
     }
 

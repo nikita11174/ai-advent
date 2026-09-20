@@ -450,6 +450,9 @@ class AgentDialogServiceTest {
         String branchRequest = requestText(requests.getAllValues().get(2));
         assertEquals(1, count(first, "Authoritative application-owned task state"));
         assertTrue(first.contains("PROFILE_MARKER") && first.contains(task.goal()) && first.contains("A_ONLY") && first.contains("PostgreSQL"));
+        assertTrue(first.contains("Allowed lifecycle actions: [APPROVE_PLAN, UPDATE_CURRENT_STEP, PAUSE]")
+                && first.contains("Required stage ordering: PLANNING -> EXECUTION -> VALIDATION -> DONE")
+                && first.contains("Do not act as though a later lifecycle stage is authorized."));
         assertTrue(second.contains(task.goal()) && second.contains("B_ONLY") && second.contains("PostgreSQL") && !second.contains("A_ONLY"));
         assertTrue(branchRequest.contains(task.goal()));
         assertTrue(histories.load(dialogA).orElseThrow().stream().noneMatch(message -> message.content().contains(task.goal())));

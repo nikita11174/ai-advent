@@ -21,6 +21,7 @@ import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.profile.ProfileService;
 import dev.aiadvent.worker.task.Task;
 import dev.aiadvent.worker.task.TaskService;
+import dev.aiadvent.worker.task.TaskAction;
 import dev.aiadvent.worker.task.TaskStatus;
 import dev.aiadvent.worker.invariant.Invariant;
 import dev.aiadvent.worker.invariant.InvariantService;
@@ -172,8 +173,9 @@ public class AgentDialogService {
         }
         AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
         List<Invariant> effectiveInvariants = invariants == null ? List.of() : invariants.effective(task == null ? null : task.id());
+        List<TaskAction> allowedActions = task == null ? List.of() : tasks.allowedActions(task);
         return agent.reply(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants);
+                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants, allowedActions);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
