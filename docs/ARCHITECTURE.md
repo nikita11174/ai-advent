@@ -149,25 +149,24 @@ Explicit memory terminology is semantic: `SHORT_TERM` = dialog scope, `WORKING` 
 `LONG_TERM` = user scope. The current single-user/local global representation implements the last
 scope; physical persistence does not define it.
 
+### Task / TaskState — реализованная граница
+
+**Task** is a persisted work unit with a goal, approved plan, validation evidence and **TaskState**.
+TaskState owns progress: `stage`, `currentStep`, `expectedAction`, `status` and `revision`. Day 13
+implements the happy path `PLANNING -> EXECUTION -> VALIDATION -> DONE` with pause/resume.
+
+`Dialog != Task`: one Task may be selected by multiple Dialogs. `Task.id` is the `WORKING` Memory
+scope; raw history and `SHORT_TERM` Memory remain dialog-scoped and separate. A legacy UUID memory
+scope becomes a Task only through explicit adoption; no automatic conversion occurs.
+
+`TaskService` and application code own persisted lifecycle mutation. `AgentDialogService` resolves
+the selected/effective Task and `ConversationAgent` projects its state into each main model call.
+Task context is not canonical history or derived Memory. Task persistence does not construct prompts,
+and `ModelExecutor` remains unaware of Task storage.
+
 ## FUTURE DIRECTION
 
 The following are extension points, not components that exist now.
-
-### Task / Run boundary
-
-A future **Task/Run** represents a unit of research or bounded work: requested
-goal, inputs, execution state, tool invocations, model calls, artifacts and
-result. A dialog remains a communication mechanism and may later initiate,
-observe or discuss a Task/Run, but must not be redefined as one.
-
-### Task, TaskState, invariants and controlled transitions
-
-Day 13 is future only: it may introduce a first-class persisted **Task** and happy-path
-**TaskState** with `stage`, `currentStep` and `expectedAction`, at least
-`planning -> execution -> validation -> done`. Dialog != Task; a Task may survive across dialogs,
-and pause/resume must preserve progress. Current `taskId` remains only a `WORKING`-memory scope key
-until then. Day 13 establishes the normal state machine and its controlled application boundary;
-it does not pre-build Day 15 red paths.
 
 Day 14 is future only: **Invariant** is a rule/constraint that must not be violated, not another
 Memory bucket. Deterministic constraints that code can enforce remain distinct from semantic

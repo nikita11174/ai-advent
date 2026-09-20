@@ -56,4 +56,20 @@ class DialogControllerTest {
 
         verify(store).updateProfileSelection(dialogId.toString(), profileId);
     }
+
+    @Test
+    void updatesAndClearsOnlyTaskSelection() throws Exception {
+        UUID dialogId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+
+        mvc.perform(put("/api/dialogs/{id}/task-selection", dialogId).contentType("application/json")
+                        .content("{\"taskId\":\"" + taskId + "\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/dialogs/{id}/task-selection", dialogId).contentType("application/json")
+                        .content("{\"taskId\":null}"))
+                .andExpect(status().isOk());
+
+        verify(store).updateTaskSelection(dialogId.toString(), taskId);
+        verify(store).updateTaskSelection(dialogId.toString(), null);
+    }
 }

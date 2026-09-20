@@ -19,6 +19,9 @@ import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.ModelExecutionException;
 import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.profile.ProfileService;
+import dev.aiadvent.worker.task.Task;
+import dev.aiadvent.worker.task.TaskService;
+import dev.aiadvent.worker.task.TaskStatus;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +45,7 @@ public class AgentDialogService {
     private final AgentMemoryStore memories;
     private final AgentModelCatalog models;
     private final ProfileService profiles;
+    private final TaskService tasks;
     private final ConcurrentHashMap<AgentKey, ConversationAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, AgentModelExecutor executor, AgentHistoryStore histories,
@@ -51,7 +55,7 @@ public class AgentDialogService {
                        AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null), null);
+                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null), null, null);
     }
 
     AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
@@ -60,7 +64,17 @@ public class AgentDialogService {
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, models, null);
+                branches, memories, contextTokenLimit, models, null, null);
+    }
+
+    AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
+                       ProfileService profiles) {
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService, branches, memories,
+                contextTokenLimit, models, profiles, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -69,7 +83,7 @@ public class AgentDialogService {
                        ConversationSummaryService summaryService, StickyFactsStore factsStore,
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
-                       ProfileService profiles) {
+                       ProfileService profiles, TaskService tasks) {
         this.dialogs = dialogs;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
@@ -81,6 +95,7 @@ public class AgentDialogService {
         this.memories = memories;
         this.models = models;
         this.profiles = profiles;
+        this.tasks = tasks;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -108,13 +123,22 @@ public class AgentDialogService {
                      UUID taskId, String agentModelKey, UUID profileId) throws IOException, ModelExecutionException {
         AgentModelCatalog.Selection model = models.resolve(agentModelKey);
         Profile profile = profileId == null ? null : requireProfiles().load(profileId);
+        DialogStore.DialogDocument dialog = dialogs.load(dialogId.toString());
+        UUID selectedTaskId = selectedTaskId(dialog);
+        if (taskId != null && selectedTaskId != null && !taskId.equals(selectedTaskId)) {
+            throw new TaskSelectionMismatchException(selectedTaskId, taskId);
+        }
+        UUID effectiveTaskId = selectedTaskId != null ? selectedTaskId : taskId;
+        Task task = effectiveTaskId == null || tasks == null ? null : tasks.find(effectiveTaskId).orElse(null);
+        if (task != null && task.state().status() == TaskStatus.PAUSED) {
+            throw new TaskPausedException(effectiveTaskId);
+        }
         if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
             throw new IllegalArgumentException("Branch messages use FULL context only.");
         }
         AgentKey key = new AgentKey(dialogId, branchId);
         ConversationAgent agent = agents.get(key);
         if (agent == null) {
-            dialogs.load(dialogId.toString());
             ConversationContext context;
             if (branchId == null) {
                 context = histories.load(dialogId)
@@ -130,9 +154,9 @@ public class AgentDialogService {
             ConversationAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
-        AgentMemory.Snapshot memory = memories.load(dialogId, taskId);
+        AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
         return agent.reply(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()), profile);
+                model.executor(), defaultConfig.withModel(model.model()), profile, task);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
@@ -200,5 +224,22 @@ public class AgentDialogService {
             throw new IllegalStateException("Profile service is unavailable.");
         }
         return profiles;
+    }
+
+    private static UUID selectedTaskId(DialogStore.DialogDocument dialog) {
+        String value = dialog.state().path("ui").path("appliedTaskId").textValue();
+        return value == null ? null : UUID.fromString(value);
+    }
+
+    public static class TaskSelectionMismatchException extends IllegalArgumentException {
+        TaskSelectionMismatchException(UUID selectedTaskId, UUID requestTaskId) {
+            super("Dialog task selection " + selectedTaskId + " does not match request taskId " + requestTaskId + ".");
+        }
+    }
+
+    public static class TaskPausedException extends IllegalStateException {
+        TaskPausedException(UUID taskId) {
+            super("Task is paused: " + taskId);
+        }
     }
 }

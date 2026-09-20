@@ -81,11 +81,35 @@ interface AgentBranch { id: string; checkpointId: string; history: AgentMessage[
 interface AgentCheckpoint { id: string; baseHistory: AgentMessage[]; branches: AgentBranch[]; }
 interface AgentProfile { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string; }
 interface ProfileDraft { name: string; instructions: string; responseStyle: string; responseFormat: string; }
+type TaskStage = 'PLANNING' | 'EXECUTION' | 'VALIDATION' | 'DONE';
+type TaskStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED';
+type TaskAction = 'APPROVE_PLAN' | 'UPDATE_CURRENT_STEP' | 'START_VALIDATION' | 'ACCEPT_VALIDATION' | 'PAUSE' | 'RESUME';
+interface ManagedTask {
+  id: string; goal: string;
+  state: { stage: TaskStage; currentStep: string; expectedAction: string; status: TaskStatus; revision: number };
+  approvedPlan: string; validationEvidence: string; createdAt: string; updatedAt: string;
+}
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
 const STRATEGY_LABELS: Record<ReasoningStrategy, string> = {
   DIRECT: 'Прямой', STEP_BY_STEP: 'Пошаговый', SELF_PROMPT: 'Самопромпт', EXPERTS: 'Эксперты',
+};
+const TASK_STAGE_LABELS: Record<TaskStage, string> = {
+  PLANNING: 'Планирование', EXECUTION: 'Выполнение', VALIDATION: 'Проверка', DONE: 'Завершено',
+};
+const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  ACTIVE: 'Активна', PAUSED: 'На паузе', COMPLETED: 'Завершена',
+};
+const TASK_TEXT_LABELS: Record<string, string> = {
+  'Prepare and approve a plan': 'Подготовить и утвердить план',
+  'Approve the plan': 'Утвердить план',
+  'Execute the approved plan': 'Выполнять утверждённый план',
+  'Update the current step or start validation': 'Обновить текущий шаг или начать проверку',
+  'Validate the execution result': 'Проверить результат выполнения',
+  'Accept validation': 'Принять проверку',
+  'Validation accepted': 'Проверка принята',
+  'No further action': 'Дополнительных действий не требуется',
 };
 const DEFAULT_TERMINATION = 'Return exactly one JSON object. Stop immediately after the final closing brace. Do not add Markdown, explanations or text outside the JSON object.';
 const BENCHMARK = `Проанализируй Java-код и найди инженерные риски. Не предполагай скрытые гарантии, которых нет в snippet.
@@ -143,10 +167,19 @@ export class App implements OnInit, OnDestroy {
   protected branchId: string | null = null;
   protected checkpointId: string | null = null;
   protected appliedTaskId: string | null = null;
-  protected taskIdDraft = '';
-  protected taskEditing = false;
+  protected readonly tasks = signal<readonly ManagedTask[]>([]);
+  protected readonly currentTask = signal<ManagedTask | null>(null);
+  protected readonly taskError = signal('');
+  private readonly taskLoadingDialogs = new Set<string>();
+  private readonly taskOperationDialogs = new Set<string>();
+  private readonly taskSelectionOperations = new Map<string, number>();
+  private readonly taskLookupGenerations = new Map<string, number>();
+  protected taskGoalDraft = '';
+  protected taskCreationOpen = false;
+  protected taskPlanDraft = '';
+  protected taskStepDraft = '';
+  protected validationEvidenceDraft = '';
   protected readonly memoryEditing = signal(false);
-  protected taskCopyStatus = '';
   protected inspectorOpen = false;
   protected selectedAgentModelKey: string | null = null;
   protected readonly agentModelOptions = this.agentModelService.options;
@@ -160,6 +193,10 @@ export class App implements OnInit, OnDestroy {
   protected profileDraft: ProfileDraft = this.blankProfileDraft();
   private nextProfileEditorId = 0;
   private profileEditor: { id: number; dialogId: string | null } | null = null;
+  private readonly profileSelectionOperations = new Map<string, number>();
+  private readonly pendingProfileSelections = new Map<string, string | null>();
+  private readonly profileSelectionInFlight = new Set<string>();
+  private readonly confirmedProfileSelections = new Map<string, string | null>();
   protected readonly memoryScopes: readonly MemoryScope[] = ['SHORT_TERM', 'WORKING', 'LONG_TERM'];
   protected readonly memoryLabels: Record<MemoryScope, string> = {
     SHORT_TERM: 'Краткосрочная', WORKING: 'Рабочая', LONG_TERM: 'Долговременная',
@@ -202,6 +239,7 @@ export class App implements OnInit, OnDestroy {
     this.pageTitle.setTitle('Local AI Worker');
     this.loadAgentModels();
     this.loadProfiles();
+    this.loadTasks();
     this.loadDialogList();
     this.heartbeatTimer = setInterval(() => this.checkBackend(), 2000);
   }
@@ -253,9 +291,9 @@ export class App implements OnInit, OnDestroy {
   }
 
   protected chooseProfile(id: string | null): void {
-    if (this.loading() || (id && !this.profiles().some(profile => profile.id === id))) return;
-    this.selectedProfileId = id;
-    this.persistDialog();
+    const dialogId = this.currentDialogId();
+    if (!dialogId || this.loading() || (id && !this.profiles().some(profile => profile.id === id))) return;
+    this.selectProfileForDialog(dialogId, id);
   }
 
   protected newProfile(): void {
@@ -315,12 +353,6 @@ export class App implements OnInit, OnDestroy {
     this.memoryEditing.set(false); this.memoryKey = ''; this.memoryValue = '';
   }
 
-  protected async copyTaskId(): Promise<void> {
-    if (!this.appliedTaskId) return;
-    try { await navigator.clipboard.writeText(this.appliedTaskId); this.taskCopyStatus = 'Скопировано'; }
-    catch { this.taskCopyStatus = 'Не удалось скопировать'; }
-  }
-
   protected latestAgentResult(): ResultState | undefined {
     return [...this.visibleExchanges()].reverse().find(exchange => exchange.mode === 'AGENT' && !exchange.free?.loading)?.free;
   }
@@ -333,22 +365,114 @@ export class App implements OnInit, OnDestroy {
     this.loadMemory();
   }
 
-  protected generateTaskScope(): void {
-    this.taskIdDraft = crypto.randomUUID();
-    this.applyTaskScope();
+  protected isPausedTask(): boolean { return this.currentTask()?.state.status === 'PAUSED'; }
+
+  protected taskLoading(): boolean { return this.taskLoadingDialogs.has(this.currentDialogId() ?? ''); }
+
+  protected taskActionBusy(): boolean { return this.taskOperationDialogs.has(this.currentDialogId() ?? ''); }
+
+  protected taskStageLabel(stage: TaskStage): string { return TASK_STAGE_LABELS[stage]; }
+
+  protected taskStatusLabel(status: TaskStatus): string { return TASK_STATUS_LABELS[status]; }
+
+  protected taskTextLabel(value: string): string { return TASK_TEXT_LABELS[value] ?? value; }
+
+  protected toggleTaskCreation(): void {
+    this.taskCreationOpen = !this.taskCreationOpen;
+    if (!this.taskCreationOpen) this.taskGoalDraft = '';
   }
 
-  protected applyTaskScope(): void {
-    const taskId = this.taskIdDraft.trim();
-    if (!this.isUuid(taskId)) {
-      this.memoryError.set('Task ID должен быть UUID.');
-      return;
-    }
-    this.appliedTaskId = taskId;
-    this.taskEditing = false; this.taskCopyStatus = ''; this.closeMemoryEditor();
-    this.taskIdDraft = taskId;
-    this.persistDialog();
-    this.loadMemory();
+  protected chooseTask(taskId: string | null): void {
+    const dialogId = this.currentDialogId();
+    if (!dialogId || this.loading() || this.taskActionBusy()) return;
+    const task = taskId ? this.tasks().find(item => item.id === taskId) : undefined;
+    if (taskId && !task) return;
+    this.selectTaskForDialog(dialogId, taskId, task);
+  }
+
+  private selectTaskForDialog(dialogId: string, taskId: string | null, task = taskId ? this.tasks().find(item => item.id === taskId) : undefined): void {
+    const operation = (this.taskSelectionOperations.get(dialogId) ?? 0) + 1;
+    this.taskSelectionOperations.set(dialogId, operation); this.taskLoadingDialogs.add(dialogId);
+    if (this.currentDialogId() === dialogId) this.taskError.set('');
+    this.http.put<DialogDocument>(`/api/dialogs/${dialogId}/task-selection`, { taskId }).subscribe({
+      next: dialog => {
+        this.finishTaskLoading(dialogId);
+        if (this.taskSelectionOperations.get(dialogId) !== operation || this.currentDialogId() !== dialogId) return;
+        this.appliedTaskId = taskId;
+        if (task) this.acceptTask(task, dialogId); else this.currentTask.set(null);
+        this.taskStepDraft = task?.state.currentStep ?? ''; this.taskPlanDraft = task?.approvedPlan ?? '';
+        this.validationEvidenceDraft = task?.validationEvidence ?? ''; this.closeMemoryEditor(); this.loadMemory();
+        this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.finishTaskLoading(dialogId);
+        if (this.taskSelectionOperations.get(dialogId) === operation && this.currentDialogId() === dialogId) {
+          this.taskError.set(error.error?.error ?? 'Не удалось изменить задачу диалога.');
+        }
+      },
+    });
+  }
+
+  protected createTask(): void {
+    const goal = this.taskGoalDraft.trim();
+    const originDialogId = this.currentDialogId();
+    if (!goal || !originDialogId || this.taskActionBusy()) return;
+    this.beginTaskOperation(originDialogId); this.taskError.set('');
+    this.http.post<ManagedTask>('/api/tasks', { goal }).subscribe({
+      next: task => {
+        this.acceptTask(task); this.finishTaskOperation(originDialogId);
+        if (this.currentDialogId() === originDialogId) { this.taskGoalDraft = ''; this.taskCreationOpen = false; }
+        this.selectTaskForDialog(originDialogId, task.id, task);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.finishTaskOperation(originDialogId);
+        if (this.currentDialogId() === originDialogId) this.taskError.set(error.error?.error ?? 'Не удалось создать задачу.');
+      },
+    });
+  }
+
+  protected adoptLegacyScope(): void {
+    const originDialogId = this.currentDialogId();
+    const legacyTaskId = this.appliedTaskId;
+    if (!originDialogId || !legacyTaskId || !this.taskGoalDraft.trim() || this.currentTask() || this.taskActionBusy()) return;
+    this.beginTaskOperation(originDialogId); this.taskError.set('');
+    this.http.post<ManagedTask>('/api/tasks/adopt', { id: legacyTaskId, goal: this.taskGoalDraft.trim() }).subscribe({
+      next: task => {
+        this.acceptTask(task, originDialogId); this.finishTaskOperation(originDialogId);
+        if (this.currentDialogId() === originDialogId && this.appliedTaskId === legacyTaskId) this.taskGoalDraft = '';
+      },
+      error: (error: HttpErrorResponse) => {
+        this.finishTaskOperation(originDialogId);
+        if (this.currentDialogId() === originDialogId && this.appliedTaskId === legacyTaskId) {
+          this.taskError.set(error.error?.error ?? 'Не удалось принять legacy scope как задачу.');
+        }
+      },
+    });
+  }
+
+  protected applyTaskAction(action: TaskAction): void {
+    const task = this.currentTask();
+    const originDialogId = this.currentDialogId();
+    if (!task || !originDialogId || this.taskActionBusy()) return;
+    const body = { action, expectedRevision: task.state.revision,
+      ...(action === 'APPROVE_PLAN' ? { approvedPlan: this.taskPlanDraft } : {}),
+      ...(action === 'UPDATE_CURRENT_STEP' ? { currentStep: this.taskStepDraft } : {}),
+      ...(action === 'ACCEPT_VALIDATION' ? { validationEvidence: this.validationEvidenceDraft } : {}) };
+    this.beginTaskOperation(originDialogId); this.taskError.set('');
+    this.http.post<ManagedTask>(`/api/tasks/${task.id}/actions`, body).subscribe({
+      next: updated => { this.acceptTask(updated, originDialogId); this.finishTaskOperation(originDialogId); },
+      error: (error: HttpErrorResponse) => {
+        this.finishTaskOperation(originDialogId);
+        if (error.status === 409) {
+          if (this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
+            this.taskError.set('Состояние задачи изменилось в другом диалоге. Загружена актуальная версия.');
+          }
+          this.loadCurrentTask(task.id, originDialogId);
+        } else if (this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
+          this.taskError.set(error.error?.error ?? 'Не удалось применить действие задачи.');
+        }
+      },
+    });
   }
 
   protected saveMemory(): void {
@@ -440,7 +564,10 @@ export class App implements OnInit, OnDestroy {
 
   protected openDialog(id: string): void {
     if (this.loading() || id === this.currentDialogId()) return;
-    this.http.get<DialogDocument>(`/api/dialogs/${id}`).subscribe({ next: dialog => this.activateDialog(dialog) });
+    const profileOperation = this.profileSelectionOperations.get(id) ?? 0;
+    const profilePending = this.pendingProfileSelections.has(id);
+    this.http.get<DialogDocument>(`/api/dialogs/${id}`).subscribe({ next: dialog => this.activateDialog(dialog, false,
+      profilePending || (this.profileSelectionOperations.get(id) ?? 0) !== profileOperation) });
   }
 
   protected showMoreDialogs(): void { this.visibleDialogCount.update(count => count + 15); }
@@ -515,7 +642,8 @@ export class App implements OnInit, OnDestroy {
 
   protected analyze(): void {
     const input = this.input;
-    if (!input.trim() || this.loading() || !this.currentDialogId() || (this.experiment === 'AGENT' && this.topologyBusy())) return;
+    if (!input.trim() || this.loading() || !this.currentDialogId()
+      || (this.experiment === 'AGENT' && (this.topologyBusy() || this.isPausedTask()))) return;
     if (this.experiment === 'AGENT') { if (this.agentModelAvailable()) this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
@@ -622,22 +750,79 @@ export class App implements OnInit, OnDestroy {
       this.dialogs.set(dialogs); if (dialogs.length) this.openDialog(dialogs[0].id); else this.newDialog();
     }});
   }
-  private activateDialog(dialog: DialogDocument, fresh = false): void {
+  private loadTasks(): void {
+    this.http.get<ManagedTask[]>('/api/tasks').subscribe({
+      next: tasks => { tasks.forEach(task => this.acceptTask(task, undefined, false)); if (this.appliedTaskId) this.loadCurrentTask(this.appliedTaskId); },
+      error: () => this.taskError.set('Не удалось загрузить задачи.'),
+    });
+  }
+  private loadCurrentTask(taskId = this.appliedTaskId, originDialogId = this.currentDialogId()): void {
+    if (!taskId) { this.currentTask.set(null); return; }
+    if (!originDialogId) return;
+    const generation = this.beginTaskLookup(taskId);
+    this.taskLoadingDialogs.add(originDialogId);
+    this.http.get<ManagedTask>(`/api/tasks/${taskId}`).subscribe({
+      next: task => {
+        this.finishTaskLoading(originDialogId);
+        if (!this.isCurrentTaskLookup(taskId, generation)) return;
+        this.acceptTask(task, originDialogId, false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.finishTaskLoading(originDialogId);
+        if (!this.isCurrentTaskLookup(taskId, generation)
+          || this.currentDialogId() !== originDialogId || this.appliedTaskId !== taskId) return;
+        if (error.status === 404) { this.currentTask.set(null); return; }
+        this.taskError.set('Не удалось загрузить задачу.');
+      },
+    });
+  }
+  private acceptTask(task: ManagedTask, originDialogId?: string, invalidateLookup = true): void {
+    const current = this.tasks().find(item => item.id === task.id);
+    if (current && current.state.revision > task.state.revision) return;
+    if (invalidateLookup) this.invalidateTaskLookup(task.id);
+    this.tasks.update(items => [...items.filter(item => item.id !== task.id), task]);
+    if (originDialogId !== undefined && this.currentDialogId() === originDialogId && this.appliedTaskId === task.id) {
+      this.setCurrentTask(task);
+    }
+  }
+  private setCurrentTask(task: ManagedTask): void {
+    this.currentTask.set(task);
+    this.taskStepDraft = task.state.currentStep; this.taskPlanDraft = task.approvedPlan;
+    this.validationEvidenceDraft = task.validationEvidence;
+  }
+  private beginTaskOperation(dialogId: string): void { this.taskOperationDialogs.add(dialogId); }
+  private finishTaskOperation(dialogId: string): void { this.taskOperationDialogs.delete(dialogId); }
+  private finishTaskLoading(dialogId: string): void { this.taskLoadingDialogs.delete(dialogId); }
+  private beginTaskLookup(taskId: string): number {
+    const generation = (this.taskLookupGenerations.get(taskId) ?? 0) + 1;
+    this.taskLookupGenerations.set(taskId, generation);
+    return generation;
+  }
+  private invalidateTaskLookup(taskId: string): void { this.beginTaskLookup(taskId); }
+  private isCurrentTaskLookup(taskId: string, generation: number): boolean {
+    return this.taskLookupGenerations.get(taskId) === generation;
+  }
+  private activateDialog(dialog: DialogDocument, fresh = false, preserveProfileSelection = false): void {
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
     const ui = dialog.state?.ui;
     this.experiment = ui?.experiment ?? (fresh ? 'AGENT' : 'FORMAT'); this.selectedMode = ui?.selectedMode ?? 'FREE';
     this.selectedAgentModelKey = ui?.selectedAgentModelKey ?? null;
-    this.selectedProfileId = ui?.selectedProfileId ?? null;
+    this.selectedProfileId = preserveProfileSelection && this.confirmedProfileSelections.has(dialog.id)
+      ? this.confirmedProfileSelections.get(dialog.id) ?? null : ui?.selectedProfileId ?? null;
+    if (!preserveProfileSelection) this.confirmedProfileSelections.set(dialog.id, this.selectedProfileId);
     this.normalizeSelectedProfile();
-    this.taskEditing = false; this.taskCopyStatus = ''; this.closeMemoryEditor(); this.input = '';
+    if (this.pendingProfileSelections.has(dialog.id)) {
+      this.selectedProfileId = this.pendingProfileSelections.get(dialog.id) ?? null;
+    }
+    this.taskError.set(''); this.taskGoalDraft = ''; this.taskCreationOpen = false; this.closeMemoryEditor(); this.input = '';
     this.selectedStrategy = ui?.selectedStrategy ?? 'DIRECT'; this.selectedTemperature = ui?.selectedTemperature ?? 0;
     this.selectedModelKey = ui?.selectedModelKey ?? 'WEAK';
     this.linearContextMode = ui?.linearContextMode ?? ui?.contextMode ?? 'FULL';
     this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : this.linearContextMode;
     this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = ui?.checkpointId ?? null;
-    this.appliedTaskId = ui?.appliedTaskId ?? null; this.taskIdDraft = this.appliedTaskId ?? '';
+    this.appliedTaskId = ui?.appliedTaskId ?? null; this.currentTask.set(null);
     this.topologyRequestGeneration++; this.branches.set([]); this.checkpoints.set([]); this.branchViews.set({});
     this.memoryRequestGeneration++; this.memory.set({ taskId: this.appliedTaskId, shortTerm: {}, working: {}, longTerm: {} });
     this.memoryLoading.set(false); this.memorySaving.set(false); this.memoryError.set(''); this.memorySuccess.set('');
@@ -649,6 +834,7 @@ export class App implements OnInit, OnDestroy {
     this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
     this.sidebarOpen.set(false);
     this.requestScrollToLatest();
+    this.loadCurrentTask();
     if (this.experiment === 'AGENT') this.selectAgent();
   }
   private loadTopology(): void {
@@ -694,7 +880,7 @@ export class App implements OnInit, OnDestroy {
     });
   }
   private analyzeAgent(input: string): void {
-    const dialogId = this.currentDialogId(); if (!dialogId) return;
+    const dialogId = this.currentDialogId(); if (!dialogId || this.isPausedTask()) return;
     const requestBranchId = this.branchId;
     const agentModelKey = this.activeAgentModelKey();
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
@@ -824,13 +1010,55 @@ export class App implements OnInit, OnDestroy {
   private normalizeSelectedProfile(): void {
     if (this.profilesLoaded && this.selectedProfileId && !this.selectedProfile()) this.selectedProfileId = null;
   }
-  private selectProfileForDialog(dialogId: string, profileId: string): void {
-    if (this.currentDialogId() === dialogId) {
-      this.selectedProfileId = profileId;
-    }
+  private selectProfileForDialog(dialogId: string, profileId: string | null): void {
+    const operation = (this.profileSelectionOperations.get(dialogId) ?? 0) + 1;
+    this.profileSelectionOperations.set(dialogId, operation);
+    this.pendingProfileSelections.set(dialogId, profileId);
+    if (this.currentDialogId() === dialogId) this.selectedProfileId = profileId;
+    this.persistProfileSelection(dialogId, profileId, operation);
+  }
+  private persistProfileSelection(dialogId: string, profileId: string | null, operation: number): void {
+    if (this.profileSelectionInFlight.has(dialogId)) return;
+    this.profileSelectionInFlight.add(dialogId);
     this.http.put<DialogDocument>(`/api/dialogs/${dialogId}/profile-selection`, { profileId }).subscribe({
-      next: dialog => this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]),
+      next: dialog => {
+        this.profileSelectionInFlight.delete(dialogId);
+        const latest = this.profileSelectionOperations.get(dialogId) === operation;
+        this.reconcileProfileSelection(dialog, latest);
+        if (latest) this.pendingProfileSelections.delete(dialogId);
+        else this.persistProfileSelection(dialogId, this.pendingProfileSelections.get(dialogId) ?? null,
+          this.profileSelectionOperations.get(dialogId)!);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.profileSelectionInFlight.delete(dialogId);
+        if (this.profileSelectionOperations.get(dialogId) !== operation) {
+          this.persistProfileSelection(dialogId, this.pendingProfileSelections.get(dialogId) ?? null,
+            this.profileSelectionOperations.get(dialogId)!);
+          return;
+        }
+        this.pendingProfileSelections.delete(dialogId);
+        this.profilesError.set(error.error?.error ?? 'Не удалось изменить профиль диалога.');
+        this.reloadProfileSelection(dialogId, operation);
+      },
     });
+  }
+  private reloadProfileSelection(dialogId: string, operation: number): void {
+    this.http.get<DialogDocument>(`/api/dialogs/${dialogId}`).subscribe({
+      next: dialog => {
+        if (this.profileSelectionOperations.get(dialogId) === operation) this.reconcileProfileSelection(dialog);
+      },
+      error: () => {
+        if (this.profileSelectionOperations.get(dialogId) === operation && this.currentDialogId() === dialogId) {
+          this.selectedProfileId = this.confirmedProfileSelections.get(dialogId) ?? null;
+        }
+      },
+    });
+  }
+  private reconcileProfileSelection(dialog: DialogDocument, updateCurrent = true): void {
+    const selectedProfileId = dialog.state?.ui?.selectedProfileId ?? null;
+    this.confirmedProfileSelections.set(dialog.id, selectedProfileId);
+    this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
+    if (updateCurrent && this.currentDialogId() === dialog.id) this.selectedProfileId = selectedProfileId;
   }
   private isCurrentProfileEditor(editor: { id: number; dialogId: string | null } | null): boolean {
     return editor !== null && this.profileEditor?.id === editor.id && this.currentDialogId() === editor.dialogId;
@@ -847,9 +1075,6 @@ export class App implements OnInit, OnDestroy {
   }
   private isCurrentMemoryOperation(dialogId: string, taskId: string | null, operation: number): boolean {
     return this.currentDialogId() === dialogId && this.appliedTaskId === taskId && this.memoryRequestGeneration === operation;
-  }
-  private isUuid(value: string): boolean {
-    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
   }
   private finishTopologyOperation(dialogId: string, operation: number): void {
     if (this.isCurrentTopologyOperation(dialogId, operation)) this.topologyBusy.set(false);

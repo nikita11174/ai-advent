@@ -71,6 +71,18 @@ class AgentController {
         return new ApiError(exception.getMessage(), null);
     }
 
+    @ExceptionHandler(AgentDialogService.TaskSelectionMismatchException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    ApiError taskSelectionMismatch(AgentDialogService.TaskSelectionMismatchException exception) {
+        return new ApiError(exception.getMessage(), null);
+    }
+
+    @ExceptionHandler(AgentDialogService.TaskPausedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    ApiError pausedTask(AgentDialogService.TaskPausedException exception) {
+        return new ApiError(exception.getMessage(), null);
+    }
+
     @ExceptionHandler(ContextLimitExceededException.class)
     @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
     ApiError contextLimit(ContextLimitExceededException exception) {

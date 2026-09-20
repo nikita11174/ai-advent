@@ -18,6 +18,10 @@ import dev.aiadvent.worker.model.AgentModelCatalog;
 import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.profile.ProfileService;
 import dev.aiadvent.worker.profile.ProfileStore;
+import dev.aiadvent.worker.task.Task;
+import dev.aiadvent.worker.task.TaskCommand;
+import dev.aiadvent.worker.task.TaskService;
+import dev.aiadvent.worker.task.TaskStore;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -230,6 +234,8 @@ class AgentDialogServiceTest {
         AgentModelExecutor client = mock(AgentModelExecutor.class);
         UUID id = UUID.randomUUID();
         when(histories.load(id)).thenReturn(Optional.empty());
+        when(dialogs.load(id.toString())).thenReturn(new DialogStore.DialogDocument(id.toString(), "Dialog",
+                java.time.Instant.EPOCH, java.time.Instant.EPOCH, new ObjectMapper().createObjectNode()));
         var start = new CyclicBarrier(2);
         var providerEntered = new CountDownLatch(1);
         var releaseProvider = new CountDownLatch(1);
@@ -408,6 +414,150 @@ class AgentDialogServiceTest {
         assertEquals("Java", memories.load(kept, task).longTerm().get("language"));
         assertFalse(histories.load(kept).isEmpty());
         assertThrows(DialogStore.DialogNotFoundException.class, () -> service.reply(deleted, "resurrect"));
+    }
+
+    @Test
+    void projectsManagedTaskOnceSharesWorkingMemoryAndKeepsDialogStateSeparate() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var branches = new AgentBranchStore(directory.resolve("branches"), json);
+        var memories = new AgentMemoryStore(directory.resolve("memory"), json);
+        var tasks = new TaskService(new TaskStore(directory.resolve("tasks"), json));
+        var profiles = new ProfileService(new ProfileStore(directory.resolve("profiles"), json));
+        Profile profile = profiles.create("Reviewer", "PROFILE_MARKER", "Concise", "Markdown");
+        Task task = tasks.create("Prepare Java/PostgreSQL engineering solution");
+        UUID dialogA = UUID.fromString(dialogs.create().id());
+        UUID dialogB = UUID.fromString(dialogs.create().id());
+        dialogs.updateTaskSelection(dialogA.toString(), task.id());
+        dialogs.updateTaskSelection(dialogB.toString(), task.id());
+        memories.upsert(dialogA, task.id(), AgentMemory.Scope.SHORT_TERM, "dialog", "A_ONLY");
+        memories.upsert(dialogA, task.id(), AgentMemory.Scope.WORKING, "database", "PostgreSQL");
+        memories.upsert(dialogB, task.id(), AgentMemory.Scope.SHORT_TERM, "dialog", "B_ONLY");
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("A"), completion("B"), completion("branch"));
+        var service = managedService(dialogs, histories, branches, memories, profiles, tasks, client);
+
+        service.reply(dialogA, "first", ContextMode.FULL, 4, null, task.id(), null, profile.id());
+        service.reply(dialogB, "second", ContextMode.FULL, 4, null, task.id(), null, null);
+        AgentBranchStore.Branch branch = service.createBranch(dialogA, service.createCheckpoint(dialogA, null).id());
+        service.reply(dialogA, "branch", ContextMode.FULL, 4, branch.id(), task.id(), null, null);
+
+        ArgumentCaptor<AgentModelRequest> requests = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(3)).complete(requests.capture());
+        String first = requestText(requests.getAllValues().get(0));
+        String second = requestText(requests.getAllValues().get(1));
+        String branchRequest = requestText(requests.getAllValues().get(2));
+        assertEquals(1, count(first, "Authoritative application-owned task state"));
+        assertTrue(first.contains("PROFILE_MARKER") && first.contains(task.goal()) && first.contains("A_ONLY") && first.contains("PostgreSQL"));
+        assertTrue(second.contains(task.goal()) && second.contains("B_ONLY") && second.contains("PostgreSQL") && !second.contains("A_ONLY"));
+        assertTrue(branchRequest.contains(task.goal()));
+        assertTrue(histories.load(dialogA).orElseThrow().stream().noneMatch(message -> message.content().contains(task.goal())));
+        assertTrue(branches.loadBranch(dialogA, branch.id()).stream().noneMatch(message -> message.content().contains(task.goal())));
+        assertEquals("PostgreSQL", memories.load(dialogB, task.id()).working().get("database"));
+        assertEquals("B_ONLY", memories.load(dialogB, task.id()).shortTerm().get("dialog"));
+        assertEquals("A_ONLY", memories.load(dialogA, task.id()).shortTerm().get("dialog"));
+
+        Task changed = tasks.apply(task.id(), new TaskCommand.UpdateCurrentStep("Implement persistence"), 0);
+        assertEquals(changed, tasks.load(task.id()));
+        service.deleteDialog(dialogA);
+        assertEquals(changed, tasks.load(task.id()));
+        assertEquals("PostgreSQL", memories.load(dialogB, task.id()).working().get("database"));
+    }
+
+    @Test
+    void resolvesSelectedTaskForOmittedRequestsAndRejectsPausedOrMismatchedManagedTaskBeforeProvider() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var branches = new AgentBranchStore(directory.resolve("branches"), json);
+        var memories = new AgentMemoryStore(directory.resolve("memory"), json);
+        var tasks = new TaskService(new TaskStore(directory.resolve("tasks"), json));
+        var profiles = new ProfileService(new ProfileStore(directory.resolve("profiles"), json));
+        UUID dialogId = UUID.fromString(dialogs.create().id());
+        UUID legacyId = UUID.randomUUID();
+        memories.upsert(dialogId, legacyId, AgentMemory.Scope.WORKING, "legacy", "LEGACY_VALUE");
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("legacy"));
+        var service = managedService(dialogs, histories, branches, memories, profiles, tasks, client);
+
+        service.reply(dialogId, "no task", ContextMode.FULL, 4, null, null, null, null);
+        service.reply(dialogId, "explicit legacy", ContextMode.FULL, 4, null, legacyId, null, null);
+        dialogs.updateTaskSelection(dialogId.toString(), legacyId);
+        service.reply(dialogId, "legacy", ContextMode.FULL, 4, null, null, null, null);
+
+        Task managed = tasks.adopt(legacyId, "Adopt legacy scope");
+        dialogs.updateTaskSelection(dialogId.toString(), managed.id());
+        service.reply(dialogId, "active", ContextMode.FULL, 4, null, null, null, null);
+        ArgumentCaptor<AgentModelRequest> requests = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(4)).complete(requests.capture());
+        assertTrue(!requestText(requests.getAllValues().get(0)).contains("LEGACY_VALUE"));
+        assertTrue(!requestText(requests.getAllValues().get(0)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(1)).contains("LEGACY_VALUE"));
+        assertTrue(!requestText(requests.getAllValues().get(1)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(2)).contains("LEGACY_VALUE"));
+        assertTrue(!requestText(requests.getAllValues().get(2)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(3)).contains(managed.goal()));
+        assertTrue(requestText(requests.getAllValues().get(3)).contains("LEGACY_VALUE"));
+        tasks.apply(managed.id(), new TaskCommand.Pause(), 0);
+        assertThrows(AgentDialogService.TaskPausedException.class,
+                () -> service.reply(dialogId, "paused", ContextMode.FULL, 4, null, null, null, null));
+        verify(client, times(4)).complete(any());
+        assertThrows(AgentDialogService.TaskSelectionMismatchException.class,
+                () -> service.reply(dialogId, "mismatch", ContextMode.FULL, 4, null, UUID.randomUUID(), null, null));
+        verify(client, times(4)).complete(any());
+    }
+
+    @Test
+    void keepsTaskContextOutOfSummaryAndStickyFactsMaintenanceCalls() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        var dialogs = new DialogStore(directory.resolve("dialogs"), json);
+        var histories = new AgentHistoryStore(directory.resolve("histories"), json);
+        var branches = new AgentBranchStore(directory.resolve("branches"), json);
+        var memories = new AgentMemoryStore(directory.resolve("memory"), json);
+        var tasks = new TaskService(new TaskStore(directory.resolve("tasks"), json));
+        var profiles = new ProfileService(new ProfileStore(directory.resolve("profiles"), json));
+        var summaries = new AgentSummaryStore(directory.resolve("summaries"), json);
+        var facts = new StickyFactsStore(directory.resolve("facts"), json);
+        Task task = tasks.create("Maintenance-isolated task");
+        UUID summaryDialog = UUID.fromString(dialogs.create().id());
+        UUID factsDialog = UUID.fromString(dialogs.create().id());
+        AgentModelExecutor client = mock(AgentModelExecutor.class);
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(completion("first"), completion("summary"),
+                completion("second"), completion("{\"facts\":{\"database\":\"PostgreSQL\"}}"), completion("facts answer"));
+        ApproximateTokenEstimator estimator = new ApproximateTokenEstimator();
+        var service = new AgentDialogService(dialogs, histories, estimator, summaries,
+                new ConversationSummaryService(client, estimator), facts, new StickyFactsService(client, estimator, json), branches,
+                memories, 0, new AgentModelCatalog(client, null), profiles, tasks);
+
+        service.reply(summaryDialog, "first", ContextMode.FULL, 1, null, task.id(), null, null);
+        service.reply(summaryDialog, "second", ContextMode.SUMMARY_RECENT, 1, null, task.id(), null, null);
+        service.reply(factsDialog, "facts", ContextMode.STICKY_FACTS, 1, null, task.id(), null, null);
+
+        ArgumentCaptor<AgentModelRequest> requests = ArgumentCaptor.forClass(AgentModelRequest.class);
+        verify(client, times(5)).complete(requests.capture());
+        assertTrue(requestText(requests.getAllValues().get(1)).contains("Summarize the engineering conversation"));
+        assertTrue(!requestText(requests.getAllValues().get(1)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(2)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(3)).contains("Extract important durable facts"));
+        assertTrue(!requestText(requests.getAllValues().get(3)).contains("Authoritative application-owned task state"));
+        assertTrue(requestText(requests.getAllValues().get(4)).contains("Authoritative application-owned task state"));
+    }
+
+    private AgentDialogService managedService(DialogStore dialogs, AgentHistoryStore histories, AgentBranchStore branches,
+                                               AgentMemoryStore memories, ProfileService profiles, TaskService tasks,
+                                               AgentModelExecutor client) {
+        return new AgentDialogService(dialogs, histories, new ApproximateTokenEstimator(), mock(AgentSummaryStore.class),
+                mock(ConversationSummaryService.class), mock(StickyFactsStore.class), mock(StickyFactsService.class), branches,
+                memories, 0, new AgentModelCatalog(client, null), profiles, tasks);
+    }
+
+    private static String requestText(AgentModelRequest request) {
+        return request.messages().stream().map(AgentModelMessage::content).collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private static long count(String value, String fragment) {
+        return value.split(java.util.regex.Pattern.quote(fragment), -1).length - 1L;
     }
 
     private AgentDialogService service(DialogStore dialogs, AgentModelExecutor client, AgentHistoryStore histories) {

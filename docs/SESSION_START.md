@@ -28,9 +28,10 @@ publication authorization.
 Day 11 is CLOSED: final video demo PASS, VIDEO RECORDED: YES, and `2ab727f` adds the
 live-smoked supported dialog delete UX. Day 12 is CLOSED at product commit `24a11b1`: Profile is
 orchestration configuration describing HOW the agent works, not Memory describing WHAT is retained.
-`Profile config != Memory`; Profile persistence and per-dialog selection are independent of
-history and Memory. Day 13 is NOT STARTED; do not pre-build Task/TaskState, Invariants or controlled
-transitions.
+`Profile config != Memory`; Profile persistence and per-dialog selection are independent of history
+and Memory. Day 13 Task/TaskState is CODE ACCEPTED at `15c7598`: persisted Task progress, pause/resume,
+Task-scoped WORKING Memory and per-main-call Task context are implemented. Video is pending. Day 14
+Invariants is NOT STARTED; do not restart Day 13 architecture work or pre-build Day 14/15 transitions.
 
 For follow-up work in the same session, use delta context rather than repeating
 this full handoff.

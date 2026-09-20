@@ -17,6 +17,7 @@ import dev.aiadvent.worker.model.AgentModelMessage;
 import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
 import dev.aiadvent.worker.profile.Profile;
+import dev.aiadvent.worker.task.Task;
 
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -93,11 +94,25 @@ public final class ConversationAgent {
     AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                      AgentModelExecutor executor, AgentConfig requestConfig, Profile profile)
             throws IOException, ModelExecutionException {
-        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, false);
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, null);
+    }
+
+    AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task)
+            throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, Profile profile,
+                             boolean legacyMaintenanceCalls)
+            throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, null,
+                legacyMaintenanceCalls);
+    }
+
+    private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                             AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
                              boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
@@ -160,6 +175,7 @@ public final class ConversationAgent {
                 };
                 List<ConversationContext.Message> outbound = policy.build(raw, input, summary, facts, recent);
                 outbound = withProfile(outbound, profile);
+                outbound = withTask(outbound, profile, task);
                 if (!memory.isEmpty()) {
                     var assembled = new ArrayList<>(outbound);
                     assembled.add(assembled.size() - 1,
@@ -229,6 +245,30 @@ public final class ConversationAgent {
                 Response format: %s""".formatted(profile.name(), profile.instructions(), profile.responseStyle(),
                 profile.responseFormat())));
         return List.copyOf(effective);
+    }
+
+    private static List<ConversationContext.Message> withTask(List<ConversationContext.Message> outbound, Profile profile,
+                                                               Task task) {
+        if (task == null) {
+            return outbound;
+        }
+        String context = """
+                Authoritative application-owned task state. Model output does not mutate this state; only application task actions can change its lifecycle.
+                Task ID: %s
+                Goal: %s
+                Stage: %s
+                Current step: %s
+                Expected action: %s
+                Status: %s%s%s""".formatted(task.id(), task.goal(), task.state().stage(), task.state().currentStep(),
+                task.state().expectedAction(), task.state().status(), optional("Approved plan", task.approvedPlan()),
+                optional("Validation evidence", task.validationEvidence()));
+        var effective = new ArrayList<>(outbound);
+        effective.add(profile == null ? 1 : 2, new ConversationContext.Message("system", context));
+        return List.copyOf(effective);
+    }
+
+    private static String optional(String label, String value) {
+        return value.isBlank() ? "" : "\n" + label + ": " + value;
     }
 
     private void saveDerivedState(ConversationSummary summaryCandidate, StickyFacts factsCandidate) {

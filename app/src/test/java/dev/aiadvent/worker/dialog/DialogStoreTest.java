@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DialogStoreTest {
     @TempDir
@@ -50,18 +51,63 @@ class DialogStoreTest {
         DialogStore store = new DialogStore(directory, json, clock);
         var created = store.create();
         UUID profileId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
         var state = json.readTree("""
-                {"exchanges":[{"input":"newer"}],"ui":{"selectedAgentModelKey":"MEDIUM","appliedTaskId":"task"}}
+                {"exchanges":[{"input":"newer"}],"ui":{"selectedAgentModelKey":"MEDIUM"}}
                 """);
         store.update(created.id(), new DialogStore.DialogUpdate("Newer title", state));
+        store.updateTaskSelection(created.id(), taskId);
 
         var updated = store.updateProfileSelection(created.id(), profileId);
 
         assertEquals("Newer title", updated.title());
         assertEquals("newer", updated.state().path("exchanges").get(0).path("input").textValue());
         assertEquals("MEDIUM", updated.state().path("ui").path("selectedAgentModelKey").textValue());
-        assertEquals("task", updated.state().path("ui").path("appliedTaskId").textValue());
+        assertEquals(taskId.toString(), updated.state().path("ui").path("appliedTaskId").textValue());
         assertEquals(profileId.toString(), updated.state().path("ui").path("selectedProfileId").textValue());
+    }
+
+    @Test
+    void updatesAndClearsOnlyTaskSelectionWithoutReplacingOtherDialogState() throws Exception {
+        DialogStore store = new DialogStore(directory, json, clock);
+        var created = store.create();
+        UUID taskId = UUID.randomUUID();
+        UUID profileId = UUID.randomUUID();
+        var state = json.readTree("""
+                {"exchanges":[{"input":"newer"}],"ui":{"selectedAgentModelKey":"MEDIUM"}}
+                """);
+        store.update(created.id(), new DialogStore.DialogUpdate("Newer title", state));
+        store.updateProfileSelection(created.id(), profileId);
+
+        var selected = store.updateTaskSelection(created.id(), taskId);
+        var cleared = store.updateTaskSelection(created.id(), null);
+
+        assertEquals("newer", selected.state().path("exchanges").get(0).path("input").textValue());
+        assertEquals("MEDIUM", selected.state().path("ui").path("selectedAgentModelKey").textValue());
+        assertEquals(profileId.toString(), selected.state().path("ui").path("selectedProfileId").textValue());
+        assertEquals(taskId.toString(), selected.state().path("ui").path("appliedTaskId").textValue());
+        assertTrue(cleared.state().path("ui").path("appliedTaskId").isNull());
+    }
+
+    @Test
+    void genericUpdatePreservesNewerTaskAndProfileSelectionsWhileSavingOtherState() throws Exception {
+        DialogStore store = new DialogStore(directory, json, clock);
+        var created = store.create();
+        UUID newProfile = UUID.randomUUID();
+        UUID newTask = UUID.randomUUID();
+        store.updateProfileSelection(created.id(), newProfile);
+        store.updateTaskSelection(created.id(), newTask);
+        var staleState = json.readTree("""
+                {"exchanges":[{"input":"saved"}],"ui":{"selectedProfileId":"old-profile","appliedTaskId":"old-task","selectedAgentModelKey":"MEDIUM"}}
+                """);
+
+        var updated = store.update(created.id(), new DialogStore.DialogUpdate("Saved title", staleState));
+
+        assertEquals("Saved title", updated.title());
+        assertEquals("saved", updated.state().path("exchanges").get(0).path("input").textValue());
+        assertEquals("MEDIUM", updated.state().path("ui").path("selectedAgentModelKey").textValue());
+        assertEquals(newProfile.toString(), updated.state().path("ui").path("selectedProfileId").textValue());
+        assertEquals(newTask.toString(), updated.state().path("ui").path("appliedTaskId").textValue());
     }
 
     @Test

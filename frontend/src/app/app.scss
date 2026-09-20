@@ -1,13 +1,13 @@
-:host { display:flex; height:100dvh; flex-direction:column; color:#17223b; }
+:host { display:flex; height:100dvh; overflow:hidden; flex-direction:column; color:#17223b; }
 :host :is(button, select) { font-family:inherit !important; }
-.workspace { display:flex; min-height:0; flex:1; }
+.workspace { display:flex; min-height:0; overflow:hidden; flex:1; }
 .topbar { z-index:5; display:flex; flex:0 0 56px; justify-content:space-between; padding:0 20px; color:#f8fbff; background:#101c32; font-family:inherit; }
 .brand, .context { display:flex; align-items:center; gap:12px; }
 .brand { font-size:18px; font-weight:650; }
 .brand-mark { display:grid; place-items:center; width:32px; height:32px; border-radius:9px; background:#b9d6ff; color:#101c32; font-size:11px; }
-.sidebar-toggle, .inspector-toggle, .inspector-close { display:none; color:inherit; background:transparent; border:0; cursor:pointer; font-size:18px; }
+.sidebar-toggle, .inspector-toggle { display:none; color:inherit; background:transparent; border:0; cursor:pointer; font-size:18px; }
 .model-badge { padding:5px 8px; border:1px solid #43516b; border-radius:8px; font-size:12px; }
-.dialog-sidebar { display:flex; width:210px; flex:0 0 210px; min-height:0; padding:16px 12px; flex-direction:column; gap:12px; background:#eef2f7; border-right:1px solid #dde3ed; }
+.dialog-sidebar { display:flex; width:210px; flex:0 0 210px; min-height:0; overflow:hidden; padding:16px 12px; flex-direction:column; gap:12px; background:#eef2f7; border-right:1px solid #dde3ed; }
 .dialog-sidebar h2 { margin:0; font-size:13px; color:#62708a; }
 .dialog-sidebar nav { display:grid; align-content:start; min-height:0; gap:4px; overflow:hidden auto; }
 .dialog-row { position:relative; }
@@ -101,7 +101,7 @@ summary { cursor:pointer; font-size:12px; font-weight:650; }
 :host button:focus-visible, :host select:focus-visible, :host textarea:focus-visible, :host input:focus-visible { outline:2px solid #426ad9; outline-offset:2px; }
 @media (max-width:1100px) {
   .workspace { position:relative; }
-  .inspector-toggle, .inspector-close { display:block; }
+  .inspector-toggle { display:block; }
 }
 @media (max-width:760px) {
   .dialog-sidebar { display:none; position:absolute; z-index:7; width:210px; height:100%; }

@@ -10,15 +10,15 @@
 | Поле | Состояние |
 |---|---|
 | Product | Local AI Worker; Engineering Review Mentor — specialized use case |
-| Current milestone | Day 12 CLOSED: implementation, independent acceptance, browser/runtime acceptance and final video complete |
-| Current branch | `day_12`; Day 12 product commit `24a11b1` |
-| Current implementation | Day 11 memory/provider-model/UX baseline plus Day 12 Profile capability complete; structural refactor remains accepted |
-| Immediate next step | Day 13 NOT STARTED; ждать явной owner instruction |
+| Current milestone | Day 13 code accepted; final video pending |
+| Current branch | `day_13`; Day 13 product commit `15c7598` |
+| Current implementation | Day 11 memory/provider-model/UX baseline plus Day 12 Profile and Day 13 Task/TaskState capabilities complete; structural refactor remains accepted |
+| Immediate next step | Create `day_14` from accepted Day 13 HEAD and start Day 14 Invariants; Day 13 video may be recorded later |
 
 ## Day 12 — CLOSED
 
 - Product commit: `24a11b1 feat: add agent profiles`.
-- `DAY12_CLOSED: YES`; `VIDEO_RECORDED: YES`; `DAY13_STARTED: NO`.
+- `DAY12_CLOSED: YES`; `VIDEO_RECORDED: YES`; следующий Day 13 впоследствии принят по коду.
 - Final independent review: **ACCEPTED_WITH_NONBLOCKING_NOTES**; BLOCKER/HIGH/MEDIUM отсутствуют.
 - Profile is orchestration configuration describing **HOW** the agent works; Memory is retained/
   accumulated information describing **WHAT** is remembered. `Profile config != Memory`.
@@ -36,6 +36,19 @@
   browser A/B/no-profile, restart persistence, refresh and per-dialog selection PASS.
   Final automated walkthrough PASS; external video recorded and technically verified at
   `E:\Video-AI\day-12.mkv` (04:10, 1920x1080). `VIDEO_RECORDED: YES`.
+
+## Day 13 — CODE ACCEPTED
+
+- Product commit: `15c7598 feat: add task state machine`.
+- `DAY13_CODE_ACCEPTED: YES`; `READY_FOR_VIDEO: YES`; `VIDEO_RECORDED: NO`; `DAY14_STARTED: NO`.
+- Delivered: persisted Task/TaskState with stage, current step, expected action, status and revision;
+  happy path `PLANNING -> EXECUTION -> VALIDATION -> DONE`; pause/resume and restart persistence.
+- Dialog != Task. One Task may be used by multiple Dialogs; Task.id is the `WORKING` Memory scope,
+  while dialog history and `SHORT_TERM` Memory remain separate. Legacy UUID scopes require explicit adoption.
+- `TaskService` owns persisted lifecycle mutation. Task context is projected into each main model call;
+  ModelExecutor and storage boundaries remain unchanged.
+- Verification: backend targeted tests and compile PASS; frontend 64/64 PASS and build PASS;
+  browser lifecycle, restart, multi-dialog and final consistency scenarios PASS. Video has not been recorded.
 
 ## Structural refactor — OWNER ACCEPTED, 2026-09-17
 
@@ -71,6 +84,7 @@
 | 10 | Complete: `f2db863` feature, `b538516` post-review fixes, `95c548` UI-race fixes; controlled acceptance and independent verification closed; browser video scenario executed 2026-09-14: Sliding N=2 retained 0/4 early facts, Sticky retained 4/4, branches A=PostgreSQL and B=ClickHouse with sibling isolation PASS (OBS file/submission not verified) |
 | 11 | CLOSED: implementation complete; structural acceptance ACCEPTED; backend targeted tests and frontend 40/40 PASS; runtime/browser acceptance PASS; final video demo PASS and VIDEO RECORDED: YES. `2ab727f` adds live-smoked supported dialog deletion and compact sidebar UX. |
 | 12 | CLOSED: `24a11b1` Profile capability; final independent review ACCEPTED_WITH_NONBLOCKING_NOTES; tests/runtime/browser PASS; `VIDEO_RECORDED: YES`. |
+| 13 | CODE ACCEPTED: `15c7598` Task/TaskState capability; backend/frontend/runtime/browser evidence PASS; `VIDEO_RECORDED: NO`; Day 14 not started. |
 
 Week 2 code branches are published on origin: `day_6` at `8b4524f`, `day_7` at
 `69547b3`, `day_8` at `2cf1978`, `day_9` at `13ddba1`, and `day_10` at `98f9112`.
@@ -84,8 +98,9 @@ organizer submissions remain owner-controlled and are not verified here.
   `DEEPSEEK` (default), `WEAK`, `MEDIUM`, `STRONG`; browser passes only the key. `AgentModelCatalog`
   and `AgentModelExecutor` isolate provider execution; main, summary and Sticky Facts use the
   selected executor while preserving history, memory, task scope and topology semantics.
-- Task/Run, MCP/tool boundary, retrieval/RAG, local-model runtime and pipelines
-  are intentional future extension points. Do not pre-build them.
+- Run, MCP/tool boundary, retrieval/RAG, local-model runtime and pipelines are intentional future
+  extension points. Do not pre-build them. Task/TaskState is implemented; Day 14 Invariants and Day 15
+  controlled red-path transitions remain future work.
 - Raw history is canonical; summary and Sticky Facts are rebuildable derived
   memory; branches/checkpoints are topology. See `ARCHITECTURE.md` for the
   complete contract.
@@ -118,16 +133,12 @@ organizer submissions remain owner-controlled and are not verified here.
 
 ## Near-term queue
 
-1. **Day 13 Task / Task State Machine** — NOT STARTED. First-class persisted Task and TaskState
-   with `stage`, `currentStep`, `expectedAction` and happy path
-   `planning -> execution -> validation -> done`; Dialog != Task, Task may outlive dialogs, and
-   pause/resume preserves progress. Current `taskId` is only the `WORKING`-memory scope key.
-2. **Day 14 Invariants** — NOT STARTED. Rules/constraints remain distinct from Memory; deterministic
+1. **Day 14 Invariants** — NOT STARTED. Create `day_14` from accepted Day 13 HEAD. Rules/constraints remain distinct from Memory; deterministic
    enforcement and contextual/semantic evaluation remain separate. Do not build a universal engine.
-3. **Day 15 Controlled transitions** — NOT STARTED. Model/user proposes an action; application
+2. **Day 15 Controlled transitions** — NOT STARTED. Model/user proposes an action; application
    validates legal TaskState transition and exclusively mutates persisted state. Red paths, invalid
    skips, rework and malformed model output remain under application control.
-4. **Privacy cleanup** — separate maintenance task; do not combine it with Day 12 closure.
+3. **Privacy cleanup** — separate maintenance task; do not combine it with Day 13 code acceptance.
 
 ## Current UI/UX consolidation
 
@@ -141,7 +152,7 @@ compact current-state indicators keep technical details available on demand.
 
 Principles: conversation-first, progressive disclosure, normal Russian labels where appropriate,
 and interaction ideas from modern coding assistants without copying branding. Non-goals: a new
-Angular state library, IDE clone, large design-system rewrite or Day 13 Task State.
+Angular state library, IDE clone or large design-system rewrite.
 The owner explicitly expanded backend scope to safe agent provider/model dispatch, while existing
 memory/context/history/topology semantics must remain unchanged.
 

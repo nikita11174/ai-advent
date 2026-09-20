@@ -73,4 +73,13 @@ class DialogController {
 
     record ProfileSelection(UUID profileId) {
     }
+
+    @PutMapping("/{id}/task-selection")
+    DialogStore.DialogDocument updateTaskSelection(@PathVariable String id,
+                                                    @RequestBody TaskSelection selection) throws IOException {
+        return store.updateTaskSelection(id, selection.taskId());
+    }
+
+    record TaskSelection(UUID taskId) {
+    }
 }

@@ -21,6 +21,11 @@ import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
 import dev.aiadvent.worker.model.OpenAiResponsesClient;
 import dev.aiadvent.worker.profile.ProfileService;
+import dev.aiadvent.worker.task.TaskService;
+import dev.aiadvent.worker.task.Task;
+import dev.aiadvent.worker.task.TaskStage;
+import dev.aiadvent.worker.task.TaskState;
+import dev.aiadvent.worker.task.TaskStatus;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +38,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.Optional;
+import java.time.Instant;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -73,11 +81,16 @@ class AgentControllerTest {
     private AgentMemoryStore memories;
     @MockitoBean
     private ProfileService profiles;
+    @MockitoBean
+    private TaskService tasks;
 
     @BeforeEach
     void emptyMemoryByDefault() throws Exception {
         when(memories.load(any(UUID.class), nullable(UUID.class)))
                 .thenAnswer(call -> AgentMemory.Snapshot.empty(call.getArgument(1)));
+        when(tasks.find(any(UUID.class))).thenReturn(Optional.empty());
+        when(store.load(anyString())).thenAnswer(call -> new DialogStore.DialogDocument(call.getArgument(0), "Dialog",
+                Instant.EPOCH, Instant.EPOCH, new ObjectMapper().createObjectNode()));
     }
 
     @Test
@@ -211,5 +224,23 @@ class AgentControllerTest {
 
         assertTrue(!response.contains("SATURN"));
         verify(memories).load(dialogId, taskId);
+    }
+
+    @Test
+    void includesManagedTaskInTheFinalTokenCheckedMainRequest() throws Exception {
+        UUID dialogId = UUID.randomUUID();
+        UUID taskId = UUID.randomUUID();
+        Task task = new Task(taskId, "Managed goal", new TaskState(TaskStage.PLANNING, "Plan", "Approve plan",
+                TaskStatus.ACTIVE, 0), "Approved plan", "", Instant.EPOCH, Instant.EPOCH);
+        when(tasks.find(taskId)).thenReturn(Optional.of(task));
+        when(client.complete(any(AgentModelRequest.class))).thenReturn(new AgentModelExecutor.Completion("answer", null));
+
+        mvc.perform(post("/api/dialogs/{id}/agent/messages", dialogId).contentType("application/json")
+                        .content("{\"input\":\"hello\",\"taskId\":\"" + taskId + "\"}"))
+                .andExpect(status().isOk());
+
+        verify(tokenEstimator).estimateMessagesWithinLimit(argThat(messages -> messages.stream()
+                .anyMatch(message -> message.content().contains("Authoritative application-owned task state")
+                        && message.content().contains("Managed goal"))), eq(1));
     }
 }

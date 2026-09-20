@@ -271,7 +271,7 @@
       <div class="composer">
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><span>Ctrl+Enter — отправить</span><div class="action-buttons">
-          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable()))">Отправить</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask()))">Отправить</button>
         </div></div>
       </div>
     </section>
@@ -298,19 +298,28 @@
         }
       </details>
       <section class="inspector-section task-panel">
-        <div class="section-heading"><h2>Задача</h2><button mat-button type="button" (click)="taskEditing = !taskEditing">{{ taskEditing ? 'Закрыть' : 'Изменить' }}</button></div>
-        <div class="task-current"><code [title]="appliedTaskId ?? ''">{{ appliedTaskId ? appliedTaskId.slice(0, 8) : 'Не задана' }}</code>
-          <button mat-button type="button" [disabled]="!appliedTaskId" (click)="copyTaskId()">Копировать</button></div>
-        @if (taskCopyStatus) { <small role="status">{{ taskCopyStatus }}</small> }
-        @if (taskEditing) {
-          <div class="task-scope">
-            <label>ID задачи<input [(ngModel)]="taskIdDraft" placeholder="UUID существующей задачи" /></label>
-            <div class="task-actions">
-              <button mat-stroked-button type="button" (click)="generateTaskScope()">Новый task scope</button>
-              <button mat-stroked-button type="button" [disabled]="!taskIdDraft.trim()" (click)="applyTaskScope()">Применить</button>
-            </div>
+        <div class="section-heading"><h2>Задача</h2><small>{{ taskLoading() ? 'Загрузка…' : currentTask() ? 'Управляемая' : appliedTaskId ? 'Устаревшая область' : 'Не выбрана' }}</small></div>
+        <label>Задача диалога<select [ngModel]="appliedTaskId" (ngModelChange)="chooseTask($event)" [disabled]="taskLoading() || taskActionBusy()" aria-label="Задача диалога">
+          <option [ngValue]="null">Без управляемой задачи</option>
+          @for (task of tasks(); track task.id) { <option [ngValue]="task.id">{{ task.goal }}</option> }
+        </select></label>
+        <div class="task-create"><button mat-button type="button" (click)="toggleTaskCreation()" [attr.aria-expanded]="taskCreationOpen" aria-label="Создать новую задачу">Новая задача</button>
+          @if (taskCreationOpen) { <div class="task-create-form"><label>Цель<input [(ngModel)]="taskGoalDraft" aria-label="Цель новой задачи" placeholder="Цель" /></label>
+            <button mat-stroked-button type="button" (click)="createTask()" [disabled]="!taskGoalDraft.trim() || taskActionBusy()">Создать</button></div> }
+        </div>
+        @if (currentTask(); as task) {
+          <div class="task-lifecycle"><dl class="task-metadata"><dt>Цель</dt><dd>{{ task.goal }}</dd><dt>Этап</dt><dd>{{ taskStageLabel(task.state.stage) }}</dd><dt>Текущий шаг</dt><dd>{{ taskTextLabel(task.state.currentStep) }}</dd><dt>Ожидаемое действие</dt><dd>{{ taskTextLabel(task.state.expectedAction) }}</dd><dt>Статус</dt><dd>{{ taskStatusLabel(task.state.status) }}</dd><dt>Ревизия</dt><dd>{{ task.state.revision }}</dd>
+              @if (task.approvedPlan) { <dt>Утверждённый план</dt><dd>{{ task.approvedPlan }}</dd> } @if (task.validationEvidence) { <dt>Доказательства проверки</dt><dd>{{ task.validationEvidence }}</dd> }</dl>
+            @if (task.state.status === 'PAUSED') { <p class="inline-error">Задача на паузе: отправка агенту недоступна. Продолжите задачу, чтобы продолжить работу.</p> }
+            @if (task.state.stage === 'PLANNING' && task.state.status === 'ACTIVE') { <label>План<textarea rows="2" [(ngModel)]="taskPlanDraft" aria-label="План задачи"></textarea></label><div class="task-actions"><button mat-flat-button type="button" (click)="applyTaskAction('APPROVE_PLAN')" [disabled]="!taskPlanDraft.trim() || taskActionBusy()">Утвердить план</button></div> }
+            @if (task.state.stage === 'EXECUTION' && task.state.status === 'ACTIVE') { <label>Текущий шаг<input [(ngModel)]="taskStepDraft" aria-label="Текущий шаг задачи" /></label><div class="task-actions"><button mat-button type="button" (click)="applyTaskAction('UPDATE_CURRENT_STEP')" [disabled]="!taskStepDraft.trim() || taskActionBusy()">Обновить шаг</button><button mat-flat-button type="button" (click)="applyTaskAction('START_VALIDATION')" [disabled]="taskActionBusy()">Начать проверку</button></div> }
+            @if (task.state.stage === 'VALIDATION' && task.state.status === 'ACTIVE') { <label>Доказательства проверки<textarea rows="2" [(ngModel)]="validationEvidenceDraft" aria-label="Доказательства проверки"></textarea></label><div class="task-actions"><button mat-flat-button type="button" (click)="applyTaskAction('ACCEPT_VALIDATION')" [disabled]="!validationEvidenceDraft.trim() || taskActionBusy()">Принять проверку</button></div> }
+            @if (task.state.stage !== 'DONE') { <div class="task-actions">@if (task.state.status === 'ACTIVE') { <button mat-button type="button" (click)="applyTaskAction('PAUSE')" [disabled]="taskActionBusy()">Пауза</button> } @else { <button mat-button type="button" (click)="applyTaskAction('RESUME')" [disabled]="taskActionBusy()">Продолжить</button> }</div> }
           </div>
-        }
+        } @else if (appliedTaskId) {
+          <p class="muted">Устаревшая область рабочей памяти: {{ appliedTaskId }}</p><label>Цель для принятия<input [(ngModel)]="taskGoalDraft" aria-label="Цель принятия устаревшей области" /></label><div class="task-actions"><button mat-button type="button" (click)="adoptLegacyScope()" [disabled]="!taskGoalDraft.trim() || taskActionBusy()">Принять как задачу</button></div>
+        } @else { <p class="muted">Управляемая задача не выбрана; сохраняется существующее поведение без задачи.</p> }
+        @if (taskError()) { <p class="inline-error" role="alert">{{ taskError() }}</p> }
       </section>
       <section class="inspector-section memory-panel">
         <div class="section-heading"><h2>Память</h2><button mat-button type="button" (click)="editMemory()" [disabled]="memorySaving()" aria-label="Добавить запись памяти">+</button></div>

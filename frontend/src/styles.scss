@@ -1,6 +1,6 @@
 html {
   min-width: 320px;
-  min-height: 100%;
+  height: 100%;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
     radial-gradient(circle at 15% 5%, rgba(96, 165, 250, 0.2), transparent 34%),
@@ -9,13 +9,24 @@ html {
 }
 
 body {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 * {
   box-sizing: border-box;
 }
+
+app-root .task-panel { min-width:0; }
+app-root .task-panel > label, app-root .task-create-form label, app-root .task-lifecycle label { display:grid; min-width:0; gap:5px; color:#59667e; font-size:12px; }
+app-root .task-panel :is(input, select, textarea) { width:100%; min-width:0; max-width:100%; padding:7px 9px; color:#17223b; background:#fff; border:1px solid #cbd5e1; border-radius:7px; }
+app-root .task-create { margin-top:10px; }
+app-root .task-create-form { display:grid; gap:8px; margin-top:8px; }
+app-root .task-metadata { display:grid; grid-template-columns:minmax(0, 1fr); gap:3px; margin:12px 0 0; font-size:12px; }
+app-root .task-metadata dt { margin-top:7px; color:#59667e; font-weight:650; overflow-wrap:normal; word-break:normal; }
+app-root .task-metadata dd { min-width:0; margin:0; color:#17223b; white-space:pre-wrap; overflow-wrap:anywhere; }
+app-root .task-lifecycle { min-width:0; margin-top:12px; padding-top:10px; border-top:1px solid #dde3ed; }
 
 .profile-panel .metrics-list {
   grid-template-columns: minmax(0, 1fr);

@@ -68,10 +68,31 @@ public class DialogStore {
     public synchronized DialogDocument update(String id, DialogUpdate update) throws IOException {
         DialogDocument existing = load(id);
         String title = update.title() == null || update.title().isBlank() ? existing.title() : update.title().trim();
-        JsonNode state = update.state() == null ? existing.state() : update.state();
+        JsonNode state = update.state() == null ? existing.state() : preserveSelectionFields(existing.state(), update.state());
         DialogDocument updated = new DialogDocument(existing.id(), title, existing.createdAt(), clock.instant(), state);
         write(updated);
         return updated;
+    }
+
+    private static JsonNode preserveSelectionFields(JsonNode current, JsonNode incoming) {
+        if (!(current instanceof ObjectNode currentState) || !(incoming instanceof ObjectNode incomingState)) {
+            return incoming;
+        }
+        ObjectNode state = incomingState.deepCopy();
+        JsonNode currentUi = currentState.get("ui");
+        ObjectNode ui = state.withObject("ui");
+        preserveSelectionField(currentUi, ui, "selectedProfileId");
+        preserveSelectionField(currentUi, ui, "appliedTaskId");
+        return state;
+    }
+
+    private static void preserveSelectionField(JsonNode currentUi, ObjectNode incomingUi, String field) {
+        JsonNode value = currentUi == null ? null : currentUi.get(field);
+        if (value == null) {
+            incomingUi.remove(field);
+        } else {
+            incomingUi.set(field, value);
+        }
     }
 
     public synchronized DialogDocument updateProfileSelection(String id, UUID profileId) throws IOException {
@@ -82,6 +103,20 @@ public class DialogStore {
             ui.putNull("selectedProfileId");
         } else {
             ui.put("selectedProfileId", profileId.toString());
+        }
+        DialogDocument updated = new DialogDocument(existing.id(), existing.title(), existing.createdAt(), clock.instant(), state);
+        write(updated);
+        return updated;
+    }
+
+    public synchronized DialogDocument updateTaskSelection(String id, UUID taskId) throws IOException {
+        DialogDocument existing = load(id);
+        ObjectNode state = (ObjectNode) existing.state().deepCopy();
+        ObjectNode ui = state.withObject("ui");
+        if (taskId == null) {
+            ui.putNull("appliedTaskId");
+        } else {
+            ui.put("appliedTaskId", taskId.toString());
         }
         DialogDocument updated = new DialogDocument(existing.id(), existing.title(), existing.createdAt(), clock.instant(), state);
         write(updated);

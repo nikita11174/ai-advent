@@ -12,6 +12,7 @@ interface TestApp {
   selectedProfileId: string | null;
   chooseProfile(id: string | null): void;
   profiles(): readonly { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string }[];
+  profilesError(): string;
   loadProfiles(): void;
   newProfile(): void;
   editProfile(profile: { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string }): void;
@@ -21,7 +22,18 @@ interface TestApp {
   chooseAgentModel(key: string): void;
   editMemory(scope?: 'SHORT_TERM' | 'WORKING' | 'LONG_TERM', key?: string, value?: string): void;
   memoryEditing(): boolean;
-  taskEditing: boolean;
+  taskGoalDraft: string;
+  taskCreationOpen: boolean;
+  taskPlanDraft: string;
+  taskStepDraft: string;
+  validationEvidenceDraft: string;
+  currentTask(): { id: string; state: { stage: string; status: string; revision: number } } | null;
+  tasks(): readonly { id: string; state: { revision: number } }[];
+  chooseTask(id: string | null): void;
+  createTask(): void;
+  toggleTaskCreation(): void;
+  adoptLegacyScope(): void;
+  applyTaskAction(action: string): void;
   backendStatus(): 'CONNECTING' | 'ONLINE' | 'OFFLINE';
   checkBackend(): void;
   selectModels(): void;
@@ -35,14 +47,11 @@ interface TestApp {
   branchId: string | null;
   checkpointId: string | null;
   appliedTaskId: string | null;
-  taskIdDraft: string;
   memoryScope: 'SHORT_TERM' | 'WORKING' | 'LONG_TERM';
   memoryKey: string;
   memoryValue: string;
   memory(): { taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string> };
   memoryError(): string;
-  generateTaskScope(): void;
-  applyTaskScope(): void;
   saveMemory(): void;
   topologyError(): string;
   selectLinearContextMode(mode: 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS'): void;
@@ -90,6 +99,10 @@ const agentProfiles = [
   { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', name: 'Краткий инженер', instructions: 'Кратко.', responseStyle: 'technical', responseFormat: 'short' },
   { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', name: 'Объясняющий инженер', instructions: 'Пошагово.', responseStyle: 'teaching', responseFormat: 'structured' },
 ];
+const managedTask = (id = '33333333-3333-3333-3333-333333333333', revision = 0, stage = 'PLANNING', status = 'ACTIVE') => ({
+  id, goal: 'Подготовить Java/PostgreSQL engineering solution', state: { stage, currentStep: 'Prepare and approve a plan', expectedAction: 'Approve the plan', status, revision },
+  approvedPlan: '', validationEvidence: '', createdAt: now, updatedAt: now,
+});
 const modelResponse = (index: number) => ({ model: profiles[index], returnedModel: profiles[index].modelId,
   status: 'completed', incompleteReason: null, serviceTier: 'default', apiLatencyMs: 123, startedAt: now,
   analysis: '## Анализ\n\n- Риск\n<img src=x onerror=alert(1)>', error: null,
@@ -114,6 +127,7 @@ describe('App', () => {
       ...profiles.map(({ key, provider, label }) => ({ key, provider, label })),
     ]);
     http.expectOne('/api/profiles').flush(agentProfiles);
+    http.expectOne('/api/tasks').flush([]);
     http.expectOne('/api/dialogs').flush([]);
     http.expectOne('/api/dialogs').flush(dialog());
     fixture.detectChanges();
@@ -133,6 +147,11 @@ describe('App', () => {
     snapshot = { shortTerm: {}, working: {}, longTerm: {} }): void {
     const query = taskId ? `?taskId=${taskId}` : '';
     http.expectOne(`/api/dialogs/${id}/agent/memory${query}`).flush({ taskId, ...snapshot });
+  }
+  function selectTask(task: ReturnType<typeof managedTask>): void {
+    component.chooseTask(task.id);
+    const selection = http.expectOne(`/api/dialogs/${component.currentDialogId()}/task-selection`);
+    expect(selection.request.body).toEqual({ taskId: task.id }); selection.flush(dialog(component.currentDialogId()!));
   }
 
   it('UX shell keeps the composer free of settings and reveals memory only on request', () => {
@@ -179,9 +198,11 @@ describe('App', () => {
     const selector = fixture.nativeElement.querySelector('[aria-label="Профиль агента"]') as HTMLSelectElement;
     expect([...selector.options].map(option => option.text)).toEqual(['Без профиля', 'Краткий инженер', 'Объясняющий инженер']);
     selector.value = agentProfiles[0].id; selector.dispatchEvent(new Event('change'));
-    const saved = http.expectOne(r => r.method === 'PUT');
-    expect(saved.request.body.state.ui.selectedProfileId).toBe(agentProfiles[0].id);
-    saved.flush(dialog());
+    const saved = http.expectOne(`/api/dialogs/${a}/profile-selection`);
+    expect(saved.request.body).toEqual({ profileId: agentProfiles[0].id });
+    saved.flush(dialog(a, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id,
+    }));
 
     const b = '22222222-2222-2222-2222-222222222222';
     component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
@@ -237,6 +258,7 @@ describe('App', () => {
       ...profiles.map(({ key, provider, label }) => ({ key, provider, label })),
     ]);
     const pendingCatalog = http.expectOne('/api/profiles');
+    http.expectOne('/api/tasks').flush([]);
     http.expectOne('/api/dialogs').flush([]);
     http.expectOne('/api/dialogs').flush(dialog());
     const unknown = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -250,20 +272,148 @@ describe('App', () => {
     expect(component.selectedProfileId).toBeNull();
   });
 
-  it('sends the selected profile ID and omits it without a profile', () => {
+  it('persists existing and cleared Profile selection only through the narrow endpoint', () => {
     const id = dialog().id;
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
-    component.chooseProfile(agentProfiles[0].id); flushSave();
+    component.chooseProfile(agentProfiles[0].id);
+    const select = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(select.request.method).toBe('PUT'); expect(select.request.body).toEqual({ profileId: agentProfiles[0].id });
+    http.expectNone(request => request.method === 'PUT' && request.url === `/api/dialogs/${id}`);
+    select.flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+      selectedProfileId: agentProfiles[0].id,
+    }));
+    expect(component.selectedProfileId).toBe(agentProfiles[0].id);
     component.input = 'with profile'; component.analyze();
     const selected = http.expectOne(`/api/dialogs/${id}/agent/messages`);
     expect(selected.request.body.profileId).toBe(agentProfiles[0].id);
     selected.flush({ analysis: 'answer' }); flushSave();
 
-    component.chooseProfile(null); flushSave();
+    component.chooseProfile(null);
+    const clear = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(clear.request.method).toBe('PUT'); expect(clear.request.body).toEqual({ profileId: null });
+    http.expectNone(request => request.method === 'PUT' && request.url === `/api/dialogs/${id}`);
+    clear.flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+      selectedProfileId: null,
+    }));
+    expect(component.selectedProfileId).toBeNull();
     component.input = 'without profile'; component.analyze();
     const noProfile = http.expectOne(`/api/dialogs/${id}/agent/messages`);
     expect(noProfile.request.body).not.toHaveProperty('profileId');
     noProfile.flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('uses an optimistically selected Profile while its narrow persistence request is pending', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.chooseProfile(agentProfiles[0].id);
+    http.expectOne(`/api/dialogs/${id}/profile-selection`).flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id,
+    }));
+
+    component.chooseProfile(agentProfiles[1].id);
+    const pending = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+    component.input = 'use the new profile'; component.analyze();
+    const message = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(message.request.body.profileId).toBe(agentProfiles[1].id);
+    message.flush({ analysis: 'answer' }); flushSave();
+    pending.flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[1].id,
+    }));
+  });
+
+  it('omits Profile while clearing its narrow persistence request is pending', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.chooseProfile(agentProfiles[0].id);
+    http.expectOne(`/api/dialogs/${id}/profile-selection`).flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id,
+    }));
+
+    component.chooseProfile(null);
+    const pending = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(component.selectedProfileId).toBeNull();
+    component.input = 'use no profile'; component.analyze();
+    const message = http.expectOne(`/api/dialogs/${id}/agent/messages`);
+    expect(message.request.body).not.toHaveProperty('profileId');
+    message.flush({ analysis: 'answer' }); flushSave();
+    pending.flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: null,
+    }));
+  });
+
+  it('serializes rapid Profile choices and keeps the latest choice across a Dialog switch', () => {
+    const id = dialog().id;
+    const otherId = '22222222-2222-2222-2222-222222222222';
+    component.chooseProfile(agentProfiles[0].id);
+    const first = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    component.chooseProfile(agentProfiles[1].id);
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+    http.expectNone(`/api/dialogs/${id}/profile-selection`);
+
+    component.openDialog(otherId); http.expectOne(`/api/dialogs/${otherId}`).flush(dialog(otherId));
+    component.openDialog(id); http.expectOne(`/api/dialogs/${id}`).flush(dialog(id));
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+
+    first.flush(dialog(id, [], { selectedProfileId: agentProfiles[0].id }));
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+    const latest = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(latest.request.body).toEqual({ profileId: agentProfiles[1].id });
+    latest.flush(dialog(id, [], { selectedProfileId: agentProfiles[1].id }));
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+  });
+
+  it('persists the latest Profile choice when an earlier queued request fails', () => {
+    const id = dialog().id;
+    component.chooseProfile(agentProfiles[0].id);
+    const first = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    component.chooseProfile(agentProfiles[1].id);
+    first.flush({ error: 'failed' }, { status: 500, statusText: 'Server Error' });
+
+    http.expectNone(`/api/dialogs/${id}`);
+    const latest = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(latest.request.body).toEqual({ profileId: agentProfiles[1].id });
+    latest.flush(dialog(id, [], { selectedProfileId: agentProfiles[1].id }));
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+  });
+
+  it('ignores a stale Dialog GET after Profile persistence succeeds', () => {
+    const id = dialog().id;
+    const otherId = '22222222-2222-2222-2222-222222222222';
+    component.chooseProfile(agentProfiles[0].id);
+    http.expectOne(`/api/dialogs/${id}/profile-selection`).flush(dialog(id, [], {
+      selectedProfileId: agentProfiles[0].id,
+    }));
+    component.chooseProfile(agentProfiles[1].id);
+    const selection = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    component.openDialog(otherId); http.expectOne(`/api/dialogs/${otherId}`).flush(dialog(otherId));
+    component.openDialog(id);
+    const staleDialog = http.expectOne(`/api/dialogs/${id}`);
+
+    selection.flush(dialog(id, [], { selectedProfileId: agentProfiles[1].id }));
+    staleDialog.flush(dialog(id, [], { selectedProfileId: agentProfiles[0].id }));
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+  });
+
+  it('reloads the confirmed Profile after a failed optimistic selection', () => {
+    const id = dialog().id;
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.chooseProfile(agentProfiles[0].id);
+    http.expectOne(`/api/dialogs/${id}/profile-selection`).flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id,
+    }));
+
+    component.chooseProfile(agentProfiles[1].id);
+    const failed = http.expectOne(`/api/dialogs/${id}/profile-selection`);
+    expect(component.selectedProfileId).toBe(agentProfiles[1].id);
+    failed.flush({ error: 'Сохранение Profile не удалось.' }, { status: 500, statusText: 'Server Error' });
+    http.expectOne(`/api/dialogs/${id}`).flush(dialog(id, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, selectedProfileId: agentProfiles[0].id,
+    }));
+    expect(component.selectedProfileId).toBe(agentProfiles[0].id);
+    expect(component.profilesError()).toBe('Сохранение Profile не удалось.');
   });
 
   it('creates and edits a profile in the inspector', () => {
@@ -331,15 +481,15 @@ describe('App', () => {
     selection.flush(dialog(a));
   });
 
-  it('UX shell closes editors and clears drafts and displayed memory when task or dialog changes', () => {
+  it('closes the memory editor and clears displayed memory when managed Task or dialog changes', () => {
     component.selectAgent(); flushHealth(); flushTopology();
     flushMemory(dialog().id, null, { shortTerm: { old: 'previous' }, working: {}, longTerm: {} });
-    component.editMemory('WORKING', 'draft', 'old task'); component.taskEditing = true;
-    const task = '33333333-3333-3333-3333-333333333333';
-    component.taskIdDraft = task; component.applyTaskScope(); flushSave();
-    expect(component.memoryEditing()).toBe(false); expect(component.taskEditing).toBe(false);
+    component.editMemory('WORKING', 'draft', 'old task');
+    const task = managedTask(); (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    selectTask(task);
+    expect(component.memoryEditing()).toBe(false);
     expect(component.memoryKey).toBe(''); expect(component.memory().shortTerm).toEqual({});
-    flushMemory(dialog().id, task);
+    flushMemory(dialog().id, task.id);
     component.editMemory('SHORT_TERM', 'draft', 'old dialog'); component.input = 'old composer';
     const b = '22222222-2222-2222-2222-222222222222';
     component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
@@ -506,15 +656,12 @@ describe('App', () => {
     expect(component.memory().shortTerm['database']).toBe('PostgreSQL');
   });
 
-  it('generates, persists and reuses an applied task ID for memory and Agent requests across dialogs', () => {
+  it('selects one managed Task through the narrow endpoint and reuses it for memory and Agent requests across dialogs', () => {
     const a = dialog().id;
     const b = '22222222-2222-2222-2222-222222222222';
     component.selectAgent(); flushHealth(); flushTopology(a); flushMemory(a);
-    component.generateTaskScope();
-    const taskId = component.appliedTaskId!;
-    expect(taskId).toMatch(/^[0-9a-f-]{36}$/);
-    const save = http.expectOne(request => request.method === 'PUT' && request.url === `/api/dialogs/${a}`);
-    expect(save.request.body.state.ui.appliedTaskId).toBe(taskId); save.flush(dialog());
+    const task = managedTask(); (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    selectTask(task); const taskId = task.id;
     flushMemory(a, taskId, { shortTerm: {}, working: { database: 'PostgreSQL' }, longTerm: {} });
     expect(component.appliedTaskId).toBe(taskId);
 
@@ -528,9 +675,10 @@ describe('App', () => {
     component.openDialog(b);
     http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], { experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT',
       selectedTemperature: 0, appliedTaskId: taskId }));
-    flushHealth(); flushTopology(b);
+    http.expectOne(`/api/tasks/${taskId}`).flush(task); flushHealth(); flushTopology(b);
     flushMemory(b, taskId, { shortTerm: {}, working: { database: 'PostgreSQL' }, longTerm: {} });
     expect(component.appliedTaskId).toBe(taskId);
+    expect(component.currentTask()?.id).toBe(taskId);
     expect(component.memory().working['database']).toBe('PostgreSQL');
   });
 
@@ -540,8 +688,9 @@ describe('App', () => {
     const secondTask = '44444444-4444-4444-8444-444444444444';
     component.selectAgent(); flushHealth(); flushTopology(id); flushMemory(id);
 
-    component.taskIdDraft = firstTask; component.applyTaskScope(); flushSave();
-    component.taskIdDraft = secondTask; component.applyTaskScope(); flushSave();
+    const first = managedTask(firstTask); const second = managedTask(secondTask);
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([first, second]);
+    selectTask(first); selectTask(second);
     flushMemory(id, secondTask, { shortTerm: {}, working: { current: 'SECOND_VALUE' }, longTerm: {} });
     flushMemory(id, firstTask, { shortTerm: {}, working: { stale: 'FIRST_VALUE' }, longTerm: {} });
     expect(component.memory().working).toEqual({ current: 'SECOND_VALUE' });
@@ -1003,5 +1152,198 @@ describe('App', () => {
     textarea.value = 'question'; textarea.dispatchEvent(new Event('input'));
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
     http.expectOne('/api/review').flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('loads managed Tasks, creates one and changes selection only through the narrow endpoint', () => {
+    fixture.destroy();
+    const task = managedTask();
+    fixture = TestBed.createComponent(App); component = fixture.componentInstance as unknown as TestApp; fixture.detectChanges();
+    http.expectOne('/api/agent-model-options').flush([{ key: 'DEEPSEEK', provider: 'DEEPSEEK', label: 'deepseek-v4-flash' }]);
+    http.expectOne('/api/profiles').flush([]); http.expectOne('/api/tasks').flush([task]);
+    http.expectOne('/api/dialogs').flush([]); http.expectOne('/api/dialogs').flush(dialog());
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(task.goal);
+    expect(fixture.nativeElement.querySelector('.task-create-form')).toBeNull();
+    component.toggleTaskCreation();
+    expect(component.taskCreationOpen).toBe(true);
+    component.taskGoalDraft = 'Новая задача'; component.createTask();
+    const create = http.expectOne('/api/tasks'); expect(create.request.body).toEqual({ goal: 'Новая задача' });
+    const created = managedTask('44444444-4444-4444-4444-444444444444'); create.flush(created);
+    const select = http.expectOne(`/api/dialogs/${dialog().id}/task-selection`); expect(select.request.body).toEqual({ taskId: created.id }); select.flush(dialog());
+    flushMemory(dialog().id, created.id);
+    component.chooseTask(null);
+    const clear = http.expectOne(`/api/dialogs/${dialog().id}/task-selection`); expect(clear.request.body).toEqual({ taskId: null }); clear.flush(dialog());
+    flushMemory();
+  });
+
+  it('shows a legacy scope without fabricating a Task and adopts it explicitly', () => {
+    const legacy = '33333333-3333-3333-3333-333333333333';
+    component.openDialog('22222222-2222-2222-2222-222222222222');
+    http.expectOne('/api/dialogs/22222222-2222-2222-2222-222222222222').flush(dialog('22222222-2222-2222-2222-222222222222', [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: legacy,
+    }));
+    http.expectOne(`/api/tasks/${legacy}`).flush({ error: 'missing' }, { status: 404, statusText: 'Not Found' });
+    flushHealth(); flushTopology('22222222-2222-2222-2222-222222222222'); flushMemory('22222222-2222-2222-2222-222222222222', legacy); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Устаревшая область рабочей памяти');
+    component.taskGoalDraft = 'Принятая legacy задача'; component.adoptLegacyScope();
+    const adopt = http.expectOne('/api/tasks/adopt'); expect(adopt.request.body).toEqual({ id: legacy, goal: 'Принятая legacy задача' }); adopt.flush(managedTask(legacy));
+    expect(component.currentTask()?.id).toBe(legacy);
+  });
+
+  it('keeps an adopted Task when an older legacy lookup later returns 404', () => {
+    const dialogId = '22222222-2222-2222-2222-222222222222';
+    const legacy = '33333333-3333-3333-3333-333333333333';
+    component.openDialog(dialogId);
+    http.expectOne(`/api/dialogs/${dialogId}`).flush(dialog(dialogId, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: legacy,
+    }));
+    const delayedLookup = http.expectOne(`/api/tasks/${legacy}`);
+    flushHealth(); flushTopology(dialogId);
+    flushMemory(dialogId, legacy);
+
+    component.taskGoalDraft = 'Принятая legacy задача'; component.adoptLegacyScope();
+    const adoption = http.expectOne('/api/tasks/adopt');
+    const adopted = managedTask(legacy); adoption.flush(adopted);
+    expect(component.tasks().find(task => task.id === legacy)).toEqual(adopted);
+    expect(component.currentTask()?.id).toBe(legacy);
+    expect(component.appliedTaskId).toBe(legacy);
+
+    delayedLookup.flush({ error: 'missing' }, { status: 404, statusText: 'Not Found' });
+    expect(component.tasks().find(task => task.id === legacy)).toEqual(adopted);
+    expect(component.currentTask()?.id).toBe(legacy);
+    expect(component.appliedTaskId).toBe(legacy);
+  });
+
+  it('sends observed revision for lifecycle actions and reloads rather than retrying a stale action', () => {
+    const task = managedTask(); (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); selectTask(task); flushMemory(dialog().id, task.id);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Планирование');
+    expect(fixture.nativeElement.textContent).toContain('Активна');
+    expect(fixture.nativeElement.textContent).toContain('Подготовить и утвердить план');
+    expect(fixture.nativeElement.textContent).toContain('Утвердить план');
+    expect(fixture.nativeElement.textContent).toContain('Ревизия');
+    component.taskPlanDraft = 'Короткий план'; component.applyTaskAction('APPROVE_PLAN');
+    const approve = http.expectOne(`/api/tasks/${task.id}/actions`); expect(approve.request.body).toEqual({ action: 'APPROVE_PLAN', expectedRevision: 0, approvedPlan: 'Короткий план' });
+    const execution = { ...task, state: { ...task.state, stage: 'EXECUTION', currentStep: 'Выполнить', expectedAction: 'UPDATE_CURRENT_STEP', revision: 1 }, approvedPlan: 'Короткий план' }; approve.flush(execution);
+    component.taskStepDraft = 'Реализовать'; component.applyTaskAction('UPDATE_CURRENT_STEP');
+    const update = http.expectOne(`/api/tasks/${task.id}/actions`); expect(update.request.body.expectedRevision).toBe(1);
+    update.flush({ error: 'stale' }, { status: 409, statusText: 'Conflict' });
+    http.expectOne(`/api/tasks/${task.id}`).flush(execution);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Состояние задачи изменилось');
+  });
+
+  it('exposes pause/resume, validation acceptance and disables agent send for PAUSED or DONE Task', () => {
+    const task = managedTask(); (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); selectTask(task); flushMemory(dialog().id, task.id);
+    component.applyTaskAction('PAUSE');
+    const pause = http.expectOne(`/api/tasks/${task.id}/actions`); expect(pause.request.body).toEqual({ action: 'PAUSE', expectedRevision: 0 });
+    const paused = { ...task, state: { ...task.state, status: 'PAUSED', revision: 1 } }; pause.flush(paused); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('На паузе');
+    expect(fixture.nativeElement.textContent).toContain('Продолжить');
+    component.input = 'Не отправлять'; component.analyze(); http.expectNone(`/api/dialogs/${dialog().id}/agent/messages`);
+    component.applyTaskAction('RESUME'); const resume = http.expectOne(`/api/tasks/${task.id}/actions`); expect(resume.request.body.expectedRevision).toBe(1);
+    const execution = { ...task, state: { ...task.state, stage: 'EXECUTION', revision: 2 } }; resume.flush(execution);
+    component.applyTaskAction('START_VALIDATION'); const start = http.expectOne(`/api/tasks/${task.id}/actions`); expect(start.request.body.expectedRevision).toBe(2);
+    const validation = { ...execution, state: { ...execution.state, stage: 'VALIDATION', revision: 3 } }; start.flush(validation);
+    component.validationEvidenceDraft = 'Проверки прошли'; component.applyTaskAction('ACCEPT_VALIDATION');
+    const accept = http.expectOne(`/api/tasks/${task.id}/actions`); expect(accept.request.body).toEqual({ action: 'ACCEPT_VALIDATION', expectedRevision: 3, validationEvidence: 'Проверки прошли' });
+    accept.flush({ ...validation, state: { ...validation.state, stage: 'DONE', status: 'COMPLETED', revision: 4 }, validationEvidence: 'Проверки прошли' }); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Завершено');
+    expect(fixture.nativeElement.textContent).toContain('Завершена');
+    expect(fixture.nativeElement.textContent).toContain('Доказательства проверки');
+    expect(fixture.nativeElement.textContent).not.toContain('Пауза');
+    expect(fixture.nativeElement.querySelector('[aria-label="Текущий шаг задачи"]')).toBeNull();
+  });
+
+  it('selects a created Task only for its origin Dialog after switching to another Dialog', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.taskGoalDraft = 'Создана в A'; component.taskCreationOpen = true; component.createTask();
+    const create = http.expectOne('/api/tasks');
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    component.taskCreationOpen = true; component.taskGoalDraft = 'Черновик B';
+
+    const created = managedTask('44444444-4444-4444-4444-444444444444'); create.flush(created);
+    const selection = http.expectOne(`/api/dialogs/${a}/task-selection`);
+    expect(selection.request.body).toEqual({ taskId: created.id }); selection.flush(dialog(a));
+    expect(component.appliedTaskId).toBeNull();
+    expect(component.taskCreationOpen).toBe(true);
+    expect(component.taskGoalDraft).toBe('Черновик B');
+    expect(component.tasks().some(task => task.id === created.id)).toBe(true);
+
+    component.openDialog(a);
+    http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, [], { experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: created.id }));
+    http.expectOne(`/api/tasks/${created.id}`).flush(created);
+    expect(component.currentTask()?.id).toBe(created.id);
+  });
+
+  it('keeps the current Dialog untouched when legacy adoption started in another Dialog resolves', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    const legacy = '33333333-3333-3333-3333-333333333333';
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    component.openDialog(a);
+    http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, [], { experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: legacy }));
+    http.expectOne(`/api/tasks/${legacy}`).flush({ error: 'missing' }, { status: 404, statusText: 'Not Found' });
+    component.taskGoalDraft = 'Принять legacy'; component.adoptLegacyScope();
+    const adoption = http.expectOne('/api/tasks/adopt');
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    component.taskGoalDraft = 'Черновик B';
+
+    adoption.flush(managedTask(legacy));
+    expect(component.appliedTaskId).toBeNull();
+    expect(component.currentTask()).toBeNull();
+    expect(component.taskGoalDraft).toBe('Черновик B');
+    expect(component.tasks().some(task => task.id === legacy)).toBe(true);
+  });
+
+  it('keeps Task Y in the Inspector when a Task X action resolves after switching Dialogs', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    const x = managedTask('33333333-3333-3333-3333-333333333333');
+    const y = managedTask('44444444-4444-4444-4444-444444444444');
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([x, y]);
+    selectTask(x); flushMemory(a, x.id);
+    component.applyTaskAction('PAUSE');
+    const action = http.expectOne(`/api/tasks/${x.id}/actions`);
+    component.openDialog(b);
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], { experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: y.id }));
+    http.expectOne(`/api/tasks/${y.id}`).flush(y);
+
+    action.flush({ ...x, state: { ...x.state, status: 'PAUSED', revision: 1 } });
+    expect(component.appliedTaskId).toBe(y.id);
+    expect(component.currentTask()?.id).toBe(y.id);
+  });
+
+  it('does not replace a newer Task revision with a delayed GET response', () => {
+    const a = dialog().id;
+    const b = '22222222-2222-2222-2222-222222222222';
+    const x = managedTask();
+    const newer = managedTask(x.id, 6);
+    component.openDialog(b); http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+    component.openDialog(a);
+    http.expectOne(`/api/dialogs/${a}`).flush(dialog(a, [], { experiment: 'FORMAT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0, appliedTaskId: x.id }));
+    const delayed = http.expectOne(`/api/tasks/${x.id}`);
+    (component as unknown as { acceptTask(task: unknown, dialogId: string): void }).acceptTask(newer, a);
+
+    delayed.flush(managedTask(x.id, 5));
+    expect(component.currentTask()?.state.revision).toBe(6);
+    expect(component.tasks().find(task => task.id === x.id)?.state.revision).toBe(6);
+  });
+
+  it('accepts same or newer Task revisions for the selected Inspector', () => {
+    const a = dialog().id;
+    const x = managedTask();
+    const same = { ...x, goal: 'Обновлённая задача' };
+    const newer = managedTask(x.id, 1);
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([x]);
+    selectTask(x); flushMemory(a, x.id);
+
+    (component as unknown as { acceptTask(task: unknown, dialogId: string): void }).acceptTask(same, a);
+    expect(component.currentTask()?.id).toBe(x.id);
+    (component as unknown as { acceptTask(task: unknown, dialogId: string): void }).acceptTask(newer, a);
+    expect(component.currentTask()?.state.revision).toBe(1);
   });
 });

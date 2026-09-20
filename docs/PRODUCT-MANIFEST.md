@@ -132,13 +132,13 @@ Challenge acceptance criteria
 
 Формула: **не MVP всего продукта, а MVP текущего шага продукта**.
 
-Day 12 Profile — реализованный шаг Week 3. Future only: Day 13 introduces first-class persisted
-Task / TaskState (`stage`, `currentStep`, `expectedAction`) and its happy path with pause/resume;
-Dialog != Task, and current `taskId` is only a `WORKING`-memory scope key until then. Day 14 adds
-invariants while keeping deterministic enforcement distinct from semantic evaluation, not another
-Memory bucket. Day 15 adds explicit controlled TaskState transitions and red-path handling: model
-or user proposes an action, application validates it and owns persisted state mutation.
-Further direction: Week 3 — remaining Task/TaskState, invariants and controlled transitions;
+Day 12 Profile and Day 13 Task/TaskState are реализованные шаги Week 3. Day 13 establishes a
+first-class persisted Task with progress, pause/resume and `Task.id` as the `WORKING` Memory scope;
+Dialog remains the communication surface. Day 14 adds invariants while keeping deterministic
+enforcement distinct from semantic evaluation, not another Memory bucket. Day 15 adds explicit
+controlled TaskState transitions and red-path handling: model or user proposes an action,
+application validates it and owns persisted state mutation.
+Further direction: Week 3 — invariants and controlled transitions;
 Week 4 — tool boundary и eventual Codex/Claude delegation через MCP; Week 5 —
 retrieval над кодом и документами; Week 6 — RTX 3090-backed local provider за
 model boundary; Week 7 — orchestration multi-step tasks из существующих
