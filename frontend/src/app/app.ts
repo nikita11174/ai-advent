@@ -37,8 +37,8 @@ interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summa
 interface MemorySnapshot {
   taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string>;
 }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; contextMetadata: ContextMetadata; }
-interface AgentError { error?: string; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; }
+interface AgentError { error?: string; code?: string; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
@@ -46,7 +46,7 @@ interface ResultState {
   agentModelKey?: string;
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
-  evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; contextMetadata?: ContextMetadata;
+  evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -89,6 +89,8 @@ interface ManagedTask {
   state: { stage: TaskStage; currentStep: string; expectedAction: string; status: TaskStatus; revision: number };
   approvedPlan: string; validationEvidence: string; createdAt: string; updatedAt: string;
 }
+type InvariantScope = 'USER' | 'TASK';
+interface Invariant { id: string; scope: InvariantScope; taskId: string | null; name: string; rule: string; }
 
 const STRATEGIES: readonly ReasoningStrategy[] = ['DIRECT', 'STEP_BY_STEP', 'SELF_PROMPT', 'EXPERTS'];
 const TEMPERATURES: readonly Temperature[] = [0, 0.7, 1.2];
@@ -179,6 +181,15 @@ export class App implements OnInit, OnDestroy {
   protected taskPlanDraft = '';
   protected taskStepDraft = '';
   protected validationEvidenceDraft = '';
+  protected readonly effectiveInvariants = signal<readonly Invariant[]>([]);
+  protected readonly invariantsError = signal('');
+  protected invariantEditing = false;
+  protected editingInvariantId: string | null = null;
+  protected invariantScope: InvariantScope = 'TASK';
+  protected invariantNameDraft = '';
+  protected invariantRuleDraft = '';
+  private invariantRequestGeneration = 0;
+  private invariantEditor: { dialogId: string; taskId: string | null } | null = null;
   protected readonly memoryEditing = signal(false);
   protected inspectorOpen = false;
   protected selectedAgentModelKey: string | null = null;
@@ -391,6 +402,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private selectTaskForDialog(dialogId: string, taskId: string | null, task = taskId ? this.tasks().find(item => item.id === taskId) : undefined): void {
+    this.cancelInvariantEdit();
     const operation = (this.taskSelectionOperations.get(dialogId) ?? 0) + 1;
     this.taskSelectionOperations.set(dialogId, operation); this.taskLoadingDialogs.add(dialogId);
     if (this.currentDialogId() === dialogId) this.taskError.set('');
@@ -401,7 +413,7 @@ export class App implements OnInit, OnDestroy {
         this.appliedTaskId = taskId;
         if (task) this.acceptTask(task, dialogId); else this.currentTask.set(null);
         this.taskStepDraft = task?.state.currentStep ?? ''; this.taskPlanDraft = task?.approvedPlan ?? '';
-        this.validationEvidenceDraft = task?.validationEvidence ?? ''; this.closeMemoryEditor(); this.loadMemory();
+        this.validationEvidenceDraft = task?.validationEvidence ?? ''; this.closeMemoryEditor(); this.loadMemory(); this.loadEffectiveInvariants();
         this.dialogs.update(items => [dialog, ...items.filter(item => item.id !== dialog.id)]);
       },
       error: (error: HttpErrorResponse) => {
@@ -496,6 +508,39 @@ export class App implements OnInit, OnDestroy {
         this.memoryError.set(error.error?.error ?? 'Не удалось сохранить memory.');
       },
     });
+  }
+  protected newInvariant(): void {
+    const dialogId = this.currentDialogId();
+    if (!dialogId) return;
+    this.editingInvariantId = null; this.invariantScope = this.currentTask() ? 'TASK' : 'USER';
+    this.invariantNameDraft = ''; this.invariantRuleDraft = ''; this.invariantEditing = true; this.invariantsError.set('');
+    this.invariantEditor = { dialogId, taskId: this.currentTask()?.id ?? null };
+  }
+  protected editInvariant(invariant: Invariant): void {
+    const dialogId = this.currentDialogId();
+    if (!dialogId) return;
+    this.editingInvariantId = invariant.id; this.invariantScope = invariant.scope;
+    this.invariantNameDraft = invariant.name; this.invariantRuleDraft = invariant.rule; this.invariantEditing = true; this.invariantsError.set('');
+    this.invariantEditor = { dialogId, taskId: this.currentTask()?.id ?? null };
+  }
+  protected cancelInvariantEdit(): void {
+    this.invariantEditing = false; this.editingInvariantId = null; this.invariantNameDraft = ''; this.invariantRuleDraft = ''; this.invariantEditor = null;
+  }
+  protected saveInvariant(): void {
+    const name = this.invariantNameDraft.trim(); const rule = this.invariantRuleDraft.trim();
+    const editor = this.invariantEditor;
+    const taskId = this.invariantScope === 'TASK' ? editor?.taskId ?? null : null;
+    if (!editor || !this.isCurrentInvariantScope(editor.dialogId, editor.taskId) || !name || !rule || (this.invariantScope === 'TASK' && !taskId)) return;
+    const body = { scope: this.invariantScope, taskId, name, rule };
+    const request = this.editingInvariantId
+      ? this.http.put<Invariant>(`/api/invariants/${this.editingInvariantId}`, body)
+      : this.http.post<Invariant>('/api/invariants', body);
+    request.subscribe({ next: () => {
+      if (!this.isCurrentInvariantEditor(editor)) return;
+      this.cancelInvariantEdit(); this.loadEffectiveInvariants();
+    }, error: (error: HttpErrorResponse) => {
+      if (this.isCurrentInvariantEditor(editor)) this.invariantsError.set(error.error?.error ?? 'Не удалось сохранить инвариант.');
+    } });
   }
 
   protected memoryEntries(scope: MemoryScope): readonly [string, string][] {
@@ -757,7 +802,7 @@ export class App implements OnInit, OnDestroy {
     });
   }
   private loadCurrentTask(taskId = this.appliedTaskId, originDialogId = this.currentDialogId()): void {
-    if (!taskId) { this.currentTask.set(null); return; }
+    if (!taskId) { this.currentTask.set(null); this.loadEffectiveInvariants(); return; }
     if (!originDialogId) return;
     const generation = this.beginTaskLookup(taskId);
     this.taskLoadingDialogs.add(originDialogId);
@@ -765,13 +810,13 @@ export class App implements OnInit, OnDestroy {
       next: task => {
         this.finishTaskLoading(originDialogId);
         if (!this.isCurrentTaskLookup(taskId, generation)) return;
-        this.acceptTask(task, originDialogId, false);
+        this.acceptTask(task, originDialogId, false); this.loadEffectiveInvariants();
       },
       error: (error: HttpErrorResponse) => {
         this.finishTaskLoading(originDialogId);
         if (!this.isCurrentTaskLookup(taskId, generation)
           || this.currentDialogId() !== originDialogId || this.appliedTaskId !== taskId) return;
-        if (error.status === 404) { this.currentTask.set(null); return; }
+        if (error.status === 404) { this.currentTask.set(null); this.loadEffectiveInvariants(); return; }
         this.taskError.set('Не удалось загрузить задачу.');
       },
     });
@@ -823,6 +868,7 @@ export class App implements OnInit, OnDestroy {
     this.branchId = ui?.branchId ?? null; this.contextMode = this.branchId ? 'FULL' : this.linearContextMode;
     this.recentMessageCount = ui?.recentMessageCount ?? 4; this.checkpointId = ui?.checkpointId ?? null;
     this.appliedTaskId = ui?.appliedTaskId ?? null; this.currentTask.set(null);
+    this.effectiveInvariants.set([]); this.cancelInvariantEdit(); this.invariantsError.set('');
     this.topologyRequestGeneration++; this.branches.set([]); this.checkpoints.set([]); this.branchViews.set({});
     this.memoryRequestGeneration++; this.memory.set({ taskId: this.appliedTaskId, shortTerm: {}, working: {}, longTerm: {} });
     this.memoryLoading.set(false); this.memorySaving.set(false); this.memoryError.set(''); this.memorySuccess.set('');
@@ -879,6 +925,29 @@ export class App implements OnInit, OnDestroy {
       },
     });
   }
+  protected loadEffectiveInvariants(): void {
+    const taskId = this.currentTask()?.id ?? null;
+    const appliedTaskId = this.appliedTaskId;
+    const dialogId = this.currentDialogId(); if (!dialogId) return;
+    const generation = ++this.invariantRequestGeneration;
+    const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : '';
+    this.http.get<Invariant[]>(`/api/invariants/effective${query}`).subscribe({
+      next: invariants => {
+        if (!this.isCurrentInvariantScope(dialogId, taskId, appliedTaskId, generation)) return;
+        this.effectiveInvariants.set(invariants); this.invariantsError.set('');
+      }, error: () => {
+        if (this.isCurrentInvariantScope(dialogId, taskId, appliedTaskId, generation)) this.invariantsError.set('Не удалось загрузить инварианты.');
+      },
+    });
+  }
+  private isCurrentInvariantScope(dialogId: string, taskId: string | null, appliedTaskId = this.appliedTaskId,
+                                  generation = this.invariantRequestGeneration): boolean {
+    return generation === this.invariantRequestGeneration && this.currentDialogId() === dialogId
+      && (this.currentTask()?.id ?? null) === taskId && this.appliedTaskId === appliedTaskId;
+  }
+  private isCurrentInvariantEditor(editor: { dialogId: string; taskId: string | null }): boolean {
+    return this.invariantEditor === editor && this.isCurrentInvariantScope(editor.dialogId, editor.taskId);
+  }
   private analyzeAgent(input: string): void {
     const dialogId = this.currentDialogId(); if (!dialogId || this.isPausedTask()) return;
     const requestBranchId = this.branchId;
@@ -893,11 +962,13 @@ export class App implements OnInit, OnDestroy {
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
-        summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, contextMetadata: response.contextMetadata, loading: false }),
+        summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, guardMetrics: response.guardMetrics,
+        contextMetadata: response.contextMetadata, loading: false }),
       error: (error: HttpErrorResponse) => {
         const details = error.error as AgentError | null;
-        this.finishAgentResult(dialogId, id, { error: this.errorMessage(error, false),
-          summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [], loading: false });
+        this.finishAgentResult(dialogId, id, { error: this.invariantErrorMessage(details) ?? this.errorMessage(error, false),
+          summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [],
+          guardMetrics: details?.guardMetrics ?? null, loading: false });
       },
     });
   }
@@ -1009,6 +1080,12 @@ export class App implements OnInit, OnDestroy {
   private blankProfileDraft(): ProfileDraft { return { name: '', instructions: '', responseStyle: '', responseFormat: '' }; }
   private normalizeSelectedProfile(): void {
     if (this.profilesLoaded && this.selectedProfileId && !this.selectedProfile()) this.selectedProfileId = null;
+  }
+  private invariantErrorMessage(error: AgentError | null): string | null {
+    if (!error?.code?.startsWith('INVARIANT_')) return null;
+    const rule = error.invariantName ? `Инвариант «${error.invariantName}»` : 'Проверка инвариантов';
+    const continuation = error.compatibleContinuation ? ` Совместимый шаг: ${error.compatibleContinuation}` : '';
+    return `${rule}: ${error.explanation ?? error.error ?? 'ответ не принят.'}${continuation}`;
   }
   private selectProfileForDialog(dialogId: string, profileId: string | null): void {
     const operation = (this.profileSelectionOperations.get(dialogId) ?? 0) + 1;

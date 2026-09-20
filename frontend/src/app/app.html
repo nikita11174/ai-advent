@@ -172,7 +172,7 @@
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
-      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length)) {
+      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
           @if (result?.metrics) {
@@ -205,6 +205,11 @@
                 <span class="control-metadata">Provider usage · prompt / completion / total: {{ metrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ metrics.providerUsage.totalTokens ?? 'UNKNOWN' }}</span>
               }
             }
+          }
+          @if (result?.guardMetrics) {
+            <span class="control-metadata">Invariant guard · отдельная локальная оценка:<br>
+              request / context / response: {{ result.guardMetrics.currentRequestTokens }} / {{ result.guardMetrics.contextTokens }} / {{ result.guardMetrics.responseTokens }}
+              @if (result.guardMetrics.providerUsage) {<br>Provider usage · prompt / completion / total: {{ result.guardMetrics.providerUsage.promptTokens ?? 'UNKNOWN' }} / {{ result.guardMetrics.providerUsage.completionTokens ?? 'UNKNOWN' }} / {{ result.guardMetrics.providerUsage.totalTokens ?? 'UNKNOWN' }}}</span>
           }
         </details>
       }
@@ -321,6 +326,23 @@
         } @else { <p class="muted">Управляемая задача не выбрана; сохраняется существующее поведение без задачи.</p> }
         @if (taskError()) { <p class="inline-error" role="alert">{{ taskError() }}</p> }
       </section>
+      <section class="inspector-section task-panel">
+        <div class="section-heading"><h2>Инварианты</h2><div><button mat-button type="button" (click)="loadEffectiveInvariants()">Обновить</button><button mat-button type="button" (click)="newInvariant()" aria-label="Создать инвариант">+</button></div></div>
+        @if (effectiveInvariants().length) {
+          <dl class="task-metadata">@for (invariant of effectiveInvariants(); track invariant.id) {
+            <dt>{{ invariant.scope === 'USER' ? 'Пользователь' : 'Задача' }} · {{ invariant.name }}</dt><dd>{{ invariant.rule }} <button mat-button type="button" (click)="editInvariant(invariant)">Изменить</button></dd>
+          }</dl>
+        } @else { <p class="muted">Нет действующих инвариантов.</p> }
+        @if (invariantEditing) {
+          <div class="controls-panel"><label>Область<select [(ngModel)]="invariantScope" [disabled]="!!editingInvariantId"><option value="USER">Пользователь</option><option value="TASK" [disabled]="!currentTask()">Задача</option></select></label>
+            <label>Название<input [(ngModel)]="invariantNameDraft" aria-label="Название инварианта" /></label>
+            <label>Правило<textarea rows="3" [(ngModel)]="invariantRuleDraft" aria-label="Правило инварианта"></textarea></label>
+            @if (invariantScope === 'TASK' && !currentTask()) { <small>Для TASK-инварианта выберите управляемую задачу.</small> }
+            <div class="task-actions"><button mat-flat-button type="button" (click)="saveInvariant()" [disabled]="!invariantNameDraft.trim() || !invariantRuleDraft.trim() || (invariantScope === 'TASK' && !currentTask())">Сохранить</button><button mat-button type="button" (click)="cancelInvariantEdit()">Отмена</button></div>
+          </div>
+        }
+        @if (invariantsError()) { <p class="inline-error" role="alert">{{ invariantsError() }}</p> }
+      </section>
       <section class="inspector-section memory-panel">
         <div class="section-heading"><h2>Память</h2><button mat-button type="button" (click)="editMemory()" [disabled]="memorySaving()" aria-label="Добавить запись памяти">+</button></div>
         <div class="memory-layers">
@@ -386,6 +408,7 @@
         } @else { <p class="muted">Нет метрик основного ответа</p> }
         @if (result.summaryMetrics) { <p>Сводка: {{ result.summaryMetrics.contextTokens }} / {{ result.summaryMetrics.responseTokens }}</p> }
         @if (result.factsMetrics?.length) { <p>Обновления фактов: {{ result.factsMetrics!.length }}</p> }
+        @if (result.guardMetrics) { <p>Invariant guard: {{ result.guardMetrics.contextTokens }} / {{ result.guardMetrics.responseTokens }}</p> }
       } @else { <p class="muted">Метрики доступны у результатов сообщений.</p> }
     </details>
     <details class="inspector-section run-settings">

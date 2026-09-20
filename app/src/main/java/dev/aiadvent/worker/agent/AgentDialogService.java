@@ -22,6 +22,8 @@ import dev.aiadvent.worker.profile.ProfileService;
 import dev.aiadvent.worker.task.Task;
 import dev.aiadvent.worker.task.TaskService;
 import dev.aiadvent.worker.task.TaskStatus;
+import dev.aiadvent.worker.invariant.Invariant;
+import dev.aiadvent.worker.invariant.InvariantService;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +48,8 @@ public class AgentDialogService {
     private final AgentModelCatalog models;
     private final ProfileService profiles;
     private final TaskService tasks;
+    private final InvariantService invariants;
+    private final InvariantGuard invariantGuard;
     private final ConcurrentHashMap<AgentKey, ConversationAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, AgentModelExecutor executor, AgentHistoryStore histories,
@@ -55,7 +59,7 @@ public class AgentDialogService {
                        AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null), null, null);
+                branches, memories, contextTokenLimit, new AgentModelCatalog(executor, null), null, null, null, null);
     }
 
     AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
@@ -64,7 +68,7 @@ public class AgentDialogService {
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService,
-                branches, memories, contextTokenLimit, models, null, null);
+                branches, memories, contextTokenLimit, models, null, null, null, null);
     }
 
     AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
@@ -74,7 +78,17 @@ public class AgentDialogService {
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
                        ProfileService profiles) {
         this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService, branches, memories,
-                contextTokenLimit, models, profiles, null);
+                contextTokenLimit, models, profiles, null, null, null);
+    }
+
+    AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
+                       ProfileService profiles, TaskService tasks) {
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService, branches, memories,
+                contextTokenLimit, models, profiles, tasks, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -83,7 +97,7 @@ public class AgentDialogService {
                        ConversationSummaryService summaryService, StickyFactsStore factsStore,
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
-                       ProfileService profiles, TaskService tasks) {
+                       ProfileService profiles, TaskService tasks, InvariantService invariants, InvariantGuard invariantGuard) {
         this.dialogs = dialogs;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
@@ -96,6 +110,8 @@ public class AgentDialogService {
         this.models = models;
         this.profiles = profiles;
         this.tasks = tasks;
+        this.invariants = invariants;
+        this.invariantGuard = invariantGuard;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -150,13 +166,14 @@ public class AgentDialogService {
             ConversationAgent created = new ConversationAgent(dialogId, defaultConfig, context,
                     models.resolve(null).executor(), histories, tokenEstimator, summaries, summaryService,
                     factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
-                    new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId);
+                    new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId, invariantGuard);
             ConversationAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
         AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
+        List<Invariant> effectiveInvariants = invariants == null ? List.of() : invariants.effective(task == null ? null : task.id());
         return agent.reply(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()), profile, task);
+                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {

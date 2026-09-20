@@ -26,6 +26,7 @@ import dev.aiadvent.worker.task.Task;
 import dev.aiadvent.worker.task.TaskStage;
 import dev.aiadvent.worker.task.TaskState;
 import dev.aiadvent.worker.task.TaskStatus;
+import dev.aiadvent.worker.invariant.InvariantService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.io.IOException;
 import java.util.UUID;
 import java.util.Optional;
+import java.util.List;
 import java.time.Instant;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.CountDownLatch;
@@ -83,12 +85,17 @@ class AgentControllerTest {
     private ProfileService profiles;
     @MockitoBean
     private TaskService tasks;
+    @MockitoBean
+    private InvariantService invariants;
+    @MockitoBean
+    private InvariantGuard invariantGuard;
 
     @BeforeEach
     void emptyMemoryByDefault() throws Exception {
         when(memories.load(any(UUID.class), nullable(UUID.class)))
                 .thenAnswer(call -> AgentMemory.Snapshot.empty(call.getArgument(1)));
         when(tasks.find(any(UUID.class))).thenReturn(Optional.empty());
+        when(invariants.effective(nullable(UUID.class))).thenReturn(List.of());
         when(store.load(anyString())).thenAnswer(call -> new DialogStore.DialogDocument(call.getArgument(0), "Dialog",
                 Instant.EPOCH, Instant.EPOCH, new ObjectMapper().createObjectNode()));
     }

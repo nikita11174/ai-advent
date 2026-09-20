@@ -16,6 +16,8 @@ import dev.aiadvent.worker.model.AgentModelCatalog;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.OpenAiResponsesClient;
 import dev.aiadvent.worker.profile.ProfileService;
+import dev.aiadvent.worker.task.TaskService;
+import dev.aiadvent.worker.invariant.InvariantService;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +64,12 @@ class AgentMemoryControllerTest {
     private AgentMemoryStore memories;
     @MockitoBean
     private ProfileService profiles;
+    @MockitoBean
+    private TaskService tasks;
+    @MockitoBean
+    private InvariantService invariants;
+    @MockitoBean
+    private InvariantGuard invariantGuard;
 
     @Test
     void readsAndUpsertsExactMemoryWithoutCallingProvider() throws Exception {

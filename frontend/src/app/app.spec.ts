@@ -53,6 +53,17 @@ interface TestApp {
   memory(): { taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string> };
   memoryError(): string;
   saveMemory(): void;
+  newInvariant(): void;
+  editInvariant(invariant: { id: string; scope: 'USER' | 'TASK'; taskId: string | null; name: string; rule: string }): void;
+  cancelInvariantEdit(): void;
+  saveInvariant(): void;
+  loadEffectiveInvariants(): void;
+  invariantScope: 'USER' | 'TASK';
+  invariantNameDraft: string;
+  invariantRuleDraft: string;
+  effectiveInvariants(): readonly { id: string; scope: string; name: string; rule: string }[];
+  invariantsError(): string;
+  invariantEditing: boolean;
   topologyError(): string;
   selectLinearContextMode(mode: 'FULL' | 'SUMMARY_RECENT' | 'SLIDING_WINDOW' | 'STICKY_FACTS'): void;
   selectAgent(): void;
@@ -133,7 +144,11 @@ describe('App', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => http.verify({ ignoreCancelled: true }));
+  afterEach(() => {
+    http.match('/api/invariants/effective').forEach(request => request.flush([]));
+    http.match(request => request.url.startsWith('/api/invariants/effective?')).forEach(request => request.flush([]));
+    http.verify({ ignoreCancelled: true });
+  });
 
   function flushSave(): void {
     http.expectOne(request => request.method === 'PUT' && /^\/api\/dialogs\/[^/]+$/.test(request.url)).flush(dialog());
@@ -1345,5 +1360,81 @@ describe('App', () => {
     expect(component.currentTask()?.id).toBe(x.id);
     (component as unknown as { acceptTask(task: unknown, dialogId: string): void }).acceptTask(newer, a);
     expect(component.currentTask()?.state.revision).toBe(1);
+  });
+
+  it('creates and shows effective USER invariants in the Inspector', () => {
+    http.expectOne('/api/invariants/effective').flush([]);
+    component.newInvariant();
+    component.invariantScope = 'USER'; component.invariantNameDraft = 'Локальный стек'; component.invariantRuleDraft = 'Использовать Java 21.';
+    component.saveInvariant();
+    const create = http.expectOne('/api/invariants');
+    expect(create.request.body).toEqual({ scope: 'USER', taskId: null, name: 'Локальный стек', rule: 'Использовать Java 21.' });
+    const invariant = { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', scope: 'USER', taskId: null, name: 'Локальный стек', rule: 'Использовать Java 21.' };
+    create.flush(invariant);
+    http.expectOne('/api/invariants/effective').flush([invariant]);
+    expect(component.effectiveInvariants()).toEqual([invariant]);
+  });
+
+  it('loads USER invariants automatically for a dialog without a managed Task', () => {
+    const initial = http.expectOne('/api/invariants/effective');
+    const invariant = { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', scope: 'USER', taskId: null, name: 'Java', rule: 'Use Java 21.' };
+    initial.flush([invariant]);
+    expect(component.effectiveInvariants()).toEqual([invariant]);
+  });
+
+  it('refreshes effective rules on Task selection and ignores a stale previous scope result', () => {
+    const userLoad = http.expectOne('/api/invariants/effective');
+    const task = managedTask();
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    component.chooseTask(task.id);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog());
+    flushMemory(dialog().id, task.id);
+    const taskLoad = http.expectOne(`/api/invariants/effective?taskId=${task.id}`);
+    const taskInvariant = { id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', scope: 'TASK', taskId: task.id, name: 'PostgreSQL', rule: 'Keep PostgreSQL.' };
+    taskLoad.flush([taskInvariant]);
+    userLoad.flush([{ id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', scope: 'USER', taskId: null, name: 'stale', rule: 'stale' }]);
+    expect(component.effectiveInvariants()).toEqual([taskInvariant]);
+  });
+
+  it('ignores a stale effective-invariant loading error from the previous scope', () => {
+    const userLoad = http.expectOne('/api/invariants/effective');
+    const task = managedTask();
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    component.chooseTask(task.id);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog());
+    flushMemory(dialog().id, task.id);
+    http.expectOne(`/api/invariants/effective?taskId=${task.id}`).flush([]);
+    userLoad.flush({ error: 'old scope unavailable' }, { status: 500, statusText: 'Server Error' });
+    expect(component.invariantsError()).toBe('');
+  });
+
+  it('loads USER invariants again when a managed Task is cleared', () => {
+    http.expectOne('/api/invariants/effective').flush([]);
+    const task = managedTask();
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([task]);
+    component.chooseTask(task.id);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog());
+    flushMemory(dialog().id, task.id); http.expectOne(`/api/invariants/effective?taskId=${task.id}`).flush([]);
+    component.chooseTask(null);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog());
+    flushMemory(dialog().id, null); http.expectOne('/api/invariants/effective').flush([]);
+  });
+
+  it('closes a TASK invariant editor on Task switch and cannot reassign its rule', () => {
+    http.expectOne('/api/invariants/effective').flush([]);
+    const taskA = managedTask('aaaaaaaa-1111-1111-1111-111111111111');
+    const taskB = managedTask('bbbbbbbb-2222-2222-2222-222222222222');
+    (component as unknown as { tasks: { set(value: unknown): void } }).tasks.set([taskA, taskB]);
+    component.chooseTask(taskA.id);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog()); flushMemory(dialog().id, taskA.id);
+    http.expectOne(`/api/invariants/effective?taskId=${taskA.id}`).flush([]);
+    const invariant = { id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', scope: 'TASK' as const, taskId: taskA.id, name: 'PostgreSQL', rule: 'Keep PostgreSQL.' };
+    component.editInvariant(invariant);
+    component.chooseTask(taskB.id);
+    expect(component.invariantEditing).toBe(false);
+    component.saveInvariant();
+    http.expectNone(`/api/invariants/${invariant.id}`);
+    http.expectOne(`/api/dialogs/${dialog().id}/task-selection`).flush(dialog()); flushMemory(dialog().id, taskB.id);
+    http.expectOne(`/api/invariants/effective?taskId=${taskB.id}`).flush([]);
   });
 });

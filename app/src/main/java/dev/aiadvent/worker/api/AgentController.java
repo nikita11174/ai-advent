@@ -12,6 +12,7 @@ import dev.aiadvent.worker.agent.AgentReply;
 import dev.aiadvent.worker.agent.ContextMetadata;
 import dev.aiadvent.worker.agent.ConversationAgent;
 import dev.aiadvent.worker.agent.TokenMetrics;
+import dev.aiadvent.worker.agent.InvariantGuard;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -44,7 +45,7 @@ class AgentController {
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
                 request.branchId(), request.taskId(), request.agentModelKey(), request.profileId());
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
-                reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey());
+                reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -83,6 +84,22 @@ class AgentController {
         return new ApiError(exception.getMessage(), null);
     }
 
+    @ExceptionHandler(InvariantGuard.RejectedCandidateException.class)
+    ResponseEntity<InvariantError> invariantRejected(InvariantGuard.RejectedCandidateException exception) {
+        InvariantGuard.Outcome outcome = exception.outcome();
+        String code = outcome.decision() == InvariantGuard.Decision.CONFLICT
+                ? "INVARIANT_CONFLICT" : "INVARIANT_UNCERTAIN";
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new InvariantError(code, outcome.invariantId(),
+                exception.invariantName(), outcome.explanation(), outcome.compatibleContinuation(), null, null,
+                exception.guardMetrics()));
+    }
+
+    @ExceptionHandler(InvariantGuard.GuardFailureException.class)
+    ResponseEntity<InvariantError> invariantGuardFailure(InvariantGuard.GuardFailureException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new InvariantError("INVARIANT_CHECK_FAILED", null,
+                null, exception.getMessage(), null, null, null, exception.guardMetrics()));
+    }
+
     @ExceptionHandler(ContextLimitExceededException.class)
     @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
     ApiError contextLimit(ContextLimitExceededException exception) {
@@ -96,8 +113,21 @@ class AgentController {
     }
 
     @ExceptionHandler(ConversationAgent.MaintenanceMetricsException.class)
-    ResponseEntity<AgentError> maintenanceFailure(ConversationAgent.MaintenanceMetricsException exception) {
+    ResponseEntity<?> maintenanceFailure(ConversationAgent.MaintenanceMetricsException exception) {
         Throwable cause = exception.getCause();
+        if (cause instanceof InvariantGuard.RejectedCandidateException rejected) {
+            InvariantGuard.Outcome outcome = rejected.outcome();
+            String code = outcome.decision() == InvariantGuard.Decision.CONFLICT
+                    ? "INVARIANT_CONFLICT" : "INVARIANT_UNCERTAIN";
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new InvariantError(code, outcome.invariantId(),
+                    rejected.invariantName(), outcome.explanation(), outcome.compatibleContinuation(),
+                    exception.summaryMetrics(), exception.factsMetrics(), exception.guardMetrics()));
+        }
+        if (cause instanceof InvariantGuard.GuardFailureException failure) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new InvariantError("INVARIANT_CHECK_FAILED", null,
+                    null, failure.getMessage(), null, exception.summaryMetrics(), exception.factsMetrics(),
+                    exception.guardMetrics()));
+        }
         HttpStatus status = cause instanceof ContextLimitExceededException
                 ? HttpStatus.PAYLOAD_TOO_LARGE
                 : cause instanceof ModelExecutionException ? HttpStatus.BAD_GATEWAY
@@ -119,11 +149,16 @@ class AgentController {
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
-                         java.util.List<TokenMetrics> factsMetrics,
+                         java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
                           ContextMetadata contextMetadata, String agentModelKey) {
     }
 
     record AgentError(String error, String rawResponse, TokenMetrics summaryMetrics,
                       java.util.List<TokenMetrics> factsMetrics) {
+    }
+
+    record InvariantError(String code, UUID invariantId, String invariantName, String explanation,
+                          String compatibleContinuation, TokenMetrics summaryMetrics,
+                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics) {
     }
 }
