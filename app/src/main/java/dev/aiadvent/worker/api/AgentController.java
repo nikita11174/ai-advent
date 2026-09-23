@@ -13,6 +13,8 @@ import dev.aiadvent.worker.agent.ContextMetadata;
 import dev.aiadvent.worker.agent.ConversationAgent;
 import dev.aiadvent.worker.agent.TokenMetrics;
 import dev.aiadvent.worker.agent.InvariantGuard;
+import dev.aiadvent.worker.agent.ToolTurnException;
+import dev.aiadvent.worker.agent.ToolTurnTrace;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,9 +45,11 @@ class AgentController {
             throw new IllegalArgumentException("Input must not be empty.");
         }
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                request.branchId(), request.taskId(), request.agentModelKey(), request.profileId());
+                request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
+                Boolean.TRUE.equals(request.requireGitStatusTool()));
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
-                reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey());
+                reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey(),
+                reply.toolTrace());
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -112,6 +116,23 @@ class AgentController {
         return new ApiError(exception.getMessage(), exception.rawResponse());
     }
 
+    @ExceptionHandler(ToolTurnException.class)
+    ResponseEntity<?> toolFailure(ToolTurnException exception) {
+        String code = exception.getMessage();
+        if (exception.getCause() instanceof InvariantGuard.RejectedCandidateException rejected) {
+            var outcome = rejected.outcome();
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new InvariantError(code, outcome.invariantId(),
+                    rejected.invariantName(), outcome.explanation(), outcome.compatibleContinuation(),
+                    null, null, rejected.guardMetrics(), exception.trace()));
+        }
+        HttpStatus status = code.startsWith("INVARIANT_") ? HttpStatus.CONFLICT
+                : code.equals("CONTEXT_LIMIT") ? HttpStatus.PAYLOAD_TOO_LARGE
+                : code.equals("TOOL_DISABLED") || code.equals("TOOL_CAPABILITY_UNSUPPORTED")
+                        || code.equals("INVALID_TOOL_ARGUMENTS") || code.equals("TOOL_NOT_ALLOWED")
+                        ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(new ToolError(code, exception.trace()));
+    }
+
     @ExceptionHandler(ConversationAgent.MaintenanceMetricsException.class)
     ResponseEntity<?> maintenanceFailure(ConversationAgent.MaintenanceMetricsException exception) {
         Throwable cause = exception.getCause();
@@ -139,18 +160,25 @@ class AgentController {
     }
 
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
-                        UUID taskId, String agentModelKey, UUID profileId) {
+                        UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
+        AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey, UUID profileId) {
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false);
+        }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null, null);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null, null);
+            this(input, null, null, null, null, null, null, false);
         }
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
-                          ContextMetadata contextMetadata, String agentModelKey) {
+                          ContextMetadata contextMetadata, String agentModelKey, ToolTurnTrace toolTrace) {
+    }
+
+    record ToolError(String code, ToolTurnTrace toolTrace) {
     }
 
     record AgentError(String error, String rawResponse, TokenMetrics summaryMetrics,
@@ -159,6 +187,13 @@ class AgentController {
 
     record InvariantError(String code, UUID invariantId, String invariantName, String explanation,
                           String compatibleContinuation, TokenMetrics summaryMetrics,
-                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics) {
+                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
+                          ToolTurnTrace toolTrace) {
+        InvariantError(String code, UUID invariantId, String invariantName, String explanation,
+                       String compatibleContinuation, TokenMetrics summaryMetrics,
+                       java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics) {
+            this(code, invariantId, invariantName, explanation, compatibleContinuation,
+                    summaryMetrics, factsMetrics, guardMetrics, null);
+        }
     }
 }

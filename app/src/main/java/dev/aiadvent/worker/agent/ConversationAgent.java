@@ -16,6 +16,10 @@ import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelMessage;
 import dev.aiadvent.worker.model.AgentModelRequest;
 import dev.aiadvent.worker.model.ModelExecutionException;
+import dev.aiadvent.worker.model.ToolCapableModelExecutor;
+import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolDefinition;
+import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolRequestStep;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.task.Task;
 import dev.aiadvent.worker.task.TaskAction;
@@ -48,6 +52,7 @@ public final class ConversationAgent {
     private final AgentBranchStore branches;
     private final String branchId;
     private final InvariantGuard invariantGuard;
+    private final ToolExecutor toolExecutor;
     private final ReentrantLock turnLock = new ReentrantLock();
 
     public ConversationAgent(UUID dialogId, AgentConfig config, ConversationContext context,
@@ -68,6 +73,18 @@ public final class ConversationAgent {
                            ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
                            ContextPolicy slidingWindowPolicy, ContextPolicy stickyFactsPolicy,
                            AgentBranchStore branches, String branchId, InvariantGuard invariantGuard) {
+        this(dialogId, config, context, defaultExecutor, histories, tokenEstimator, summaries, summaryService,
+                factsStore, factsService, fullPolicy, summaryRecentPolicy, slidingWindowPolicy, stickyFactsPolicy,
+                branches, branchId, invariantGuard, null);
+    }
+
+    public ConversationAgent(UUID dialogId, AgentConfig config, ConversationContext context,
+                           AgentModelExecutor defaultExecutor, AgentHistoryStore histories, ApproximateTokenEstimator tokenEstimator,
+                           AgentSummaryStore summaries, ConversationSummaryService summaryService,
+                           StickyFactsStore factsStore, StickyFactsService factsService,
+                           ContextPolicy fullPolicy, ContextPolicy summaryRecentPolicy,
+                           ContextPolicy slidingWindowPolicy, ContextPolicy stickyFactsPolicy,
+                           AgentBranchStore branches, String branchId, InvariantGuard invariantGuard, ToolExecutor toolExecutor) {
         this.dialogId = dialogId;
         this.config = config;
         this.context = context;
@@ -85,6 +102,7 @@ public final class ConversationAgent {
         this.branches = branches;
         this.branchId = branchId;
         this.invariantGuard = invariantGuard;
+        this.toolExecutor = toolExecutor;
     }
 
     public AgentReply reply(String input) throws IOException, ModelExecutionException {
@@ -131,18 +149,34 @@ public final class ConversationAgent {
                 allowedActions, false);
     }
 
+    AgentReply replyWithTool(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
+                     List<Invariant> invariants, List<TaskAction> allowedActions, boolean requireGitStatusTool)
+            throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
+                allowedActions, false, requireGitStatusTool);
+    }
+
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, Profile profile,
                              boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, null,
-                List.of(), List.of(), legacyMaintenanceCalls);
+                List.of(), List.of(), legacyMaintenanceCalls, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
                              List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
+                allowedActions, legacyMaintenanceCalls, false);
+    }
+
+    private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                             AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
+                             List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls,
+                             boolean requireGitStatusTool) throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
@@ -165,6 +199,8 @@ public final class ConversationAgent {
             TokenMetrics guardMetrics = null;
             StickyFacts facts = null;
             boolean summaryIncluded = false;
+            String turnId = requireGitStatusTool ? UUID.randomUUID().toString() : null;
+            String toolStatus = "NOT_REQUESTED";
             try {
                 if (mode == ContextMode.SUMMARY_RECENT) {
                     int committedCount = raw.size() - 1;
@@ -212,23 +248,93 @@ public final class ConversationAgent {
                             new ConversationContext.Message("user", memory.renderReferenceData()));
                     outbound = List.copyOf(assembled);
                 }
-                long contextTokens = tokenEstimator.estimateMessagesWithinLimit(outbound, config.contextTokenLimit());
-                AgentModelExecutor.Completion completion = executor.complete(toModelRequest(outbound, requestConfig));
-                String analysis = completion.content();
-                guardMetrics = checkInvariants(input, analysis, invariants, executor, requestConfig);
-                List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
-                if (branchId == null) {
-                    histories.save(dialogId, completed);
+                long contextTokens;
+                AgentModelExecutor.Completion completion;
+                if (requireGitStatusTool) {
+                    if (toolExecutor == null || !toolExecutor.enabled()) {
+                        throw toolFailure(turnId, toolStatus, "TOOL_DISABLED", null);
+                    }
+                    if (!(executor instanceof ToolCapableModelExecutor nativeExecutor)) {
+                        throw toolFailure(turnId, toolStatus, "TOOL_CAPABILITY_UNSUPPORTED", null);
+                    }
+                    try {
+                        ToolDefinition definition = new ToolDefinition("git_repository_status",
+                                "Read configured repository Git status", new ObjectMapper().valueToTree(
+                                java.util.Map.of("type", "object", "properties", java.util.Map.of(
+                                        "includeChangeCounts", java.util.Map.of("type", "boolean")),
+                                        "required", List.of("includeChangeCounts"), "additionalProperties", false)));
+                        var prepared = nativeExecutor.prepareToolTurn(toModelRequest(outbound, requestConfig), definition);
+                        contextTokens = checkPrepared(prepared.estimatedInputTokens(), requestConfig.contextTokenLimit());
+                        var step = nativeExecutor.beginToolTurn(prepared);
+                        if (!(step instanceof ToolRequestStep requested)) {
+                            throw toolFailure(turnId, toolStatus, "TOOL_REQUIRED", null);
+                        }
+                        toolStatus = "NOT_EXECUTED";
+                        var request = requested.request();
+                        if (!"git_repository_status".equals(request.name())) {
+                            throw toolFailure(turnId, toolStatus, "TOOL_NOT_ALLOWED", null);
+                        }
+                        var args = request.arguments();
+                        if (!args.isObject() || args.size() != 1 || !args.path("includeChangeCounts").isBoolean()) {
+                            throw toolFailure(turnId, toolStatus, "INVALID_TOOL_ARGUMENTS", null);
+                        }
+                        dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolResult result;
+                        try {
+                            result = toolExecutor.execute(request);
+                        } catch (RuntimeException e) {
+                            throw toolFailure(turnId, "FAILED", "MCP_CALL_FAILED", e);
+                        }
+                        toolStatus = "SUCCESS";
+                        var continuation = nativeExecutor.prepareContinuation(requested.continuation(), result);
+                        checkPrepared(continuation.estimatedInputTokens(), requestConfig.contextTokenLimit());
+                        var answer = nativeExecutor.continueToolTurn(continuation);
+                        completion = new AgentModelExecutor.Completion(answer.text(), answer.usage());
+                    } catch (ToolTurnException e) {
+                        throw e;
+                    } catch (ContextLimitExceededException e) {
+                        throw toolFailure(turnId, toolStatus, "CONTEXT_LIMIT", e);
+                    } catch (ModelExecutionException e) {
+                        String code = switch (e.getMessage() == null ? "" : e.getMessage()) {
+                            case "TOOL_CALL_LIMIT", "TOOL_REQUEST_LIMIT", "MALFORMED_TOOL_RESPONSE",
+                                    "MALFORMED_TOOL_ARGUMENTS", "INVALID_TOOL_RESULT" -> e.getMessage();
+                            default -> "MODEL_EXECUTION_FAILED";
+                        };
+                        throw toolFailure(turnId, toolStatus, code, e);
+                    } catch (RuntimeException e) {
+                        throw toolFailure(turnId, toolStatus, "TOOL_TURN_FAILED", e);
+                    }
                 } else {
-                    branches.saveBranch(dialogId, branchId, completed);
+                    contextTokens = tokenEstimator.estimateMessagesWithinLimit(outbound, config.contextTokenLimit());
+                    completion = executor.complete(toModelRequest(outbound, requestConfig));
                 }
-                context.commit(completed);
+                String analysis = completion.content();
+                try {
+                    guardMetrics = checkInvariants(input, analysis, invariants, executor, requestConfig);
+                } catch (InvariantGuard.RejectedCandidateException e) {
+                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus,
+                            e.outcome().decision() == InvariantGuard.Decision.CONFLICT
+                                    ? "INVARIANT_CONFLICT" : "INVARIANT_UNCERTAIN", e);
+                    throw e;
+                } catch (ModelExecutionException e) {
+                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus, "INVARIANT_CHECK_FAILED", e);
+                    throw e;
+                }
+                List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
+                try {
+                    if (branchId == null) histories.save(dialogId, completed);
+                    else branches.saveBranch(dialogId, branchId, completed);
+                    context.commit(completed);
+                } catch (IOException | RuntimeException e) {
+                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus, "HISTORY_SAVE_FAILED", e);
+                    throw e;
+                }
                 saveDerivedState(summaryCandidate, mode == ContextMode.STICKY_FACTS ? facts : null);
                 return new AgentReply(analysis, new TokenMetrics(tokenEstimator.estimateText(input), contextTokens,
                         tokenEstimator.estimateText(analysis), completion.usage()), summaryMetrics, List.copyOf(factsMetrics), guardMetrics,
                         new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
                                 summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts,
-                                memory.usage()));
+                                memory.usage()), requireGitStatusTool
+                        ? new ToolTurnTrace(turnId, true, toolStatus, "SUCCESS", null) : null);
             } catch (InvariantGuard.RejectedCandidateException exception) {
                 if (summaryMetrics != null || !factsMetrics.isEmpty()) {
                     throw new MaintenanceMetricsException(exception, summaryMetrics, List.copyOf(factsMetrics), exception.guardMetrics());
@@ -245,6 +351,20 @@ public final class ConversationAgent {
         } finally {
             turnLock.unlock();
         }
+    }
+
+    private static long checkPrepared(long tokens, Integer limit) {
+        if (limit != null && tokens > limit) throw new ContextLimitExceededException(tokens, limit);
+        return tokens;
+    }
+
+    private static ToolTurnException toolFailure(String turnId, String toolStatus, String code, Throwable cause) {
+        String outcome = code.startsWith("INVARIANT_") || code.equals("TOOL_REQUIRED")
+                || code.equals("TOOL_CAPABILITY_UNSUPPORTED") || code.equals("TOOL_DISABLED")
+                || code.equals("TOOL_NOT_ALLOWED") || code.equals("INVALID_TOOL_ARGUMENTS")
+                ? "REJECTED" : "FAILED";
+        return new ToolTurnException(code, new ToolTurnTrace(turnId, !toolStatus.equals("NOT_REQUESTED"),
+                toolStatus, outcome, code), cause);
     }
 
     private StickyFacts reconcile(StickyFacts stored, List<ConversationContext.Message> raw,
