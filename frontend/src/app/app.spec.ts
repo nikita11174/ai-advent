@@ -9,6 +9,8 @@ interface TestApp {
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
   selectedAgentModelKey: string | null;
+  useRepositoryResearch: boolean;
+  repositorySearchQuery: string;
   selectedProfileId: string | null;
   chooseProfile(id: string | null): void;
   profiles(): readonly { id: string; name: string; instructions: string; responseStyle: string; responseFormat: string }[];
@@ -905,6 +907,81 @@ describe('App', () => {
     expect(details.textContent).toContain('Sticky facts maintenance · calls: 1');
     expect(details.textContent).toContain('2 / 4 / 3');
     expect(details.textContent).not.toContain('Day 8/9');
+  });
+
+  it('sends repository research only for the requested turn and shows compact trace', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement).click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Поисковый термин"]')).not.toBeNull();
+    component.input = 'question'; component.analyze();
+    http.expectNone('/api/dialogs/' + dialog().id + '/agent/messages');
+    component.repositorySearchQuery = 'apply(';
+    component.analyze();
+    const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toMatchObject({ input: 'question', useRepositoryResearch: true,
+      repositorySearchQuery: 'apply(' });
+    request.flush({ analysis: 'TaskController.java:59', repositoryTrace: { status: 'SUCCESS', stepsCompleted: 3,
+      matchesSeen: 3, filesMatched: 2, snippets: 3, evidenceBytes: 1500, reportRef: 'report-1', truncated: false } });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.technical-details')?.textContent).toContain('report-1');
+    expect(component.useRepositoryResearch).toBe(false);
+    component.input = 'ordinary'; component.analyze();
+    const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(ordinary.request.body).not.toHaveProperty('useRepositoryResearch');
+    ordinary.flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('clears repository opt-in when opening or creating another Dialog', () => {
+    const b = '22222222-2222-2222-2222-222222222222';
+    const c = '33333333-3333-3333-3333-333333333333';
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.openDialog(b);
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+    }));
+    flushHealth(); flushTopology(b); flushMemory(b);
+    expect(component.useRepositoryResearch).toBe(false);
+    expect(component.repositorySearchQuery).toBe('');
+    component.input = 'ordinary B'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${b}/agent/messages`);
+    expect(request.request.body).not.toHaveProperty('useRepositoryResearch');
+    expect(request.request.body).not.toHaveProperty('repositorySearchQuery');
+    request.flush({ analysis: 'answer B' });
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
+
+    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.newDialog(); http.expectOne('/api/dialogs').flush({ ...dialog(c), state: {} });
+    flushHealth(); flushTopology(c); flushMemory(c);
+    expect(component.useRepositoryResearch).toBe(false);
+    expect(component.repositorySearchQuery).toBe('');
+  });
+
+  it('retains completed repository metadata when the provider fails', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.input = 'question'; component.analyze();
+    http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush({ error: 'provider failed',
+      repositoryTrace: { status: 'SUCCESS', stepsCompleted: 3, matchesSeen: 2, filesMatched: 1,
+        snippets: 1, evidenceBytes: 100, reportRef: 'report-1', truncated: false } },
+    { status: 502, statusText: 'Bad Gateway' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('provider failed');
+    expect(fixture.nativeElement.querySelector('.technical-details')?.textContent).toContain('report-1');
+  });
+
+  it('shows an unknown repository outcome without an assistant answer', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    component.repositorySearchQuery = 'apply(';
+    component.input = 'question'; component.analyze();
+    http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush(
+      { status: 'UNKNOWN', failedStep: 'SAVE', stepsCompleted: 2, code: 'SAVE_OUTCOME_UNKNOWN' },
+      { status: 502, statusText: 'Bad Gateway' });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain('UNKNOWN');
+    expect(fixture.nativeElement.querySelector('.technical-details')?.textContent).toContain('SAVE_OUTCOME_UNKNOWN');
+    expect(fixture.nativeElement.querySelector('.analysis-text')).toBeNull();
   });
 
   it('renders summary maintenance metrics alongside an Agent error without main metrics', () => {

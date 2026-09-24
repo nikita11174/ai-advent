@@ -172,9 +172,18 @@
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
-      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics)) {
+      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics || result?.repositoryTrace)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
+          @if (result?.repositoryTrace; as research) {
+            <span class="control-metadata">Исследование репозитория: {{ research.status }} · MCP pipeline: {{ research.stepsCompleted }} шага(ов)
+              @if (research.failedStep) { · этап: {{ research.failedStep }} · {{ research.code }} }
+              @if (research.matchesSeen !== undefined) {<br>Совпадений: {{ research.matchesSeen }} · файлов: {{ research.filesMatched }} · фрагментов: {{ research.snippets }} · байт evidence: {{ research.evidenceBytes }}
+                @if (research.truncated) { · ограничено }
+                <br>Report ref: {{ research.reportRef }} · Модель: {{ agentModelLabel(result.agentModelKey) }}
+              }
+            </span>
+          }
           @if (result?.metrics) {
             <span class="control-metadata">Локальная оценка токенов:<br>
               request / context / response: {{ result.metrics.currentRequestTokens }} / {{ result.metrics.contextTokens }} / {{ result.metrics.responseTokens }}
@@ -274,9 +283,16 @@
     <section class="composer-wrap">
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
+        @if (experiment === 'AGENT') {
+          <label><input id="use-repository-research" type="checkbox" [(ngModel)]="useRepositoryResearch" [disabled]="loading()"> Использовать репозиторий</label>
+          @if (useRepositoryResearch) {
+            <label>Поисковый термин <input id="repository-search-query" type="text" [(ngModel)]="repositorySearchQuery" maxlength="100" [disabled]="loading()" aria-label="Поисковый термин"></label>
+            <small>Найденные фрагменты кода будут отправлены выбранной модели.</small>
+          }
+        }
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><span>Ctrl+Enter — отправить</span><div class="action-buttons">
-          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask()))">Отправить</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask() || (useRepositoryResearch && !repositorySearchQuery.trim())))">Отправить</button>
         </div></div>
       </div>
     </section>

@@ -1,5 +1,6 @@
 package dev.aiadvent.worker.api;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import dev.aiadvent.worker.dialog.DialogStore;
 import dev.aiadvent.worker.dialog.AgentBranchStore;
 import dev.aiadvent.worker.context.ContextMode;
@@ -15,6 +16,8 @@ import dev.aiadvent.worker.agent.TokenMetrics;
 import dev.aiadvent.worker.agent.InvariantGuard;
 import dev.aiadvent.worker.agent.ToolTurnException;
 import dev.aiadvent.worker.agent.ToolTurnTrace;
+import dev.aiadvent.worker.agent.RepositoryEvidenceReader;
+import dev.aiadvent.worker.mcp.RepositoryResearchPipeline;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +36,16 @@ import java.util.UUID;
 @RequestMapping("/api/dialogs/{id}/agent/messages")
 class AgentController {
     private final AgentDialogService agents;
+    private final RepositoryResearchPipeline research;
+    private final RepositoryEvidenceReader evidenceReader;
 
-    AgentController(AgentDialogService agents) {
+    @org.springframework.beans.factory.annotation.Autowired
+    AgentController(AgentDialogService agents,
+                    org.springframework.beans.factory.ObjectProvider<RepositoryResearchPipeline> research,
+                    org.springframework.beans.factory.ObjectProvider<RepositoryEvidenceReader> evidenceReader) {
         this.agents = agents;
+        this.research = research.getIfAvailable();
+        this.evidenceReader = evidenceReader.getIfAvailable();
     }
 
     @PostMapping
@@ -44,13 +54,87 @@ class AgentController {
         if (request.input() == null || request.input().isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
-        AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
-                Boolean.TRUE.equals(request.requireGitStatusTool()),
-                Boolean.TRUE.equals(request.requireRepositoryMonitorRead()));
+        boolean useResearch = Boolean.TRUE.equals(request.useRepositoryResearch());
+        if (useResearch && (Boolean.TRUE.equals(request.requireGitStatusTool())
+                || Boolean.TRUE.equals(request.requireRepositoryMonitorRead())))
+            throw new IllegalArgumentException("One repository capability per turn");
+        RepositoryTrace repositoryTrace = null;
+        RepositoryEvidenceReader.Evidence evidence = null;
+        if (useResearch) {
+            if (request.repositorySearchQuery() == null || request.repositorySearchQuery().isBlank())
+                throw new IllegalArgumentException("INVALID_ARGUMENTS");
+            if (research == null || evidenceReader == null) throw new ResearchUnavailable();
+            agents.validateRepositoryTurn(id, request.contextMode(), request.branchId(), request.taskId(),
+                    request.agentModelKey(), request.profileId());
+            var completed = research.runForAgent(request.repositorySearchQuery(), 20);
+            evidence = evidenceReader.read(completed);
+            var result = completed.result();
+            repositoryTrace = new RepositoryTrace("SUCCESS", result.stepsCompleted(), result.matchesSeen(),
+                    result.filesMatched(), evidence.snippets().size(), evidence.bytes(),
+                    result.receipt().path("reportRef").textValue(), evidence.truncated());
+        }
+        AgentReply reply;
+        try {
+            reply = agents.replyWithRepository(id, request.input(), request.contextMode(), request.recentMessageCount(),
+                    request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
+                    Boolean.TRUE.equals(request.requireGitStatusTool()),
+                    Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence);
+        } catch (ModelExecutionException e) {
+            if (repositoryTrace == null) throw e;
+            throw new RepositoryModelFailure(e, repositoryTrace, null, java.util.List.of());
+        } catch (ConversationAgent.MaintenanceMetricsException e) {
+            if (repositoryTrace == null || !(e.getCause() instanceof ModelExecutionException)) throw e;
+            throw new RepositoryModelFailure(e.getCause(), repositoryTrace, e.summaryMetrics(), e.factsMetrics());
+        }
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
                 reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey(),
-                reply.toolTrace());
+                reply.toolTrace(), repositoryTrace);
+    }
+
+    @ExceptionHandler(RepositoryResearchPipeline.PipelineFailure.class)
+    ResponseEntity<ResearchError> researchFailed(RepositoryResearchPipeline.PipelineFailure e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ResearchError("FAILED", e.step(), e.stepsCompleted(), e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositoryResearchPipeline.PipelineUnknown.class)
+    ResponseEntity<ResearchError> researchUnknown(RepositoryResearchPipeline.PipelineUnknown e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ResearchError("UNKNOWN", e.step(), e.stepsCompleted(), e.getMessage()));
+    }
+
+    @ExceptionHandler(RepositoryEvidenceReader.EvidenceFailure.class)
+    ResponseEntity<ResearchError> evidenceFailed(RepositoryEvidenceReader.EvidenceFailure e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ResearchError("FAILED", "EVIDENCE", 3, e.getMessage()));
+    }
+
+    @ExceptionHandler(ResearchUnavailable.class)
+    ResponseEntity<ResearchError> researchUnavailable() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ResearchError("FAILED", "SEARCH", 0, "RESEARCH_DISABLED"));
+    }
+
+    private static final class ResearchUnavailable extends RuntimeException { }
+
+    private static final class RepositoryModelFailure extends RuntimeException {
+        private final RepositoryTrace trace;
+        private final TokenMetrics summaryMetrics;
+        private final java.util.List<TokenMetrics> factsMetrics;
+
+        private RepositoryModelFailure(Throwable cause, RepositoryTrace trace, TokenMetrics summaryMetrics,
+                                       java.util.List<TokenMetrics> factsMetrics) {
+            super(cause);
+            this.trace = trace;
+            this.summaryMetrics = summaryMetrics;
+            this.factsMetrics = factsMetrics;
+        }
+    }
+
+    @ExceptionHandler(RepositoryModelFailure.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    RepositoryTurnError repositoryModelFailure(RepositoryModelFailure failure) {
+        return new RepositoryTurnError(failure.getCause().getMessage(), failure.trace,
+                failure.summaryMetrics, failure.factsMetrics);
     }
 
     @ExceptionHandler(DialogStore.DialogNotFoundException.class)
@@ -162,28 +246,36 @@ class AgentController {
 
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                         UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool,
-                        Boolean requireRepositoryMonitorRead) {
+                        Boolean requireRepositoryMonitorRead, Boolean useRepositoryResearch,
+                        String repositorySearchQuery) {
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
             this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId,
-                    requireGitStatusTool, false);
+                    requireGitStatusTool, false, false, null);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false, false, null);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false, false, null);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null, null, false, false);
+            this(input, null, null, null, null, null, null, false, false, false, null);
         }
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
-                          ContextMetadata contextMetadata, String agentModelKey, ToolTurnTrace toolTrace) {
+                          ContextMetadata contextMetadata, String agentModelKey, ToolTurnTrace toolTrace,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) RepositoryTrace repositoryTrace) {
     }
+
+    record RepositoryTrace(String status, int stepsCompleted, int matchesSeen, int filesMatched,
+                           int snippets, int evidenceBytes, String reportRef, boolean truncated) { }
+    record ResearchError(String status, String failedStep, int stepsCompleted, String code) { }
+    record RepositoryTurnError(String error, RepositoryTrace repositoryTrace, TokenMetrics summaryMetrics,
+                               java.util.List<TokenMetrics> factsMetrics) { }
 
     record ToolError(String code, ToolTurnTrace toolTrace) {
     }

@@ -176,6 +176,16 @@ public class AgentDialogService {
     public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId, boolean requireGitStatusTool,
                      boolean requireRepositoryMonitorRead) throws IOException, ModelExecutionException {
+        return replyWithRepository(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey,
+                profileId, requireGitStatusTool, requireRepositoryMonitorRead, null);
+    }
+
+    public AgentReply replyWithRepository(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount,
+                     String branchId, UUID taskId, String agentModelKey, UUID profileId,
+                     boolean requireGitStatusTool, boolean requireRepositoryMonitorRead,
+                     RepositoryEvidenceReader.Evidence evidence) throws IOException, ModelExecutionException {
+        if (evidence != null && (requireGitStatusTool || requireRepositoryMonitorRead))
+            throw new IllegalArgumentException("One repository capability per turn");
         if (requireGitStatusTool && requireRepositoryMonitorRead) throw new IllegalArgumentException("One read tool per turn");
         if (requireGitStatusTool && (toolExecutor == null || !toolExecutor.enabled())) {
             throw new ToolTurnException("TOOL_DISABLED", new ToolTurnTrace(UUID.randomUUID().toString(), false,
@@ -185,21 +195,11 @@ public class AgentDialogService {
             throw new ToolTurnException("MONITOR_DISABLED", new ToolTurnTrace(UUID.randomUUID().toString(), false,
                     "NOT_EXECUTED", "REJECTED", "MONITOR_DISABLED"), null);
         }
-        AgentModelCatalog.Selection model = models.resolve(agentModelKey);
-        Profile profile = profileId == null ? null : requireProfiles().load(profileId);
-        DialogStore.DialogDocument dialog = dialogs.load(dialogId.toString());
-        UUID selectedTaskId = selectedTaskId(dialog);
-        if (taskId != null && selectedTaskId != null && !taskId.equals(selectedTaskId)) {
-            throw new TaskSelectionMismatchException(selectedTaskId, taskId);
-        }
-        UUID effectiveTaskId = selectedTaskId != null ? selectedTaskId : taskId;
-        Task task = effectiveTaskId == null || tasks == null ? null : tasks.find(effectiveTaskId).orElse(null);
-        if (task != null && task.state().status() == TaskStatus.PAUSED) {
-            throw new TaskPausedException(effectiveTaskId);
-        }
-        if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
-            throw new IllegalArgumentException("Branch messages use FULL context only.");
-        }
+        TurnSelection selection = validateTurn(dialogId, mode, branchId, taskId, agentModelKey, profileId);
+        AgentModelCatalog.Selection model = selection.model();
+        Profile profile = selection.profile();
+        Task task = selection.task();
+        UUID effectiveTaskId = selection.effectiveTaskId();
         AgentKey key = new AgentKey(dialogId, branchId);
         ConversationAgent agent = agents.get(key);
         if (agent == null) {
@@ -222,10 +222,42 @@ public class AgentDialogService {
         AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
         List<Invariant> effectiveInvariants = invariants == null ? List.of() : invariants.effective(task == null ? null : task.id());
         List<TaskAction> allowedActions = task == null ? List.of() : tasks.allowedActions(task);
-        return agent.replyWithTool(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
-                allowedActions, requireGitStatusTool, requireRepositoryMonitorRead);
+        return evidence == null
+                ? agent.replyWithTool(input, mode, recentMessageCount, memory,
+                        model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
+                        allowedActions, requireGitStatusTool, requireRepositoryMonitorRead)
+                : agent.replyWithRepository(input, mode, recentMessageCount, memory,
+                        model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
+                        allowedActions, evidence);
     }
+
+    public void validateRepositoryTurn(UUID dialogId, ContextMode mode, String branchId, UUID taskId,
+                                       String agentModelKey, UUID profileId) throws IOException {
+        validateTurn(dialogId, mode, branchId, taskId, agentModelKey, profileId);
+    }
+
+    private TurnSelection validateTurn(UUID dialogId, ContextMode mode, String branchId, UUID taskId,
+                                       String agentModelKey, UUID profileId) throws IOException {
+        AgentModelCatalog.Selection model = models.resolve(agentModelKey);
+        Profile profile = profileId == null ? null : requireProfiles().load(profileId);
+        DialogStore.DialogDocument dialog = dialogs.load(dialogId.toString());
+        UUID selectedTaskId = selectedTaskId(dialog);
+        if (taskId != null && selectedTaskId != null && !taskId.equals(selectedTaskId)) {
+            throw new TaskSelectionMismatchException(selectedTaskId, taskId);
+        }
+        UUID effectiveTaskId = selectedTaskId != null ? selectedTaskId : taskId;
+        Task task = effectiveTaskId == null || tasks == null ? null : tasks.find(effectiveTaskId).orElse(null);
+        if (task != null && task.state().status() == TaskStatus.PAUSED) {
+            throw new TaskPausedException(effectiveTaskId);
+        }
+        if (branchId != null && (mode != null && mode != ContextMode.FULL)) {
+            throw new IllegalArgumentException("Branch messages use FULL context only.");
+        }
+        if (branchId != null) branches.loadBranch(dialogId, branchId);
+        return new TurnSelection(model, profile, task, effectiveTaskId);
+    }
+
+    private record TurnSelection(AgentModelCatalog.Selection model, Profile profile, Task task, UUID effectiveTaskId) { }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
         return reply(dialogId, input, ContextMode.FULL, 4);

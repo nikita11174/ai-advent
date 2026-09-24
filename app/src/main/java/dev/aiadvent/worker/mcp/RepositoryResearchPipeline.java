@@ -19,6 +19,10 @@ public final class RepositoryResearchPipeline {
     public RepositoryResearchPipeline(WorkspaceToolRuntime runtime) { this.runtime = runtime; }
 
     public Result run(String query, int maxResults) {
+        return runForAgent(query, maxResults).result();
+    }
+
+    public AgentResult runForAgent(String query, int maxResults) {
         if (query == null || query.isBlank() || query.length() > 100 || query.chars().anyMatch(c -> c < 32 || c == 127)
                 || maxResults < 1 || maxResults > 20) throw new PipelineFailure("SEARCH", "INVALID_ARGUMENTS", 0);
         JsonNode search;
@@ -44,8 +48,12 @@ public final class RepositoryResearchPipeline {
             try { receipt = checkedSave(saveInput, summary, operationId); }
             catch (RuntimeException second) { throw new PipelineUnknown("SAVE", 2); }
         }
-        return new Result("COMPLETED", 3, search.path("matchCount").intValue(),
-                summary.path("filesMatched").intValue(), search.path("truncated").booleanValue(), receipt);
+        var anchors = new java.util.ArrayList<Anchor>();
+        summary.path("evidence").forEach(anchor -> anchors.add(new Anchor(
+                anchor.path("relativePath").textValue(), anchor.path("line").intValue())));
+        return new AgentResult(new Result("COMPLETED", 3, search.path("matchCount").intValue(),
+                summary.path("filesMatched").intValue(), search.path("truncated").booleanValue(), receipt),
+                query, java.util.List.copyOf(anchors));
     }
 
     private JsonNode checkedSave(Map<String, Object> input, JsonNode summary, String operationId) {
@@ -63,6 +71,9 @@ public final class RepositoryResearchPipeline {
 
     public record Result(String status, int stepsCompleted, int matchesSeen, int filesMatched,
                          boolean truncated, JsonNode receipt) { }
+
+    public record Anchor(String relativePath, int line) { }
+    public record AgentResult(Result result, String query, java.util.List<Anchor> anchors) { }
 
     public static final class PipelineUnknown extends RuntimeException {
         private final String step;
