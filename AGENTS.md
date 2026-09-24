@@ -1,83 +1,54 @@
-# AGENTS.md
+# AI Advent — проектная дельта для Claude Code и Codex
 
-Единые project instructions для Claude Code и Codex. Оба агента — взаимозаменяемые исполнители;
-имя модели не определяет процесс, полномочия или качество результата.
+Канонический общий процесс находится в
+`../docs/agent-workflow/GLOBAL-SANDBOX-AGENT-WORKFLOW.md`;
+условные процедуры — в соседнем `WORKFLOW-PROCEDURES.md`. При написании, ревью и чистке кода
+применять общий `ENGINEERING-QUALITY-MANIFEST.md` как стандарт по умолчанию.
+`MODEL-EFFORT-REFERENCE.md` — справочник, а не политика маршрутизации или полномочий.
 
-## Session bootstrap
+## Источники и старт сессии
 
-Перед работой:
+Порядок: свежая инструкция владельца → ограничения безопасности и полномочий → эта проектная
+дельта → решения текущего Day и `docs/CURRENT-STATE.md` → фактический код, Git, тесты и runtime
+для проверки реализации → общие инженерные нормы там, где уровни выше молчат → исторические
+отчёты/чаты только как справка → общие учебные советы. Если документ спорит с фактом кода или
+исполнения, зафиксировать конфликт и проверить evidence до действий. Направлением продукта владеет
+`docs/PRODUCT-MANIFEST.md`, архитектурными границами — `docs/ARCHITECTURE.md`.
 
-1. Прочитать `docs/PRODUCT-MANIFEST.md` — product authority.
-2. Прочитать `docs/ARCHITECTURE.md` — architecture-boundary authority.
-3. Прочитать `docs/CURRENT-STATE.md` — operational source of truth.
-4. Прочитать документ текущего challenge task в `docs/tasks/`, только если он существует и нужен
-   для текущего scope.
-5. Прочитать `README.md`, когда нужны команды build/test/run.
-6. Проверить `git status`, затем staged и unstaged diff.
-7. Сверить фактическое состояние working tree с `CURRENT-STATE.md`; при конфликте сначала
-   зафиксировать конфликт, не продолжать на догадках.
+В новой сессии явно прочитать общий процесс и этот файл, если их загрузка не подтверждена; затем
+product manifest, архитектуру, текущий статус и документ текущего Day, только если он существует
+и нужен. `README.md` читать при необходимости команд сборки/запуска. Перед записью проверить
+ветку, HEAD, `git status`, staged/unstaged diff и сверить дерево с `CURRENT-STATE.md`. Чужую или
+незавершённую работу сохранять; исторический архив без конкретного вопроса не читать.
+`docs/SESSION_START.md` — навигация, а не второй источник состояния.
 
-Не полагаться на память предыдущей сессии или отдельный чат-handoff, если репозиторий говорит
-иначе. Не читать исторические материалы без конкретной причины.
+## Владение и полномочия ai-advent
 
-## Implementation rules
+- ChatGPT может координировать scope и acceptance вне репозитория. Владелец назначает одного
+  исполнителя product-кода на шаг; Claude Code и Codex взаимозаменяемы. Codex Sol Medium может
+  быть основным исполнителем Challenge Day, fresh Sol High — независимым reviewer при конкретном
+  риске или запросе владельца. Выбор модели сам по себе не даёт полномочий.
+- **Commit в ai-advent требует отдельной явной команды владельца**, хотя общий sandbox-процесс
+  допускает автономный локальный commit в других проектах. Push, merge, rebase, amend, reset,
+  cherry-pick, удаление веток, MR и запись в main/work repo тоже требуют соответствующей явной
+  команды. Не добавлять `Co-Authored-By:` и не предлагать push/MR без запроса.
+- `docs/**` — приватное состояние владельца: не stage/commit без явного разрешения на публикацию.
+  Постороннее dirty-изменение `README.md` не stage, не переписывать и не откатывать автоматически.
+- Ставить `OWNER APPROVED` только после явного одобрения владельца. Не перезаписывать незавершённую
+  работу другого агента; сохранять одного product-code writer и узкий task-scoped diff.
+- Видео Challenge — отдельный этап закрытия. `CODE/RUNTIME_ACCEPTED` не означает `DAY_CLOSED`, пока
+  обязательное видео ожидает принятия. Текущими gates и следующим шагом владеет `CURRENT-STATE.md`.
 
-- До изменений назвать acceptance criteria и способ проверки.
-- Решение помечать `OWNER APPROVED` только после явного заявления владельца об одобрении.
-  До этого предложения и рекомендации агента остаются рекомендациями, не решениями владельца.
-- Перед изменениями кратко назвать что меняется, зачем и какой слой затронут.
-- Не уничтожать, не откатывать и не перезаписывать незавершённую работу другого агента.
-- `docs/**` is owner-private local state and must not be staged/committed unless explicitly authorized for publication.
-- Продолжать существующее решение. Начинать заново можно только при подтверждённой проблеме и с
-  зафиксированным обоснованием.
-- Делать минимальное корректное изменение без speculative abstractions, массового форматирования
-  и unrelated cleanup.
-- Документация и evidence подчиняются канонической global policy. Обновлять существующий
-  authoritative документ только когда его owned truth материально изменился.
-- Тестировать изменённое подходящими targeted checks. Не объявлять DONE без evidence; явно
-  указывать, что не проверено.
-- Не выполнять commit, push, merge, rebase или удаление веток без явной команды владельца.
-- Secrets, API keys, tokens, credentials и чувствительные данные никогда не хранить в Git и не
-  выводить в отчёты.
+## Проектные условия исполнения
 
-## Local execution
+Жизненный цикл Challenge описан в `docs/WORKFLOW.md`. До реализации назвать критерии приёмки и
+самую дешёвую достаточную проверку. Локальные Maven build, targeted tests и agent-owned runtime
+разрешены, когда нужны текущему Day. Реальный внешний API smoke — только при явной потребности
+задачи; credentials и чувствительные запросы не выводить. IDE/MCP — инструменты разработки, а не
+product dependency. Статическая или документная задача не требует запуска приложения.
 
-- Локальные Maven build, deterministic/unit tests и запуск приложения разрешены и ожидаются,
-  когда проверяют текущий Challenge task.
-- Реальный внешний API smoke разрешён только когда его явно требует текущая задача; не выводить
-  credentials или чувствительные request data.
-- IDE и MCP tooling можно использовать для анализа и проверки, когда это полезно. Они являются
-  локальными инструментами разработки, а не product dependency.
-- Commit/push и destructive infrastructure operations выполняются только по отдельной явной
-  команде владельца.
-
-## Browser verification
-
-- Выбор browser automation tool и fallback policy определяет каноническая global policy.
-- **BROWSER WINDOW OWNERSHIP**
-  - Never resize or reposition the user's existing browser window automatically.
-  - Never maximize, minimize, snap or otherwise change its window bounds.
-  - Preserve the user's current Chrome window geometry.
-  - Do not call `resize_page` / viewport resize merely to satisfy a nominal acceptance resolution.
-  - Responsive-size testing must be an explicit separate task.
-  - If a requested viewport cannot be tested without changing the user's window, report the limitation instead.
-  - A disposable/separate browser may be resized only when explicitly authorized.
-- Единственный routine/default viewport — desktop **1440×1000**; сохранять desktop layout.
-- Не выполнять mobile/tablet/responsive проверки и не включать device/mobile emulation по умолчанию.
-- В обычной проверке не уменьшать viewport ниже 1440×1000; завершать работу при 1440×1000.
-- Mobile/responsive проверки и соответствующая эмуляция разрешены только по явному запросу
-  владельца для текущей задачи. После такой проверки восстановить **1440×1000** desktop.
-
-## Lightweight workflow
-
-Для простой и ясной задачи достаточно: `implement -> verify -> compact chat result`. Research,
-отдельный planning round и independent review не являются обязательными стадиями.
-
-Дополнительного агента подключать только для конкретной открытой неизвестности или оправданной
-независимой проверки: например, high-risk/security change, существенное архитектурное решение
-или сложное runtime-поведение. Не запускать multi-agent циклы ради дополнительной уверенности.
-
-Начинать отдельный research/review/agent cycle только при concrete unresolved question, ответ на
-который может изменить implementation или decision; не проводить broad audit «на всякий случай».
-Для нетривиального цикла явно задать: Goal → Evidence/Context → Constraints → Done when.
-Для follow-up в той же сессии использовать delta prompt, а не повторять полный handoff.
+Browser tooling следует общему процессу. Геометрию существующего окна пользователя сохранять:
+не менять размер/позицию и не сворачивать, разворачивать или snap. Обычный desktop viewport —
+1440×1000. Mobile/tablet/responsive проверка и resize отдельного disposable browser требуют
+явного запроса; после разрешённой проверки вернуть 1440×1000. Если viewport нельзя проверить без
+изменения окна пользователя, указать ограничение.
