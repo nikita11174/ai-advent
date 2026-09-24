@@ -153,8 +153,16 @@ public final class ConversationAgent {
                      AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
                      List<Invariant> invariants, List<TaskAction> allowedActions, boolean requireGitStatusTool)
             throws IOException, ModelExecutionException {
+        return replyWithTool(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task,
+                invariants, allowedActions, requireGitStatusTool, false);
+    }
+
+    AgentReply replyWithTool(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                     AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
+                     List<Invariant> invariants, List<TaskAction> allowedActions, boolean requireGitStatusTool,
+                     boolean requireMonitorRead) throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
-                allowedActions, false, requireGitStatusTool);
+                allowedActions, false, requireGitStatusTool, requireMonitorRead);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
@@ -162,7 +170,7 @@ public final class ConversationAgent {
                              boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, null,
-                List.of(), List.of(), legacyMaintenanceCalls, false);
+                List.of(), List.of(), legacyMaintenanceCalls, false, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
@@ -170,13 +178,13 @@ public final class ConversationAgent {
                              List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls)
             throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
-                allowedActions, legacyMaintenanceCalls, false);
+                allowedActions, legacyMaintenanceCalls, false, false);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
                              AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
                              List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls,
-                             boolean requireGitStatusTool) throws IOException, ModelExecutionException {
+                             boolean requireGitStatusTool, boolean requireMonitorRead) throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
         }
@@ -199,7 +207,8 @@ public final class ConversationAgent {
             TokenMetrics guardMetrics = null;
             StickyFacts facts = null;
             boolean summaryIncluded = false;
-            String turnId = requireGitStatusTool ? UUID.randomUUID().toString() : null;
+            boolean toolRequested = requireGitStatusTool || requireMonitorRead;
+            String turnId = toolRequested ? UUID.randomUUID().toString() : null;
             String toolStatus = "NOT_REQUESTED";
             try {
                 if (mode == ContextMode.SUMMARY_RECENT) {
@@ -250,16 +259,21 @@ public final class ConversationAgent {
                 }
                 long contextTokens;
                 AgentModelExecutor.Completion completion;
-                if (requireGitStatusTool) {
-                    if (toolExecutor == null || !toolExecutor.enabled()) {
+                if (toolRequested) {
+                    if (toolExecutor == null || (requireGitStatusTool && !toolExecutor.enabled())
+                            || (requireMonitorRead && (!(toolExecutor instanceof MonitorReadExecutor reader) || !reader.monitorEnabled()))) {
                         throw toolFailure(turnId, toolStatus, "TOOL_DISABLED", null);
                     }
                     if (!(executor instanceof ToolCapableModelExecutor nativeExecutor)) {
                         throw toolFailure(turnId, toolStatus, "TOOL_CAPABILITY_UNSUPPORTED", null);
                     }
                     try {
-                        ToolDefinition definition = new ToolDefinition("git_repository_status",
-                                "Read configured repository Git status", new ObjectMapper().valueToTree(
+                        String toolName = requireMonitorRead ? "get_repository_monitor_summary" : "git_repository_status";
+                        ToolDefinition definition = requireMonitorRead
+                                ? new ToolDefinition(toolName, "Read persisted repository monitor summary",
+                                new ObjectMapper().valueToTree(java.util.Map.of("type", "object", "properties",
+                                        java.util.Map.of(), "required", List.of(), "additionalProperties", false)))
+                                : new ToolDefinition(toolName, "Read configured repository Git status", new ObjectMapper().valueToTree(
                                 java.util.Map.of("type", "object", "properties", java.util.Map.of(
                                         "includeChangeCounts", java.util.Map.of("type", "boolean")),
                                         "required", List.of("includeChangeCounts"), "additionalProperties", false)));
@@ -271,16 +285,18 @@ public final class ConversationAgent {
                         }
                         toolStatus = "NOT_EXECUTED";
                         var request = requested.request();
-                        if (!"git_repository_status".equals(request.name())) {
+                        if (!toolName.equals(request.name())) {
                             throw toolFailure(turnId, toolStatus, "TOOL_NOT_ALLOWED", null);
                         }
                         var args = request.arguments();
-                        if (!args.isObject() || args.size() != 1 || !args.path("includeChangeCounts").isBoolean()) {
+                        if (!args.isObject() || (requireMonitorRead ? args.size() != 0
+                                : args.size() != 1 || !args.path("includeChangeCounts").isBoolean())) {
                             throw toolFailure(turnId, toolStatus, "INVALID_TOOL_ARGUMENTS", null);
                         }
                         dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolResult result;
                         try {
-                            result = toolExecutor.execute(request);
+                            result = requireMonitorRead
+                                    ? ((MonitorReadExecutor) toolExecutor).readMonitor(request) : toolExecutor.execute(request);
                         } catch (RuntimeException e) {
                             throw toolFailure(turnId, "FAILED", "MCP_CALL_FAILED", e);
                         }
@@ -311,12 +327,12 @@ public final class ConversationAgent {
                 try {
                     guardMetrics = checkInvariants(input, analysis, invariants, executor, requestConfig);
                 } catch (InvariantGuard.RejectedCandidateException e) {
-                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus,
+                    if (toolRequested) throw toolFailure(turnId, toolStatus,
                             e.outcome().decision() == InvariantGuard.Decision.CONFLICT
                                     ? "INVARIANT_CONFLICT" : "INVARIANT_UNCERTAIN", e);
                     throw e;
                 } catch (ModelExecutionException e) {
-                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus, "INVARIANT_CHECK_FAILED", e);
+                    if (toolRequested) throw toolFailure(turnId, toolStatus, "INVARIANT_CHECK_FAILED", e);
                     throw e;
                 }
                 List<ConversationContext.Message> completed = context.withCompletedTurn(input, analysis);
@@ -325,7 +341,7 @@ public final class ConversationAgent {
                     else branches.saveBranch(dialogId, branchId, completed);
                     context.commit(completed);
                 } catch (IOException | RuntimeException e) {
-                    if (requireGitStatusTool) throw toolFailure(turnId, toolStatus, "HISTORY_SAVE_FAILED", e);
+                    if (toolRequested) throw toolFailure(turnId, toolStatus, "HISTORY_SAVE_FAILED", e);
                     throw e;
                 }
                 saveDerivedState(summaryCandidate, mode == ContextMode.STICKY_FACTS ? facts : null);
@@ -333,7 +349,7 @@ public final class ConversationAgent {
                         tokenEstimator.estimateText(analysis), completion.usage()), summaryMetrics, List.copyOf(factsMetrics), guardMetrics,
                         new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
                                 summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts,
-                                memory.usage()), requireGitStatusTool
+                                memory.usage()), toolRequested
                         ? new ToolTurnTrace(turnId, true, toolStatus, "SUCCESS", null) : null);
             } catch (InvariantGuard.RejectedCandidateException exception) {
                 if (summaryMetrics != null || !factsMetrics.isEmpty()) {

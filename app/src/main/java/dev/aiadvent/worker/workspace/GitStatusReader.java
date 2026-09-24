@@ -23,12 +23,20 @@ public final class GitStatusReader {
     private final Path repository;
     private final Duration timeout;
     private final int maxOutputBytes;
+    private final ProcessStarter processStarter;
+
+    @FunctionalInterface
+    interface ProcessStarter { Process start(ProcessBuilder builder) throws IOException; }
 
     public GitStatusReader(Path repository) {
         this(repository, DEFAULT_TIMEOUT, DEFAULT_MAX_OUTPUT_BYTES);
     }
 
     GitStatusReader(Path repository, Duration timeout, int maxOutputBytes) {
+        this(repository, timeout, maxOutputBytes, ProcessBuilder::start);
+    }
+
+    GitStatusReader(Path repository, Duration timeout, int maxOutputBytes, ProcessStarter processStarter) {
         if (timeout.isZero() || timeout.isNegative() || maxOutputBytes < 1) {
             throw new IllegalArgumentException("Invalid Git observation limits");
         }
@@ -43,6 +51,7 @@ public final class GitStatusReader {
         }
         this.timeout = timeout;
         this.maxOutputBytes = maxOutputBytes;
+        this.processStarter = processStarter;
     }
 
     public RepositoryStatus read(boolean includeChangeCounts) {
@@ -64,12 +73,13 @@ public final class GitStatusReader {
         long deadline = System.nanoTime() + timeout.toNanos();
         Process process;
         try {
-            process = builder.start();
+            process = processStarter.start(builder);
         }
         catch (IOException e) {
             throw new StatusException("GIT_FAILURE", e);
         }
-        try (var input = process.getInputStream()) {
+        var input = process.getInputStream();
+        try {
             process.getOutputStream().close();
             FutureTask<byte[]> read = new FutureTask<>(() -> input.readNBytes(maxOutputBytes + 1));
             Thread.ofVirtual().start(read);
@@ -96,14 +106,25 @@ public final class GitStatusReader {
             throw new StatusException("GIT_FAILURE", e);
         }
         finally {
-            if (process.isAlive()) {
-                process.destroyForcibly();
-                try {
-                    process.waitFor(1, TimeUnit.SECONDS);
+            boolean interrupted = Thread.interrupted();
+            try {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                    long stopDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                    while (process.isAlive() && System.nanoTime() < stopDeadline) {
+                        try {
+                            process.waitFor(Math.max(1, stopDeadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                        } catch (InterruptedException e) {
+                            interrupted = true;
+                        }
+                    }
+                    if (process.isAlive()) throw new StatusException("GIT_FAILURE");
                 }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+            } catch (RuntimeException e) {
+                throw new StatusException("GIT_FAILURE");
+            } finally {
+                try { input.close(); } catch (IOException ignored) { }
+                if (interrupted) Thread.currentThread().interrupt();
             }
         }
     }

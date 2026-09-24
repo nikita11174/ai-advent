@@ -169,9 +169,21 @@ public class AgentDialogService {
     public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId, boolean requireGitStatusTool)
             throws IOException, ModelExecutionException {
+        return reply(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey, profileId,
+                requireGitStatusTool, false);
+    }
+
+    public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey, UUID profileId, boolean requireGitStatusTool,
+                     boolean requireRepositoryMonitorRead) throws IOException, ModelExecutionException {
+        if (requireGitStatusTool && requireRepositoryMonitorRead) throw new IllegalArgumentException("One read tool per turn");
         if (requireGitStatusTool && (toolExecutor == null || !toolExecutor.enabled())) {
             throw new ToolTurnException("TOOL_DISABLED", new ToolTurnTrace(UUID.randomUUID().toString(), false,
                     "NOT_EXECUTED", "REJECTED", "TOOL_DISABLED"), null);
+        }
+        if (requireRepositoryMonitorRead && (!(toolExecutor instanceof MonitorReadExecutor reader) || !reader.monitorEnabled())) {
+            throw new ToolTurnException("MONITOR_DISABLED", new ToolTurnTrace(UUID.randomUUID().toString(), false,
+                    "NOT_EXECUTED", "REJECTED", "MONITOR_DISABLED"), null);
         }
         AgentModelCatalog.Selection model = models.resolve(agentModelKey);
         Profile profile = profileId == null ? null : requireProfiles().load(profileId);
@@ -212,7 +224,7 @@ public class AgentDialogService {
         List<TaskAction> allowedActions = task == null ? List.of() : tasks.allowedActions(task);
         return agent.replyWithTool(input, mode, recentMessageCount, memory,
                 model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
-                allowedActions, requireGitStatusTool);
+                allowedActions, requireGitStatusTool, requireRepositoryMonitorRead);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
