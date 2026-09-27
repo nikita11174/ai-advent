@@ -1,19 +1,12 @@
 package dev.aiadvent.worker.mcp;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
-import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
-import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -26,53 +19,21 @@ public final class McpDiscoveryMain {
     private static final int MAX_TOOLS = 128;
     private static final int MAX_DESCRIPTOR_BYTES = 12_288;
     private static final int MAX_OUTPUT_BYTES = 262_144;
-    private static final Duration INITIALIZATION_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
-    private static final Duration OVERALL_TIMEOUT = Duration.ofSeconds(30);
 
     private McpDiscoveryMain() {
     }
 
     public static void main(String[] args) throws IOException {
         URI endpoint = endpoint(args, System.getenv());
-        ((Logger) LoggerFactory.getLogger("io.modelcontextprotocol")).setLevel(Level.WARN);
-        var transport = HttpClientStreamableHttpTransport.builder(baseUrl(endpoint))
-                .endpoint(endpoint.getRawPath())
-                .jsonMapper(new JacksonMcpJsonMapper(JSON))
-                .connectTimeout(Duration.ofSeconds(5))
-                .maxResponseSize(1_048_576)
-                .build();
-        long deadline = System.nanoTime() + OVERALL_TIMEOUT.toNanos();
-        McpSchema.InitializeResult initialization;
-        List<String> descriptors;
-        try (McpSyncClient client = McpClient.sync(transport)
-                .initializationTimeout(INITIALIZATION_TIMEOUT)
-                .requestTimeout(REQUEST_TIMEOUT)
-                .build()) {
-            try {
-                initialization = client.initialize();
-            }
-            catch (RuntimeException e) {
-                throw new IllegalStateException("INITIALIZE_FAILED", e);
-            }
-            checkDeadline(deadline);
-            if (initialization == null || initialization.serverInfo() == null
-                    || initialization.serverInfo().name() == null || initialization.serverInfo().name().isBlank()
-                    || initialization.protocolVersion() == null || initialization.protocolVersion().isBlank()) {
-                throw new IllegalStateException("MALFORMED_INITIALIZATION");
-            }
-            descriptors = discover(client, deadline);
+        McpDiscovery.Result result = new McpDiscovery().discover(endpoint);
+        System.out.println(JSON.writeValueAsString(new DiscoveryHeader(result.server(), result.serverVersion(),
+                result.protocolVersion(), result.tools().size())));
+        for (JsonNode tool : result.tools()) {
+            System.out.println(JSON.writeValueAsString(tool));
         }
-        String header = JSON.writeValueAsString(new DiscoveryHeader(initialization.serverInfo().name(),
-                initialization.serverInfo().version(), initialization.protocolVersion(), descriptors.size()));
-        if (header.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1_024) {
-            throw new IllegalStateException("MALFORMED_INITIALIZATION");
-        }
-        System.out.println(header);
-        descriptors.forEach(System.out::println);
     }
 
-    static URI endpoint(String[] args, Map<String, String> environment) {
+    public static URI endpoint(String[] args, Map<String, String> environment) {
         String value;
         if (args.length == 0) {
             value = environment.get("AI_ADVENT_MCP_ENDPOINT");
@@ -101,10 +62,6 @@ public final class McpDiscoveryMain {
             throw new IllegalArgumentException("MCP endpoint must be loopback HTTP /stream with an explicit port");
         }
         return uri;
-    }
-
-    private static String baseUrl(URI endpoint) {
-        return "http://" + endpoint.getRawAuthority();
     }
 
     static List<String> discover(McpSyncClient client, long deadline) throws IOException {
@@ -161,7 +118,7 @@ public final class McpDiscoveryMain {
         return normalized;
     }
 
-    private static void checkDeadline(long deadline) {
+    static void checkDeadline(long deadline) {
         if (System.nanoTime() - deadline >= 0) {
             throw new IllegalStateException("TIMEOUT: discovery deadline exceeded");
         }

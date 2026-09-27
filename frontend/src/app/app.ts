@@ -13,6 +13,7 @@ import { ModelProfile, ModelResponse, ModelResult, ModelResultState } from './mo
 import { AgentModelOption } from './agent/agent-ui.types';
 import { AgentModelService } from './agent/model/agent-model.service';
 import { AgentInspector } from './agent/inspector/agent-inspector';
+import { McpWorkspace } from './mcp/mcp-workspace';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
@@ -140,10 +141,11 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector],
+  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector, McpWorkspace],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit, OnDestroy {
+  protected view: 'chat' | 'workspace' = 'chat';
   private readonly http = inject(HttpClient);
   private readonly agentModelService = inject(AgentModelService);
   private readonly pageTitle = inject(Title);

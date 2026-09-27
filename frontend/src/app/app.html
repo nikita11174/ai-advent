@@ -1,7 +1,7 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">LW</span><span>Local AI Worker</span></div>
-  <div class="context"><button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button>
-    @if (experiment === 'AGENT') {
+  <div class="context"><nav class="primary-nav" aria-label="Разделы"><button type="button" [attr.aria-current]="view === 'chat' ? 'page' : null" (click)="view = 'chat'">Беседа</button><button type="button" [attr.aria-current]="view === 'workspace' ? 'page' : null" (click)="view = 'workspace'">Рабочая область</button></nav>@if (view === 'chat') { <button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button> }
+    @if (experiment === 'AGENT' && view === 'chat') {
       <span class="model-badge server-status" [class.online]="backendStatus() === 'ONLINE'" [class.offline]="backendStatus() === 'OFFLINE'"
         [style.color]="backendStatus() === 'ONLINE' ? '#86efac' : backendStatus() === 'OFFLINE' ? '#fca5a5' : '#fde68a'" role="status">
         <span aria-hidden="true">●</span>
@@ -33,6 +33,7 @@
     </nav>
   </aside>
 
+  @if (view === 'chat') {
   <main class="chat-shell">
     <header class="conversation-header">
       <span>Беседа</span>
@@ -440,6 +441,9 @@
       @if (experiment !== 'AGENT') { <button mat-button type="button" (click)="useBenchmark()">Вставить PaymentReceived benchmark</button> }
     </details>
   </app-agent-inspector>
+  } @else {
+    <app-mcp-workspace />
+  }
   <ng-template #historicalSettings>
       @if (experiment === 'FORMAT') {
         <div class="mode-selector" role="radiogroup" aria-label="Режим анализа">

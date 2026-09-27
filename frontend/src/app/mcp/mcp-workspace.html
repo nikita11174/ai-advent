@@ -1,0 +1,55 @@
+<main class="mcp-main">
+  <header class="mcp-heading">
+    <div><p class="eyebrow">Рабочая область / MCP</p><h1>Инструменты MCP</h1><p>Каталог внешнего сервера после фактической проверки подключения.</p></div>
+  </header>
+
+  <section class="connection-card" aria-label="Подключение MCP">
+    <div class="connection-title"><span class="connection-icon">M</span><div><h2>{{ connection()?.name ?? 'IntelliJ IDEA MCP' }}</h2><small>Настроенное подключение · доступ только для чтения каталога</small></div></div>
+    <div class="connection-action">
+      <span class="connection-state" [class.checked]="state() === 'success'" [class.failed]="state() === 'error'">
+        {{ state() === 'loading' ? 'Проверяется…' : state() === 'success' ? 'Проверено' : state() === 'error' ? 'Ошибка проверки' : connection()?.configured ? 'Не проверено' : 'Не настроено' }}
+      </span>
+      <button type="button" (click)="discover()" [disabled]="state() === 'loading'">Проверить подключение и получить инструменты</button>
+    </div>
+  </section>
+
+  @if (connectionError()) { <p class="error" role="alert">{{ connectionError() }}</p> }
+  @if (state() === 'loading') { <p class="notice" role="status">Получаем каталог инструментов с IDEA MCP…</p> }
+  @if (state() === 'error') { <p class="error" role="alert">{{ error() }}</p> }
+  @if (result(); as catalog) {
+    <div class="catalog-summary" role="status">
+      <strong>{{ catalog.server }}</strong><span>Протокол {{ catalog.protocolVersion }}</span><span>Последняя проверка: {{ catalog.checkedAt | date:'dd.MM.yyyy HH:mm:ss' }}</span><span>Инструментов: {{ catalog.toolCount }}</span>
+    </div>
+    <section class="catalog" aria-label="Каталог инструментов">
+      <div class="catalog-bar"><h2>Каталог</h2><label>Поиск <input type="search" aria-label="Поиск инструментов" placeholder="Название или описание" [value]="query()" (input)="query.set($any($event.target).value)" /></label></div>
+      @if (catalog.toolCount === 0) { <p class="notice">Сервер ответил, но инструментов нет.</p> }
+      @else if (filteredTools().length === 0) { <p class="notice">По запросу ничего не найдено.</p> }
+      @else {
+        <div class="tool-list">
+          @for (tool of filteredTools(); track tool.name) {
+            <button type="button" class="tool-row" [class.selected]="selectedTool() === tool" [attr.aria-pressed]="selectedTool() === tool" (click)="select(tool)">
+              <strong>{{ tool.name }}</strong><span>{{ tool.description || 'Описание не предоставлено' }}</span><span class="arrow" aria-hidden="true">›</span>
+            </button>
+          }
+        </div>
+      }
+    </section>
+  } @else if (state() === 'idle') {
+    <div class="empty"><span aria-hidden="true">◎</span><h2>Каталог пока не получен</h2><p>Проверка начнётся только после нажатия кнопки. Наличие настройки не означает, что сервер доступен.</p></div>
+  }
+</main>
+
+<aside class="mcp-details" aria-label="Сведения об инструменте">
+  @if (selectedTool(); as tool) {
+    <p class="eyebrow">Сведения / инструмент</p><h2>{{ tool.name }}</h2>
+    <h3>Описание</h3><p class="description">{{ tool.description || 'Описание не предоставлено.' }}</p>
+    <h3>Входные параметры</h3>
+    @if (parameters(tool).length) {
+      @for (parameter of parameters(tool); track parameter.name) {
+        <div class="parameter"><strong>{{ parameter.name }}</strong><small>{{ parameter.type }}{{ parameter.required ? ' · обязательный' : '' }}</small><p>{{ parameter.description || 'Описание не предоставлено.' }}</p></div>
+      }
+    } @else { <p class="muted">Параметры не объявлены.</p> }
+  } @else {
+    <p class="eyebrow">Сведения</p><h2>Инструмент</h2><p class="muted">Выберите инструмент в каталоге, чтобы увидеть описание и входные параметры.</p>
+  }
+</aside>

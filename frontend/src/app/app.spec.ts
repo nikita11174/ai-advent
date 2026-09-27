@@ -175,6 +175,21 @@ describe('App', () => {
     expect(selection.request.body).toEqual({ taskId: task.id }); selection.flush(dialog(component.currentDialogId()!));
   }
 
+  it('opens MCP workspace without discovery and returns to the existing chat controls', () => {
+    const workspace = [...fixture.nativeElement.querySelectorAll('.primary-nav button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Рабочая область')) as HTMLButtonElement;
+    workspace.click(); fixture.detectChanges();
+    http.expectOne('/api/mcp/connections').flush([{ id: 'idea', name: 'IntelliJ IDEA MCP', configured: true }]);
+    http.expectNone('/api/mcp/connections/idea/discovery');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Инструменты MCP');
+    expect(fixture.nativeElement.querySelector('.composer')).toBeNull();
+
+    (fixture.nativeElement.querySelector('.primary-nav button') as HTMLButtonElement).click(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.composer')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-agent-inspector')).not.toBeNull();
+  });
+
   it('UX shell keeps the composer free of settings and reveals memory only on request', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
     expect(document.title).toBe('Local AI Worker');
