@@ -101,6 +101,16 @@ class AgentControllerTest {
     }
 
     @Test
+    void requiredGitToolIsRejectedWhenRuntimeIsDisabled() throws Exception {
+        mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
+                        .content("{\"input\":\"status\",\"requireGitStatusTool\":true}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("TOOL_DISABLED"))
+                .andExpect(jsonPath("$.toolTrace.toolStatus").value("NOT_EXECUTED"));
+        verify(client, never()).complete(any());
+    }
+
+    @Test
     void rejectsUnknownAgentModelBeforeProviderOrStorage() throws Exception {
         mvc.perform(post("/api/dialogs/" + UUID.randomUUID() + "/agent/messages").contentType("application/json")
                 .content("{\"input\":\"hello\",\"agentModelKey\":\"unknown\"}"))

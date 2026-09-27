@@ -51,6 +51,7 @@ public class AgentDialogService {
     private final TaskService tasks;
     private final InvariantService invariants;
     private final InvariantGuard invariantGuard;
+    private final ToolExecutor toolExecutor;
     private final ConcurrentHashMap<AgentKey, ConversationAgent> agents = new ConcurrentHashMap<>();
 
     AgentDialogService(DialogStore dialogs, AgentModelExecutor executor, AgentHistoryStore histories,
@@ -92,13 +93,36 @@ public class AgentDialogService {
                 contextTokenLimit, models, profiles, tasks, null, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
                        ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
                        ConversationSummaryService summaryService, StickyFactsStore factsStore,
                        StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
                        @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit, AgentModelCatalog models,
                        ProfileService profiles, TaskService tasks, InvariantService invariants, InvariantGuard invariantGuard) {
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService, branches,
+                memories, contextTokenLimit, models, profiles, tasks, invariants, invariantGuard, (ToolExecutor) null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       @Value("${mentor.agent.context-token-limit:0}") int contextTokenLimit,
+                       AgentModelCatalog models, ProfileService profiles, TaskService tasks,
+                       InvariantService invariants, InvariantGuard invariantGuard,
+                       org.springframework.beans.factory.ObjectProvider<ToolExecutor> toolExecutor) {
+        this(dialogs, histories, tokenEstimator, summaries, summaryService, factsStore, factsService, branches,
+                memories, contextTokenLimit, models, profiles, tasks, invariants, invariantGuard,
+                toolExecutor.getIfAvailable());
+    }
+
+    private AgentDialogService(DialogStore dialogs, AgentHistoryStore histories,
+                       ApproximateTokenEstimator tokenEstimator, AgentSummaryStore summaries,
+                       ConversationSummaryService summaryService, StickyFactsStore factsStore,
+                       StickyFactsService factsService, AgentBranchStore branches, AgentMemoryStore memories,
+                       int contextTokenLimit, AgentModelCatalog models, ProfileService profiles, TaskService tasks,
+                       InvariantService invariants, InvariantGuard invariantGuard, ToolExecutor toolExecutor) {
         this.dialogs = dialogs;
         this.histories = histories;
         this.tokenEstimator = tokenEstimator;
@@ -113,6 +137,7 @@ public class AgentDialogService {
         this.tasks = tasks;
         this.invariants = invariants;
         this.invariantGuard = invariantGuard;
+        this.toolExecutor = toolExecutor;
         this.defaultConfig = AgentConfig.defaults(contextTokenLimit == 0 ? null : contextTokenLimit);
     }
 
@@ -138,6 +163,16 @@ public class AgentDialogService {
 
     public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId) throws IOException, ModelExecutionException {
+        return reply(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false);
+    }
+
+    public AgentReply reply(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey, UUID profileId, boolean requireGitStatusTool)
+            throws IOException, ModelExecutionException {
+        if (requireGitStatusTool && (toolExecutor == null || !toolExecutor.enabled())) {
+            throw new ToolTurnException("TOOL_DISABLED", new ToolTurnTrace(UUID.randomUUID().toString(), false,
+                    "NOT_EXECUTED", "REJECTED", "TOOL_DISABLED"), null);
+        }
         AgentModelCatalog.Selection model = models.resolve(agentModelKey);
         Profile profile = profileId == null ? null : requireProfiles().load(profileId);
         DialogStore.DialogDocument dialog = dialogs.load(dialogId.toString());
@@ -167,15 +202,17 @@ public class AgentDialogService {
             ConversationAgent created = new ConversationAgent(dialogId, defaultConfig, context,
                     models.resolve(null).executor(), histories, tokenEstimator, summaries, summaryService,
                     factsStore, factsService, new FullContextPolicy(), new SummaryRecentContextPolicy(),
-                    new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId, invariantGuard);
+                    new SlidingWindowContextPolicy(), new StickyFactsContextPolicy(), branches, branchId, invariantGuard,
+                    toolExecutor);
             ConversationAgent existing = agents.putIfAbsent(key, created);
             agent = existing == null ? created : existing;
         }
         AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
         List<Invariant> effectiveInvariants = invariants == null ? List.of() : invariants.effective(task == null ? null : task.id());
         List<TaskAction> allowedActions = task == null ? List.of() : tasks.allowedActions(task);
-        return agent.reply(input, mode, recentMessageCount, memory,
-                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants, allowedActions);
+        return agent.replyWithTool(input, mode, recentMessageCount, memory,
+                model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
+                allowedActions, requireGitStatusTool);
     }
 
     public AgentReply reply(UUID dialogId, String input) throws IOException, ModelExecutionException {
