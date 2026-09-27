@@ -22,7 +22,7 @@ class ConversationToolTurnTest {
     private final ToolCapableModelExecutor nativeModel = mock(ToolCapableModelExecutor.class,
             withSettings().extraInterfaces(AgentModelExecutor.class));
     private final AgentModelExecutor executor = (AgentModelExecutor) nativeModel;
-    private final ToolExecutor tool = mock(ToolExecutor.class);
+    private final ToolExecutor tool = mock(ToolExecutor.class, withSettings().extraInterfaces(MonitorReadExecutor.class));
     private final AgentHistoryStore histories = mock(AgentHistoryStore.class);
     private final ConversationContext context = new ConversationContext(AgentConfig.defaults().systemPrompt());
     private final PreparedToolTurn first = mock(PreparedToolTurn.class);
@@ -61,6 +61,36 @@ class ConversationToolTurnTest {
         assertEquals("ordinary", agent(AgentConfig.defaults()).reply("status").analysis());
         verify(nativeModel, never()).prepareToolTurn(any(), any());
         verify(tool, never()).execute(any());
+    }
+
+    @Test void explicitMonitorReadExposesOnlyReadAndCommitsCanonicalPair() throws Exception {
+        setup();
+        var monitor = (MonitorReadExecutor) tool;
+        when(monitor.monitorEnabled()).thenReturn(true);
+        when(nativeModel.beginToolTurn(first)).thenReturn(new ToolRequestStep(
+                new ToolRequest("get_repository_monitor_summary", json.readTree("{}")), continuation, null));
+        when(monitor.readMonitor(any())).thenReturn(new ToolResult("get_repository_monitor_summary",
+                json.readTree("{\"latestDigest\":{\"text\":\"local digest\"}}")));
+        var agent = agent(AgentConfig.defaults());
+        var reply = agent.replyWithTool("Explain the monitor", ContextMode.FULL, 4,
+                AgentMemory.Snapshot.empty(null), executor, AgentConfig.defaults(), null, null,
+                List.of(), List.of(), false, true);
+        assertEquals("final answer", reply.analysis());
+        var definition = org.mockito.ArgumentCaptor.forClass(ToolDefinition.class);
+        verify(nativeModel).prepareToolTurn(any(), definition.capture());
+        assertEquals("get_repository_monitor_summary", definition.getValue().name());
+        assertEquals(0, definition.getValue().inputSchema().path("properties").size());
+        verify(monitor).readMonitor(any());
+        verify(tool, never()).execute(any());
+        assertEquals(3, context.snapshot().size());
+        assertFalse(context.snapshot().toString().contains("local digest"));
+
+        when(nativeModel.beginToolTurn(first)).thenReturn(new ToolRequestStep(
+                new ToolRequest("start_repository_monitor", json.readTree("{}")), continuation, null));
+        assertEquals("TOOL_NOT_ALLOWED", assertThrows(ToolTurnException.class,
+                () -> agent.replyWithTool("start it", ContextMode.FULL, 4, AgentMemory.Snapshot.empty(null),
+                        executor, AgentConfig.defaults(), null, null, List.of(), List.of(), false, true)).getMessage());
+        verify(monitor, times(1)).readMonitor(any());
     }
 
     @Test void successfulTurnCommitsOnlyUserAndFinalAndCanReuseExecutor() throws Exception {

@@ -3,6 +3,7 @@ package dev.aiadvent.worker.mcp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aiadvent.worker.agent.ToolExecutor;
+import dev.aiadvent.worker.agent.MonitorReadExecutor;
 import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolRequest;
 import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolResult;
 import io.modelcontextprotocol.client.McpClient;
@@ -30,7 +31,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
-public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
+public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExecutor, AutoCloseable {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Duration CHILD_START_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration CHILD_EXIT_TIMEOUT = Duration.ofSeconds(5);
@@ -39,18 +40,41 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
     private final McpSyncClient client;
     private final OwnedStdioClientTransport transport;
     private final Process child;
+    private final boolean gitEnabled;
+    private final boolean monitorEnabled;
+    private final boolean demoIntervals;
     private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
     private final CompletableFuture<Void> closeOutcome = new CompletableFuture<>();
 
     @Autowired
     public WorkspaceToolRuntime(@Value("${mentor.git-status-tool.enabled:false}") boolean enabled,
-                                @Value("${mentor.git-status-tool.repository:}") String repository) {
+                                @Value("${mentor.git-status-tool.repository:}") String repository,
+                                @Value("${mentor.repository-monitor.enabled:false}") boolean monitorEnabled,
+                                @Value("${mentor.repository-monitor.state-directory:}") String stateDirectory,
+                                @Value("${mentor.repository-monitor.demo-intervals:false}") boolean demoIntervals,
+                                @Value("${server.address:}") String serverAddress) {
+        this(enabled, repository, monitorEnabled, stateDirectory, demoIntervals, serverAddress, CHILD_START_TIMEOUT, null);
+    }
+
+    public WorkspaceToolRuntime(boolean enabled, String repository) {
         this(enabled, repository, CHILD_START_TIMEOUT, null);
     }
 
     WorkspaceToolRuntime(boolean enabled, String repository, Duration startTimeout,
                          OwnedStdioClientTransport.ProcessStarter processStarter) {
-        if (!enabled) {
+        this(enabled, repository, false, "", false, "", startTimeout, processStarter);
+    }
+
+    WorkspaceToolRuntime(boolean enabled, String repository, boolean monitorEnabled, String stateDirectory,
+                         boolean demoIntervals, String serverAddress, Duration startTimeout,
+                         OwnedStdioClientTransport.ProcessStarter processStarter) {
+        this.gitEnabled = enabled;
+        this.monitorEnabled = monitorEnabled;
+        this.demoIntervals = demoIntervals;
+        if (monitorEnabled && !Set.of("127.0.0.1", "::1").contains(serverAddress)) {
+            throw new IllegalStateException("MONITOR_LOCAL_BIND_REQUIRED");
+        }
+        if (!enabled && !monitorEnabled) {
             client = null;
             transport = null;
             child = null;
@@ -84,6 +108,14 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
             }
         }
         builder.environment().put("AI_ADVENT_WORKSPACE_REPOSITORY", root.toString());
+        if (monitorEnabled) {
+            String directory = stateDirectory.isBlank() ? System.getenv("LOCALAPPDATA") : stateDirectory;
+            if (directory == null || directory.isBlank()) throw new IllegalStateException("MCP_START_FAILED");
+            if (stateDirectory.isBlank()) directory = Path.of(directory, "LocalAIWorker", "repository-monitor").toString();
+            builder.environment().put("AI_ADVENT_MONITOR_ENABLED", "true");
+            builder.environment().put("AI_ADVENT_MONITOR_STATE_DIRECTORY", directory);
+            builder.environment().put("AI_ADVENT_MONITOR_DEMO", Boolean.toString(demoIntervals));
+        }
 
         OwnedStdioClientTransport owned = OwnedStdioClientTransport.start(
                 processStarter == null ? builder::start : processStarter,
@@ -95,9 +127,15 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
             started.initialize();
             var listed = started.listTools();
             if (listed == null || listed.nextCursor() != null || listed.tools() == null
-                    || listed.tools().size() != 1 || !WorkspaceMcpServerMain.TOOL_NAME.equals(listed.tools().getFirst().name())
-                    || !WorkspaceMcpServerMain.inputSchema().equals(listed.tools().getFirst().inputSchema())
-                    || !WorkspaceMcpServerMain.outputSchema().equals(listed.tools().getFirst().outputSchema())) {
+                    || listed.tools().size() != (monitorEnabled ? 4 : 1)
+                    || !matches(listed.tools(), WorkspaceMcpServerMain.TOOL_NAME,
+                    WorkspaceMcpServerMain.inputSchema(), WorkspaceMcpServerMain.outputSchema())
+                    || (monitorEnabled && (!matches(listed.tools(), WorkspaceMcpServerMain.START_MONITOR,
+                    WorkspaceMcpServerMain.startInputSchema(demoIntervals), WorkspaceMcpServerMain.mutationOutputSchema())
+                    || !matches(listed.tools(), WorkspaceMcpServerMain.READ_MONITOR,
+                    WorkspaceMcpServerMain.readInputSchema(), WorkspaceMcpServerMain.viewOutputSchema())
+                    || !matches(listed.tools(), WorkspaceMcpServerMain.STOP_MONITOR,
+                    WorkspaceMcpServerMain.stopInputSchema(), WorkspaceMcpServerMain.mutationOutputSchema())))) {
                 throw new IllegalStateException("TOOL_UNAVAILABLE");
             }
         } catch (RuntimeException | Error e) {
@@ -116,6 +154,9 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
     }
 
     WorkspaceToolRuntime(McpSyncClient client, Process child) {
+        this.gitEnabled = true;
+        this.monitorEnabled = false;
+        this.demoIntervals = false;
         this.client = Objects.requireNonNull(client);
         this.child = Objects.requireNonNull(child);
         this.transport = null;
@@ -126,10 +167,13 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
         return child == null ? null : child.toHandle();
     }
 
-    @Override public boolean enabled() { return client != null && state.get() == State.OPEN; }
+    @Override public boolean enabled() { return gitEnabled && client != null && state.get() == State.OPEN; }
+
+    @Override public boolean monitorEnabled() { return monitorEnabled && client != null && state.get() == State.OPEN; }
 
     @Override public synchronized ToolResult execute(ToolRequest request) {
         if (state.get() != State.OPEN) throw new IllegalStateException("MCP_RUNTIME_CLOSED");
+        if (!gitEnabled) throw new IllegalStateException("TOOL_DISABLED");
         if (client == null) throw new IllegalStateException("TOOL_DISABLED");
         if (!WorkspaceMcpServerMain.TOOL_NAME.equals(request.name())) throw new IllegalArgumentException("TOOL_NOT_ALLOWED");
         JsonNode args = request.arguments();
@@ -150,6 +194,139 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
         } catch (RuntimeException e) {
             throw new IllegalStateException("MCP_CALL_FAILED", e);
         }
+    }
+
+    private static boolean matches(List<McpSchema.Tool> tools, String name, Map<String, Object> input,
+                                   Map<String, Object> output) {
+        return tools.stream().filter(tool -> name.equals(tool.name())).count() == 1
+                && tools.stream().filter(tool -> name.equals(tool.name())).allMatch(tool ->
+                input.equals(tool.inputSchema()) && output.equals(tool.outputSchema()));
+    }
+
+    @Override public synchronized ToolResult readMonitor(ToolRequest request) {
+        if (!WorkspaceMcpServerMain.READ_MONITOR.equals(request.name())
+                || !request.arguments().isObject() || request.arguments().size() != 0) {
+            throw new IllegalArgumentException("INVALID_TOOL_ARGUMENTS");
+        }
+        return new ToolResult(request.name(), monitorCall(request.name(), Map.of()));
+    }
+
+    public synchronized JsonNode startMonitor(int intervalSeconds, String commandId, long expectedRevision) {
+        return monitorCall(WorkspaceMcpServerMain.START_MONITOR,
+                Map.of("intervalSeconds", intervalSeconds, "commandId", commandId, "expectedRevision", expectedRevision));
+    }
+
+    public synchronized JsonNode stopMonitor(String commandId, long expectedRevision) {
+        return monitorCall(WorkspaceMcpServerMain.STOP_MONITOR,
+                Map.of("commandId", commandId, "expectedRevision", expectedRevision));
+    }
+
+    public synchronized JsonNode getMonitor() {
+        return monitorCall(WorkspaceMcpServerMain.READ_MONITOR, Map.of());
+    }
+
+    private JsonNode monitorCall(String name, Map<String, Object> arguments) {
+        if (state.get() != State.OPEN) throw new IllegalStateException("MCP_RUNTIME_CLOSED");
+        if (!monitorEnabled) throw new IllegalStateException("MONITOR_DISABLED");
+        McpSchema.CallToolResult response;
+        try {
+            response = client.callTool(new McpSchema.CallToolRequest(name, arguments));
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                    ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN");
+        }
+        if (response == null) throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN");
+        JsonNode envelope;
+        try { envelope = JSON.valueToTree(response); }
+        catch (RuntimeException e) { throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN"); }
+        if (envelope.toString().getBytes(StandardCharsets.UTF_8).length > 16_384) {
+            throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                    ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN");
+        }
+        if (Boolean.TRUE.equals(response.isError())) {
+            JsonNode error = envelope.path("content").path(0).path("text");
+            String code = error.asText("MCP_CALL_FAILED");
+            if (!Set.of("INVALID_ARGUMENTS", "COMMAND_ID_CONFLICT", "CONFIG_REVISION_CONFLICT",
+                    "PERSISTENCE_FAILED", "MONITOR_DISABLED", "MONITOR_FAULTED", "RESULT_LIMIT").contains(code)) {
+                code = "MCP_CALL_FAILED";
+            }
+            throw new IllegalStateException(code);
+        }
+        JsonNode result;
+        try { result = JSON.valueToTree(response.structuredContent()); }
+        catch (RuntimeException e) { throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN"); }
+        if (!result.isObject() || result.toString().getBytes(StandardCharsets.UTF_8).length > 16_384
+                || (name.equals(WorkspaceMcpServerMain.READ_MONITOR) && !validMonitorView(result))
+                || (!name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                && (!validReceipt(result.path("receipt")) || !validMonitorView(result.path("view"))
+                || result.size() != 2))) {
+            throw new IllegalStateException(name.equals(WorkspaceMcpServerMain.READ_MONITOR)
+                    ? "MCP_CALL_FAILED" : "MONITOR_UNKNOWN");
+        }
+        return result;
+    }
+
+    private static boolean validMonitorView(JsonNode view) {
+        if (!exact(view, Set.of("monitorId", "repositoryRef", "enabled", "intervalSeconds", "configRevision",
+                "nextRunAt", "aggregate", "latestDigest", "lastCommand", "health"))) return false;
+        if (!"repository-monitor".equals(view.path("monitorId").asText())
+                || !"workspace".equals(view.path("repositoryRef").asText()) || !view.path("enabled").isBoolean()
+                || !nonnegative(view.path("configRevision"))
+                || !(view.path("intervalSeconds").isNull() || nonnegative(view.path("intervalSeconds")))
+                || !dateOrNull(view.path("nextRunAt"))) return false;
+        JsonNode aggregate = view.path("aggregate");
+        if (!exact(aggregate, Set.of("successCount", "failureCount", "dirtySampleCount", "headTransitionCount",
+                "branchTransitionCount", "firstSuccessAt", "lastSuccessAt", "lastCompletedAt", "lastOutcome",
+                "lastFailureCode", "latestStatus"))) return false;
+        for (String key : Set.of("successCount", "failureCount", "dirtySampleCount", "headTransitionCount", "branchTransitionCount")) {
+            if (!nonnegative(aggregate.path(key))) return false;
+        }
+        for (String key : Set.of("firstSuccessAt", "lastSuccessAt", "lastCompletedAt")) {
+            if (!dateOrNull(aggregate.path(key))) return false;
+        }
+        if (!(aggregate.path("lastOutcome").isNull() || Set.of("SUCCESS", "FAILURE").contains(aggregate.path("lastOutcome").asText()))
+                || !(aggregate.path("lastFailureCode").isNull() || aggregate.path("lastFailureCode").isTextual())
+                || !(aggregate.path("latestStatus").isNull() || validResult(aggregate.path("latestStatus")))) return false;
+        JsonNode digest = view.path("latestDigest");
+        if (!(digest.isNull() || (exact(digest, Set.of("snapshotRevision", "generatedAt", "text"))
+                && nonnegative(digest.path("snapshotRevision")) && dateOrNull(digest.path("generatedAt"))
+                && digest.path("generatedAt").isTextual() && digest.path("text").isTextual()
+                && digest.path("text").asText().getBytes(StandardCharsets.UTF_8).length <= 2048))) return false;
+        JsonNode command = view.path("lastCommand");
+        if (!(command.isNull() || (exact(command, Set.of("commandId", "action", "intervalSeconds", "operationStatus", "configRevision"))
+                && command.path("commandId").isTextual() && Set.of("START", "STOP").contains(command.path("action").asText())
+                && (command.path("intervalSeconds").isNull() || nonnegative(command.path("intervalSeconds")))
+                && "APPLIED".equals(command.path("operationStatus").asText())
+                && nonnegative(command.path("configRevision"))))) return false;
+        JsonNode health = view.path("health");
+        return exact(health, Set.of("status", "code"))
+                && Set.of("IDLE", "WAITING", "RUNNING", "FAULTED").contains(health.path("status").asText())
+                && (health.path("code").isNull() || health.path("code").isTextual());
+    }
+
+    private static boolean validReceipt(JsonNode receipt) {
+        return exact(receipt, Set.of("commandId", "operationStatus", "configRevision", "enabled"))
+                && receipt.path("commandId").isTextual()
+                && Set.of("APPLIED", "ALREADY_APPLIED").contains(receipt.path("operationStatus").asText())
+                && nonnegative(receipt.path("configRevision")) && receipt.path("enabled").isBoolean();
+    }
+
+    private static boolean exact(JsonNode node, Set<String> names) {
+        return node.isObject() && node.size() == names.size()
+                && java.util.stream.StreamSupport.stream(node.properties().spliterator(), false)
+                .map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()).equals(names);
+    }
+
+    private static boolean nonnegative(JsonNode node) { return node.isIntegralNumber() && node.canConvertToLong() && node.longValue() >= 0; }
+
+    private static boolean dateOrNull(JsonNode node) {
+        if (node.isNull()) return true;
+        if (!node.isTextual()) return false;
+        try { java.time.Instant.parse(node.textValue()); return true; }
+        catch (RuntimeException e) { return false; }
     }
 
     private static boolean validResult(JsonNode result) {
@@ -204,7 +381,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, AutoCloseable {
         } catch (RuntimeException | Error e) {
             closeFailed = true;
         }
-        awaitTermination(process, CHILD_EXIT_TIMEOUT);
+        awaitTermination(process, transport == null ? CHILD_EXIT_TIMEOUT : Duration.ofSeconds(12));
         try {
             if (transport != null) transport.closeRemainingStreams();
         } catch (RuntimeException | Error e) {

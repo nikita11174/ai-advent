@@ -10,11 +10,38 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class GitStatusReaderTest {
     @TempDir Path repository;
+
+    @Test
+    void interruptedReadConfirmsExactSubprocessTermination() throws Exception {
+        Path marker = repository.resolve("started.marker");
+        AtomicReference<Process> owned = new AtomicReference<>();
+        var reader = new GitStatusReader(repository, Duration.ofSeconds(20), 65_536, ignored -> {
+            Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java.exe").toString(),
+                    "-cp", System.getProperty("java.class.path"), SlowGitProcessFixtureMain.class.getName(),
+                    marker.toString()).start();
+            owned.set(child);
+            return child;
+        });
+        AtomicReference<String> failure = new AtomicReference<>();
+        Thread active = Thread.ofPlatform().start(() -> {
+            try { reader.read(true); }
+            catch (GitStatusReader.StatusException e) { failure.set(e.getMessage()); }
+        });
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (!Files.exists(marker) && System.nanoTime() < deadline) Thread.sleep(10);
+        assertTrue(Files.exists(marker));
+        active.interrupt();
+        active.join(3000);
+        assertFalse(active.isAlive());
+        assertEquals("GIT_INTERRUPTED", failure.get());
+        assertFalse(owned.get().isAlive());
+    }
 
     @Test
     void reportsUnbornAttachedAndDetachedWithoutInventingHead() throws Exception {

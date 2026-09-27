@@ -46,7 +46,8 @@ class AgentController {
         }
         AgentReply reply = agents.reply(id, request.input(), request.contextMode(), request.recentMessageCount(),
                 request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
-                Boolean.TRUE.equals(request.requireGitStatusTool()));
+                Boolean.TRUE.equals(request.requireGitStatusTool()),
+                Boolean.TRUE.equals(request.requireRepositoryMonitorRead()));
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
                 reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey(),
                 reply.toolTrace());
@@ -160,16 +161,22 @@ class AgentController {
     }
 
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
-                        UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
+                        UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool,
+                        Boolean requireRepositoryMonitorRead) {
+        AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
+                     UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId,
+                    requireGitStatusTool, false);
+        }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null, null, false);
+            this(input, null, null, null, null, null, null, false, false);
         }
     }
 

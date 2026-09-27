@@ -284,7 +284,7 @@ final class OwnedStdioClientTransport implements McpClientTransport {
     @Override public Mono<Void> closeGracefully() {
         return Mono.fromRunnable(() -> {
             closeStreams();
-            WorkspaceToolRuntime.awaitTermination(process, Duration.ofSeconds(5));
+            WorkspaceToolRuntime.awaitTermination(process, Duration.ofSeconds(12));
             closeRemainingStreams();
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
