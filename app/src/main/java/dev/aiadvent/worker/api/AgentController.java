@@ -18,6 +18,9 @@ import dev.aiadvent.worker.agent.ToolTurnException;
 import dev.aiadvent.worker.agent.ToolTurnTrace;
 import dev.aiadvent.worker.agent.RepositoryEvidenceReader;
 import dev.aiadvent.worker.mcp.RepositoryResearchPipeline;
+import dev.aiadvent.worker.mcp.OrchestrationTools;
+import dev.aiadvent.worker.agent.OrchestrationException;
+import dev.aiadvent.worker.agent.OrchestrationTrace;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,14 +41,17 @@ class AgentController {
     private final AgentDialogService agents;
     private final RepositoryResearchPipeline research;
     private final RepositoryEvidenceReader evidenceReader;
+    private final OrchestrationTools orchestration;
 
     @org.springframework.beans.factory.annotation.Autowired
     AgentController(AgentDialogService agents,
                     org.springframework.beans.factory.ObjectProvider<RepositoryResearchPipeline> research,
-                    org.springframework.beans.factory.ObjectProvider<RepositoryEvidenceReader> evidenceReader) {
+                    org.springframework.beans.factory.ObjectProvider<RepositoryEvidenceReader> evidenceReader,
+                    org.springframework.beans.factory.ObjectProvider<OrchestrationTools> orchestration) {
         this.agents = agents;
         this.research = research.getIfAvailable();
         this.evidenceReader = evidenceReader.getIfAvailable();
+        this.orchestration = orchestration.getIfAvailable();
     }
 
     @PostMapping
@@ -55,6 +61,13 @@ class AgentController {
             throw new IllegalArgumentException("Input must not be empty.");
         }
         boolean useResearch = Boolean.TRUE.equals(request.useRepositoryResearch());
+        boolean useOrchestration = Boolean.TRUE.equals(request.useMcpOrchestration());
+        if (useOrchestration && (useResearch || Boolean.TRUE.equals(request.requireGitStatusTool())
+                || Boolean.TRUE.equals(request.requireRepositoryMonitorRead())))
+            throw new IllegalArgumentException("One repository capability per turn");
+        if (useOrchestration && (orchestration == null || !orchestration.ready()))
+            throw new OrchestrationException("ORCHESTRATION_UNAVAILABLE",
+                    new OrchestrationTrace(UUID.randomUUID().toString(), "FAILED", java.util.List.of()), null);
         if (useResearch && (Boolean.TRUE.equals(request.requireGitStatusTool())
                 || Boolean.TRUE.equals(request.requireRepositoryMonitorRead())))
             throw new IllegalArgumentException("One repository capability per turn");
@@ -75,10 +88,11 @@ class AgentController {
         }
         AgentReply reply;
         try {
-            reply = agents.replyWithRepository(id, request.input(), request.contextMode(), request.recentMessageCount(),
+            reply = agents.replyWithOrchestration(id, request.input(), request.contextMode(), request.recentMessageCount(),
                     request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
                     Boolean.TRUE.equals(request.requireGitStatusTool()),
-                    Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence);
+                    Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence,
+                    useOrchestration ? orchestration : null);
         } catch (ModelExecutionException e) {
             if (repositoryTrace == null) throw e;
             throw new RepositoryModelFailure(e, repositoryTrace, null, java.util.List.of());
@@ -88,7 +102,7 @@ class AgentController {
         }
         return new AgentResponse(reply.analysis(), reply.metrics(), reply.summaryMetrics(), reply.factsMetrics(),
                 reply.guardMetrics(), reply.contextMetadata(), request.agentModelKey() == null ? AgentModelCatalog.DEFAULT_KEY : request.agentModelKey(),
-                reply.toolTrace(), repositoryTrace);
+                reply.toolTrace(), repositoryTrace, reply.orchestrationTrace());
     }
 
     @ExceptionHandler(RepositoryResearchPipeline.PipelineFailure.class)
@@ -218,6 +232,23 @@ class AgentController {
         return ResponseEntity.status(status).body(new ToolError(code, exception.trace()));
     }
 
+    @ExceptionHandler(OrchestrationException.class)
+    ResponseEntity<?> orchestrationFailure(OrchestrationException exception) {
+        if (exception.getCause() instanceof InvariantGuard.RejectedCandidateException rejected) {
+            var outcome = rejected.outcome();
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new InvariantError(exception.getMessage(),
+                    outcome.invariantId(), rejected.invariantName(), outcome.explanation(),
+                    outcome.compatibleContinuation(), null, null, rejected.guardMetrics(), null, exception.trace()));
+        }
+        if (exception.getCause() instanceof InvariantGuard.GuardFailureException failure) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new InvariantError("INVARIANT_CHECK_FAILED",
+                    null, null, failure.getMessage(), null, null, null, failure.guardMetrics(), null,
+                    exception.trace()));
+        }
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new OrchestrationError(exception.getMessage(), exception.trace()));
+    }
+
     @ExceptionHandler(ConversationAgent.MaintenanceMetricsException.class)
     ResponseEntity<?> maintenanceFailure(ConversationAgent.MaintenanceMetricsException exception) {
         Throwable cause = exception.getCause();
@@ -227,12 +258,13 @@ class AgentController {
                     ? "INVARIANT_CONFLICT" : "INVARIANT_UNCERTAIN";
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new InvariantError(code, outcome.invariantId(),
                     rejected.invariantName(), outcome.explanation(), outcome.compatibleContinuation(),
-                    exception.summaryMetrics(), exception.factsMetrics(), exception.guardMetrics()));
+                    exception.summaryMetrics(), exception.factsMetrics(), exception.guardMetrics(), null,
+                    exception.orchestrationTrace()));
         }
         if (cause instanceof InvariantGuard.GuardFailureException failure) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new InvariantError("INVARIANT_CHECK_FAILED", null,
                     null, failure.getMessage(), null, exception.summaryMetrics(), exception.factsMetrics(),
-                    exception.guardMetrics()));
+                    exception.guardMetrics(), null, exception.orchestrationTrace()));
         }
         HttpStatus status = cause instanceof ContextLimitExceededException
                 ? HttpStatus.PAYLOAD_TOO_LARGE
@@ -247,29 +279,32 @@ class AgentController {
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                         UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool,
                         Boolean requireRepositoryMonitorRead, Boolean useRepositoryResearch,
-                        String repositorySearchQuery) {
+                        String repositorySearchQuery, Boolean useMcpOrchestration) {
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
             this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId,
-                    requireGitStatusTool, false, false, null);
+                    requireGitStatusTool, false, false, null, false);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false, false, null);
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false, false, null, false);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false, false, null);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false, false, null, false);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null, null, false, false, false, null);
+            this(input, null, null, null, null, null, null, false, false, false, null, false);
         }
     }
 
     record AgentResponse(String analysis, TokenMetrics metrics, TokenMetrics summaryMetrics,
                          java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
                           ContextMetadata contextMetadata, String agentModelKey, ToolTurnTrace toolTrace,
-                          @JsonInclude(JsonInclude.Include.NON_NULL) RepositoryTrace repositoryTrace) {
+                          @JsonInclude(JsonInclude.Include.NON_NULL) RepositoryTrace repositoryTrace,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) OrchestrationTrace orchestrationTrace) {
     }
+
+    record OrchestrationError(String error, OrchestrationTrace orchestrationTrace) { }
 
     record RepositoryTrace(String status, int stepsCompleted, int matchesSeen, int filesMatched,
                            int snippets, int evidenceBytes, String reportRef, boolean truncated) { }
@@ -287,12 +322,20 @@ class AgentController {
     record InvariantError(String code, UUID invariantId, String invariantName, String explanation,
                           String compatibleContinuation, TokenMetrics summaryMetrics,
                           java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
-                          ToolTurnTrace toolTrace) {
+                          ToolTurnTrace toolTrace,
+                          @JsonInclude(JsonInclude.Include.NON_NULL) OrchestrationTrace orchestrationTrace) {
+        InvariantError(String code, UUID invariantId, String invariantName, String explanation,
+                       String compatibleContinuation, TokenMetrics summaryMetrics,
+                       java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics,
+                       ToolTurnTrace toolTrace) {
+            this(code, invariantId, invariantName, explanation, compatibleContinuation,
+                    summaryMetrics, factsMetrics, guardMetrics, toolTrace, null);
+        }
         InvariantError(String code, UUID invariantId, String invariantName, String explanation,
                        String compatibleContinuation, TokenMetrics summaryMetrics,
                        java.util.List<TokenMetrics> factsMetrics, TokenMetrics guardMetrics) {
             this(code, invariantId, invariantName, explanation, compatibleContinuation,
-                    summaryMetrics, factsMetrics, guardMetrics, null);
+                    summaryMetrics, factsMetrics, guardMetrics, null, null);
         }
     }
 }

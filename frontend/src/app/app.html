@@ -172,7 +172,7 @@
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
-      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics || result?.repositoryTrace)) {
+      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics || result?.repositoryTrace || result?.orchestrationTrace)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
           @if (result?.repositoryTrace; as research) {
@@ -183,6 +183,15 @@
                 <br>Report ref: {{ research.reportRef }} · Модель: {{ agentModelLabel(result.agentModelKey) }}
               }
             </span>
+          }
+          @if (result?.orchestrationTrace; as trace) {
+            <div class="control-metadata">Оркестрация MCP: {{ trace.status }}
+              @for (step of trace.steps; track step.number) {
+                <br>{{ step.number }}. {{ step.server }} / {{ step.tool }} · {{ step.status }}
+                @if (step.testId) { · {{ step.testId }} }
+                @if (step.runId) { · run {{ step.runId }} }
+              }
+            </div>
           }
           @if (result?.metrics) {
             <span class="control-metadata">Локальная оценка токенов:<br>
@@ -284,7 +293,9 @@
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
         @if (experiment === 'AGENT') {
-          <label><input id="use-repository-research" type="checkbox" [(ngModel)]="useRepositoryResearch" [disabled]="loading()"> Использовать репозиторий</label>
+          <label><input id="use-repository-research" type="checkbox" [(ngModel)]="useRepositoryResearch" [disabled]="loading() || useMcpOrchestration"> Использовать репозиторий</label>
+          <label><input id="use-mcp-orchestration" type="checkbox" [(ngModel)]="useMcpOrchestration" [disabled]="loading() || useRepositoryResearch"> Оркестрация MCP / разрешить одну локальную проверку</label>
+          @if (useMcpOrchestration) { <small>Проверка может записать build-артефакты. Найденные ограниченные фрагменты кода будут отправлены выбранной внешней модели.</small> }
           @if (useRepositoryResearch) {
             <label>Поисковый термин <input id="repository-search-query" type="text" [(ngModel)]="repositorySearchQuery" maxlength="100" [disabled]="loading()" aria-label="Поисковый термин"></label>
             <small>Найденные фрагменты кода будут отправлены выбранной модели.</small>

@@ -14,6 +14,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.time.Duration;
 
 public final class DeepSeekTransport {
     private static final URI API_URI = URI.create("https://api.deepseek.com/chat/completions");
@@ -77,25 +79,62 @@ public final class DeepSeekTransport {
         }
     }
 
+    String buildChoiceRequestBody(AgentModelRequest request, List<ToolDefinition> tools) throws DeepSeekException {
+        if (tools == null || tools.isEmpty() || tools.size() > 8) throw new DeepSeekException("INVALID_TOOL_DEFINITION");
+        try {
+            ObjectNode root = (ObjectNode) json.readTree(buildRequestBody(request));
+            ArrayNode definitions = root.putArray("tools");
+            for (ToolDefinition tool : tools) {
+                if (!tool.name().matches("[A-Za-z0-9_-]{1,128}") || !tool.inputSchema().isObject())
+                    throw new DeepSeekException("INVALID_TOOL_DEFINITION");
+                ObjectNode function = definitions.addObject().put("type", "function").putObject("function");
+                function.put("name", tool.name());
+                function.put("description", tool.description());
+                function.set("parameters", tool.inputSchema());
+            }
+            root.put("tool_choice", "auto");
+            return json.writeValueAsString(root);
+        } catch (JsonProcessingException e) { throw new DeepSeekException("TOOL_REQUEST_PREPARATION_FAILED", e); }
+    }
+
     String buildToolContinuationBody(String firstBody, NativeToolCall call, ToolResult result)
             throws DeepSeekException {
-        if (!call.name().equals(result.name()) || !result.structuredResult().isObject()) {
+        return buildToolContinuationBody(firstBody, call, result, false);
+    }
+
+    String buildToolContinuationBody(String firstBody, NativeToolCall call, ToolResult result, boolean keepTools)
+            throws DeepSeekException {
+        return buildToolBatchContinuationBody(firstBody, List.of(call), List.of(result), keepTools);
+    }
+
+    String buildToolBatchContinuationBody(String firstBody, List<NativeToolCall> calls,
+                                          List<ToolResult> results, boolean keepTools) throws DeepSeekException {
+        if (calls.isEmpty() || calls.size() != results.size()) {
             throw new DeepSeekException("INVALID_TOOL_RESULT");
         }
         try {
             ObjectNode root = (ObjectNode) json.readTree(firstBody);
-            root.remove("tools");
-            root.put("tool_choice", "none");
+            if (!keepTools) root.remove("tools");
+            root.put("tool_choice", keepTools ? "auto" : "none");
             ArrayNode messages = (ArrayNode) root.path("messages");
             ObjectNode assistant = messages.addObject().put("role", "assistant");
-            if (call.assistantContent() == null) assistant.putNull("content");
-            else assistant.put("content", call.assistantContent());
-            ObjectNode nativeCall = assistant.putArray("tool_calls").addObject();
-            nativeCall.put("id", call.id());
-            nativeCall.put("type", "function");
-            nativeCall.putObject("function").put("name", call.name()).put("arguments", call.rawArguments());
-            messages.addObject().put("role", "tool").put("tool_call_id", call.id())
-                    .put("content", json.writeValueAsString(result.structuredResult()));
+            if (calls.get(0).assistantContent() == null) assistant.putNull("content");
+            else assistant.put("content", calls.get(0).assistantContent());
+            ArrayNode toolCalls = assistant.putArray("tool_calls");
+            for (int i = 0; i < calls.size(); i++) {
+                NativeToolCall call = calls.get(i);
+                ToolResult result = results.get(i);
+                if (!call.name().equals(result.name()) || !result.structuredResult().isObject())
+                    throw new DeepSeekException("INVALID_TOOL_RESULT");
+                ObjectNode nativeCall = toolCalls.addObject();
+                nativeCall.put("id", call.id());
+                nativeCall.put("type", "function");
+                nativeCall.putObject("function").put("name", call.name()).put("arguments", call.rawArguments());
+            }
+            for (int i = 0; i < calls.size(); i++) {
+                messages.addObject().put("role", "tool").put("tool_call_id", calls.get(i).id())
+                        .put("content", json.writeValueAsString(results.get(i).structuredResult()));
+            }
             return json.writeValueAsString(root);
         }
         catch (JsonProcessingException e) {
@@ -148,6 +187,45 @@ public final class DeepSeekTransport {
             }
         }
         throw new DeepSeekException("MALFORMED_TOOL_RESPONSE");
+    }
+
+    ChoiceDecision extractChoiceDecision(String responseBody) throws DeepSeekException {
+        JsonNode root = parseToolResponse(responseBody);
+        JsonNode choice = root.path("choices").path(0);
+        JsonNode message = choice.path("message");
+        if (!"assistant".equals(message.path("role").asText())) throw new DeepSeekException("MALFORMED_TOOL_RESPONSE");
+        ProviderUsage usage = toolUsage(root);
+        if ("stop".equals(choice.path("finish_reason").asText())
+                && (!message.path("tool_calls").isArray() || message.path("tool_calls").isEmpty())) {
+            JsonNode text = message.path("content");
+            if (!text.isTextual() || text.textValue().isBlank()) throw new DeepSeekException("MALFORMED_TOOL_RESPONSE");
+            return new ChoiceDecision(text.textValue(), List.of(), usage);
+        }
+        JsonNode calls = message.path("tool_calls");
+        if (!"tool_calls".equals(choice.path("finish_reason").asText()) || !calls.isArray()
+                || calls.isEmpty() || calls.size() > 3) throw new DeepSeekException("TOOL_CALL_LIMIT");
+        JsonNode content = message.path("content");
+        if (!content.isNull() && !content.isTextual()) throw new DeepSeekException("MALFORMED_TOOL_RESPONSE");
+        var parsed = new java.util.ArrayList<NativeToolCall>();
+        var ids = new java.util.HashSet<String>();
+        for (JsonNode nativeCall : calls) {
+            String id = nativeCall.path("id").asText();
+            String name = nativeCall.path("function").path("name").asText();
+            JsonNode raw = nativeCall.path("function").path("arguments");
+            if (!nativeCall.path("id").isTextual() || id.isBlank() || !ids.add(id)
+                    || !nativeCall.path("function").path("name").isTextual() || name.isBlank()
+                    || !"function".equals(nativeCall.path("type").asText()) || !raw.isTextual())
+                throw new DeepSeekException("MALFORMED_TOOL_RESPONSE");
+            JsonNode arguments;
+            try (var parser = json.createParser(raw.textValue())) {
+                arguments = json.readTree(parser);
+                if (arguments == null || !arguments.isObject() || parser.nextToken() != null)
+                    throw new DeepSeekException("MALFORMED_TOOL_ARGUMENTS");
+            } catch (IOException e) { throw new DeepSeekException("MALFORMED_TOOL_ARGUMENTS", e); }
+            parsed.add(new NativeToolCall(id, name, arguments, raw.textValue(),
+                    content.isTextual() ? content.textValue() : null));
+        }
+        return new ChoiceDecision(null, List.copyOf(parsed), usage);
     }
 
     AgentModelExecutor.Completion extractToolFinal(String responseBody) throws DeepSeekException {
@@ -222,12 +300,21 @@ public final class DeepSeekTransport {
     }
 
     String sendBody(String requestBody) throws DeepSeekException {
+        return sendBody(requestBody, null);
+    }
+
+    String sendToolBody(String requestBody) throws DeepSeekException {
+        return sendBody(requestBody, Duration.ofSeconds(30));
+    }
+
+    private String sendBody(String requestBody, Duration timeout) throws DeepSeekException {
         requireApiKey();
-        HttpRequest request = HttpRequest.newBuilder(API_URI)
+        HttpRequest.Builder builder = HttpRequest.newBuilder(API_URI)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8));
+        if (timeout != null) builder.timeout(timeout);
+        HttpRequest request = builder.build();
         HttpResponse<String> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -259,6 +346,7 @@ public final class DeepSeekTransport {
 
     record ToolDecision(String text, NativeToolCall call, ProviderUsage usage) {
     }
+    record ChoiceDecision(String text, List<NativeToolCall> calls, ProviderUsage usage) { }
 
     record NativeToolCall(String id, String name, JsonNode arguments, String rawArguments, String assistantContent) {
     }

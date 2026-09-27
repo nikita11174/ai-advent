@@ -1,5 +1,6 @@
 package dev.aiadvent.worker.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import dev.aiadvent.worker.mcp.RepositoryResearchPipeline;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -83,6 +84,16 @@ public final class RepositoryEvidenceReader {
         return new Evidence(research.query(), research.result().matchesSeen(), research.result().filesMatched(),
                 research.result().truncated() || research.anchors().size() > snippets.size(),
                 List.copyOf(snippets), totalBytes);
+    }
+
+    public Evidence readSearch(JsonNode search) {
+        var anchors = new ArrayList<RepositoryResearchPipeline.Anchor>();
+        search.path("matches").forEach(match -> anchors.add(new RepositoryResearchPipeline.Anchor(
+                match.path("relativePath").textValue(), match.path("line").intValue())));
+        var result = new RepositoryResearchPipeline.Result("COMPLETED", 1, search.path("matchCount").intValue(),
+                (int) anchors.stream().map(RepositoryResearchPipeline.Anchor::relativePath).distinct().count(),
+                search.path("truncated").asBoolean(), null);
+        return read(new RepositoryResearchPipeline.AgentResult(result, search.path("query").textValue(), anchors));
     }
 
     public record Snippet(String relativePath, int startLine, int endLine, String text) { }

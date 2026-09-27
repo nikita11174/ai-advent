@@ -25,6 +25,7 @@ import dev.aiadvent.worker.task.TaskAction;
 import dev.aiadvent.worker.task.TaskStatus;
 import dev.aiadvent.worker.invariant.Invariant;
 import dev.aiadvent.worker.invariant.InvariantService;
+import dev.aiadvent.worker.mcp.OrchestrationTools;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
@@ -184,6 +185,17 @@ public class AgentDialogService {
                      String branchId, UUID taskId, String agentModelKey, UUID profileId,
                      boolean requireGitStatusTool, boolean requireRepositoryMonitorRead,
                      RepositoryEvidenceReader.Evidence evidence) throws IOException, ModelExecutionException {
+        return replyWithOrchestration(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey,
+                profileId, requireGitStatusTool, requireRepositoryMonitorRead, evidence, null);
+    }
+
+    public AgentReply replyWithOrchestration(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount,
+                     String branchId, UUID taskId, String agentModelKey, UUID profileId,
+                     boolean requireGitStatusTool, boolean requireRepositoryMonitorRead,
+                     RepositoryEvidenceReader.Evidence evidence, OrchestrationTools orchestration)
+            throws IOException, ModelExecutionException {
+        if (orchestration != null && (evidence != null || requireGitStatusTool || requireRepositoryMonitorRead))
+            throw new IllegalArgumentException("One repository capability per turn");
         if (evidence != null && (requireGitStatusTool || requireRepositoryMonitorRead))
             throw new IllegalArgumentException("One repository capability per turn");
         if (requireGitStatusTool && requireRepositoryMonitorRead) throw new IllegalArgumentException("One read tool per turn");
@@ -222,7 +234,11 @@ public class AgentDialogService {
         AgentMemory.Snapshot memory = memories.load(dialogId, effectiveTaskId);
         List<Invariant> effectiveInvariants = invariants == null ? List.of() : invariants.effective(task == null ? null : task.id());
         List<TaskAction> allowedActions = task == null ? List.of() : tasks.allowedActions(task);
-        return evidence == null
+        return orchestration != null
+                ? agent.replyWithOrchestration(input, mode, recentMessageCount, memory,
+                    model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
+                    allowedActions, orchestration)
+                : evidence == null
                 ? agent.replyWithTool(input, mode, recentMessageCount, memory,
                         model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
                         allowedActions, requireGitStatusTool, requireRepositoryMonitorRead)

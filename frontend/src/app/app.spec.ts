@@ -10,6 +10,7 @@ interface TestApp {
   selectedModelKey: string;
   selectedAgentModelKey: string | null;
   useRepositoryResearch: boolean;
+  useMcpOrchestration: boolean;
   repositorySearchQuery: string;
   selectedProfileId: string | null;
   chooseProfile(id: string | null): void;
@@ -929,6 +930,43 @@ describe('App', () => {
     const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
     expect(ordinary.request.body).not.toHaveProperty('useRepositoryResearch');
     ordinary.flush({ analysis: 'answer' }); flushSave();
+  });
+
+  it('authorizes MCP orchestration for one turn and shows bounded server trace', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('#use-mcp-orchestration') as HTMLInputElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('фрагменты кода будут отправлены выбранной внешней модели');
+    component.input = 'Проверь branch preflight'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toMatchObject({ useMcpOrchestration: true });
+    expect(request.request.body).not.toHaveProperty('useRepositoryResearch');
+    request.flush({ analysis: 'Проверка прошла', orchestrationTrace: { turnId: 'turn-1', status: 'SUCCESS', steps: [
+      { number: 1, server: 'workspace', tool: 'search_repository', status: 'SUCCESS' },
+      { number: 2, server: 'verification', tool: 'run_allowed_test', status: 'TEST_PASS', testId: 'branch-preflight', runId: 'run-1' },
+    ] } });
+    flushSave(); fixture.detectChanges();
+    const details = fixture.nativeElement.querySelector('.technical-details') as HTMLDetailsElement;
+    expect(details.textContent).toContain('workspace / search_repository');
+    expect(details.textContent).toContain('verification / run_allowed_test');
+    expect(details.textContent).toContain('run-1');
+    expect(component.useMcpOrchestration).toBe(false);
+    component.input = 'обычный вопрос'; component.analyze();
+    const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(ordinary.request.body).not.toHaveProperty('useMcpOrchestration');
+    ordinary.flush({ analysis: 'ответ' }); flushSave();
+  });
+
+  it('clears MCP orchestration authorization on Dialog switch', () => {
+    const b = '22222222-2222-2222-2222-222222222222';
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.useMcpOrchestration = true;
+    component.openDialog(b);
+    http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], {
+      experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
+    }));
+    flushHealth(); flushTopology(b); flushMemory(b);
+    expect(component.useMcpOrchestration).toBe(false);
   });
 
   it('clears repository opt-in when opening or creating another Dialog', () => {

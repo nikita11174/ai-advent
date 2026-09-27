@@ -38,8 +38,9 @@ interface MemorySnapshot {
   taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string>;
 }
 interface RepositoryTrace { status: string; stepsCompleted: number; matchesSeen?: number; filesMatched?: number; snippets?: number; evidenceBytes?: number; reportRef?: string; truncated?: boolean; failedStep?: string; code?: string; }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; repositoryTrace?: RepositoryTrace | null; }
-interface AgentError { error?: string; code?: string; status?: string; failedStep?: string; stepsCompleted?: number; repositoryTrace?: RepositoryTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
+interface OrchestrationTrace { turnId: string; status: string; steps: { number: number; server: string; tool: string; status: string; testId?: string | null; runId?: string | null }[]; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; repositoryTrace?: RepositoryTrace | null; orchestrationTrace?: OrchestrationTrace | null; }
+interface AgentError { error?: string; code?: string; status?: string; failedStep?: string; stepsCompleted?: number; repositoryTrace?: RepositoryTrace | null; orchestrationTrace?: OrchestrationTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
@@ -49,6 +50,7 @@ interface ResultState {
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
   evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
   repositoryTrace?: RepositoryTrace | null;
+  orchestrationTrace?: OrchestrationTrace | null;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -199,6 +201,7 @@ export class App implements OnInit, OnDestroy {
   protected inspectorOpen = false;
   protected selectedAgentModelKey: string | null = null;
   protected useRepositoryResearch = false;
+  protected useMcpOrchestration = false;
   protected repositorySearchQuery = '';
   protected readonly agentModelOptions = this.agentModelService.options;
   protected readonly agentModelError = this.agentModelService.error;
@@ -864,7 +867,7 @@ export class App implements OnInit, OnDestroy {
     return this.taskLookupGenerations.get(taskId) === generation;
   }
   private activateDialog(dialog: DialogDocument, fresh = false, preserveProfileSelection = false): void {
-    if (dialog.id !== this.currentDialogId()) { this.useRepositoryResearch = false; this.repositorySearchQuery = ''; }
+    if (dialog.id !== this.currentDialogId()) { this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false; }
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
@@ -970,20 +973,23 @@ export class App implements OnInit, OnDestroy {
     const requestBranchId = this.branchId;
     const agentModelKey = this.activeAgentModelKey();
     const useRepositoryResearch = this.useRepositoryResearch;
+    const useMcpOrchestration = this.useMcpOrchestration;
     const repositorySearchQuery = this.repositorySearchQuery.trim();
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
       free: { loading: true, agentModelKey } });
-    this.prepareAfterSubmit(); this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.startRequest();
+    this.prepareAfterSubmit(); this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false; this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
       agentModelKey,
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
       ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}),
-      ...(useRepositoryResearch ? { useRepositoryResearch: true, repositorySearchQuery } : {}) };
+      ...(useRepositoryResearch ? { useRepositoryResearch: true, repositorySearchQuery } : {}),
+      ...(useMcpOrchestration ? { useMcpOrchestration: true } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
         summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, guardMetrics: response.guardMetrics,
-        contextMetadata: response.contextMetadata, repositoryTrace: response.repositoryTrace, loading: false }),
+        contextMetadata: response.contextMetadata, repositoryTrace: response.repositoryTrace,
+        orchestrationTrace: response.orchestrationTrace, loading: false }),
       error: (error: HttpErrorResponse) => {
         const details = error.error as AgentError | null;
         this.finishAgentResult(dialogId, id, { error: details?.status ? `Исследование репозитория: ${details.status} · ${details.code}`
@@ -991,7 +997,8 @@ export class App implements OnInit, OnDestroy {
           summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [],
           guardMetrics: details?.guardMetrics ?? null,
           repositoryTrace: details?.repositoryTrace ?? (details?.status ? { status: details.status, stepsCompleted: details.stepsCompleted ?? 0,
-            failedStep: details.failedStep, code: details.code } : null), loading: false });
+            failedStep: details.failedStep, code: details.code } : null),
+          orchestrationTrace: details?.orchestrationTrace, loading: false });
       },
     });
   }

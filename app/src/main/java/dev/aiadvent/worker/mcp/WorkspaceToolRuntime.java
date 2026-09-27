@@ -186,11 +186,15 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     }
 
     static List<String> childCommand(String javaExecutable, String classPath) {
+        return childCommand(javaExecutable, classPath, WorkspaceMcpServerMain.class);
+    }
+
+    static List<String> childCommand(String javaExecutable, String classPath, Class<?> mainClass) {
         if (packagedBootJar(classPath)) {
-            return List.of(javaExecutable, "-Dloader.main=" + WorkspaceMcpServerMain.class.getName(),
+            return List.of(javaExecutable, "-Dloader.main=" + mainClass.getName(),
                     "-cp", classPath, "org.springframework.boot.loader.launch.PropertiesLauncher");
         }
-        return List.of(javaExecutable, "-cp", classPath, WorkspaceMcpServerMain.class.getName());
+        return List.of(javaExecutable, "-cp", classPath, mainClass.getName());
     }
 
     private static boolean packagedBootJar(String classPath) {
@@ -227,6 +231,13 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     @Override public boolean monitorEnabled() { return monitorEnabled && client != null && state.get() == State.OPEN; }
 
     public boolean researchEnabled() { return researchEnabled && client != null && state.get() == State.OPEN; }
+
+    public boolean orchestrationReady() { return client != null && state.get() == State.OPEN && gitEnabled && researchEnabled; }
+
+    public synchronized JsonNode orchestrationSearch(String query) {
+        if (!orchestrationReady()) throw new IllegalStateException("TOOL_DISABLED");
+        return researchCall(WorkspaceMcpServerMain.SEARCH, Map.of("query", query, "maxResults", 8));
+    }
 
     synchronized JsonNode researchCall(String name, Map<String, Object> arguments) {
         if (!researchEnabled()) throw new ResearchCallFailure("RESEARCH_DISABLED", false);
