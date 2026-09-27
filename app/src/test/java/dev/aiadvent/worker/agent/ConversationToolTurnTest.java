@@ -66,7 +66,9 @@ class ConversationToolTurnTest {
     @Test void successfulTurnCommitsOnlyUserAndFinalAndCanReuseExecutor() throws Exception {
         setup();
         var agent = agent(AgentConfig.defaults());
-        assertEquals("SUCCESS", required(agent).toolTrace().toolStatus());
+        var reply = required(agent);
+        assertEquals("SUCCESS", reply.toolTrace().toolStatus());
+        assertTrue(reply.toolTrace().toolResult().path("dirty").isBoolean());
         assertEquals("SUCCESS", required(agent).toolTrace().turnStatus());
         assertEquals(List.of(new ConversationContext.Message("system", AgentConfig.defaults().systemPrompt()),
                 new ConversationContext.Message("user", "status"), new ConversationContext.Message("assistant", "final answer"),

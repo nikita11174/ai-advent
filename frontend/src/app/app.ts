@@ -38,13 +38,16 @@ interface ContextMetadata { mode: ContextMode; recentMessageCount: number; summa
 interface MemorySnapshot {
   taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string>;
 }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; }
-interface AgentError { error?: string; code?: string; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
+interface GitStatusResult { repositoryRef: string; observedAt: string; headState: string; branch: string | null; head: string | null; dirty: boolean; changeCounts: { staged: number; unstaged: number; untracked: number; conflicted: number; submoduleChanged: number } | null; }
+interface ToolTrace { turnId: string; toolRequested: boolean; toolStatus: string; turnStatus: string; code: string | null; toolResult: GitStatusResult | null; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; toolTrace?: ToolTrace | null; }
+interface AgentError { error?: string; code?: string; toolTrace?: ToolTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
 interface ResultState {
   agentModelKey?: string;
+  toolTrace?: ToolTrace | null;
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
   evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
@@ -146,6 +149,7 @@ markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('
 })
 export class App implements OnInit, OnDestroy {
   protected view: 'chat' | 'workspace' = 'chat';
+  protected toolMode: 'ordinary' | 'git' = 'ordinary';
   private readonly http = inject(HttpClient);
   private readonly agentModelService = inject(AgentModelService);
   private readonly pageTitle = inject(Title);
@@ -861,6 +865,7 @@ export class App implements OnInit, OnDestroy {
     return this.taskLookupGenerations.get(taskId) === generation;
   }
   private activateDialog(dialog: DialogDocument, fresh = false, preserveProfileSelection = false): void {
+    this.toolMode = 'ordinary';
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
@@ -965,21 +970,30 @@ export class App implements OnInit, OnDestroy {
     const dialogId = this.currentDialogId(); if (!dialogId || this.isPausedTask()) return;
     const requestBranchId = this.branchId;
     const agentModelKey = this.activeAgentModelKey();
+    const requireGitStatusTool = this.toolMode === 'git';
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
       free: { loading: true, agentModelKey } });
-    this.prepareAfterSubmit(); this.startRequest();
+    this.prepareAfterSubmit(); this.toolMode = 'ordinary';
+    if (requireGitStatusTool && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
+      this.updateExchange(id, { free: { loading: false, agentModelKey,
+        error: 'Статус Git доступен только с моделью DeepSeek: выбранная модель не поддерживает вызов инструмента.' } });
+      return;
+    }
+    this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
-      agentModelKey,
+      agentModelKey, ...(requireGitStatusTool ? { requireGitStatusTool: true } : {}),
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
       ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
         summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, guardMetrics: response.guardMetrics,
-        contextMetadata: response.contextMetadata, loading: false }),
+        contextMetadata: response.contextMetadata, toolTrace: response.toolTrace, loading: false }),
       error: (error: HttpErrorResponse) => {
         const details = error.error as AgentError | null;
-        this.finishAgentResult(dialogId, id, { error: this.invariantErrorMessage(details) ?? this.errorMessage(error, false),
+        this.finishAgentResult(dialogId, id, { error: details?.code === 'TOOL_CAPABILITY_UNSUPPORTED'
+          ? 'Выбранная модель не поддерживает вызов инструмента Статус Git.'
+          : this.invariantErrorMessage(details) ?? this.errorMessage(error, false), toolTrace: details?.toolTrace,
           summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [],
           guardMetrics: details?.guardMetrics ?? null, loading: false });
       },

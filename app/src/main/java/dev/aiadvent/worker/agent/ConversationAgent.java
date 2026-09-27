@@ -201,6 +201,7 @@ public final class ConversationAgent {
             boolean summaryIncluded = false;
             String turnId = requireGitStatusTool ? UUID.randomUUID().toString() : null;
             String toolStatus = "NOT_REQUESTED";
+            com.fasterxml.jackson.databind.JsonNode toolResult = null;
             try {
                 if (mode == ContextMode.SUMMARY_RECENT) {
                     int committedCount = raw.size() - 1;
@@ -285,6 +286,7 @@ public final class ConversationAgent {
                             throw toolFailure(turnId, "FAILED", "MCP_CALL_FAILED", e);
                         }
                         toolStatus = "SUCCESS";
+                        toolResult = result.structuredResult();
                         var continuation = nativeExecutor.prepareContinuation(requested.continuation(), result);
                         checkPrepared(continuation.estimatedInputTokens(), requestConfig.contextTokenLimit());
                         var answer = nativeExecutor.continueToolTurn(continuation);
@@ -334,7 +336,7 @@ public final class ConversationAgent {
                         new ContextMetadata(mode, recent, summaryIncluded && summary != null ? summary.summary() : null,
                                 summaryIncluded && summary != null ? summary.summarizedMessageCount() : 0, facts,
                                 memory.usage()), requireGitStatusTool
-                        ? new ToolTurnTrace(turnId, true, toolStatus, "SUCCESS", null) : null);
+                        ? new ToolTurnTrace(turnId, true, toolStatus, "SUCCESS", null, toolResult) : null);
             } catch (InvariantGuard.RejectedCandidateException exception) {
                 if (summaryMetrics != null || !factsMetrics.isEmpty()) {
                     throw new MaintenanceMetricsException(exception, summaryMetrics, List.copyOf(factsMetrics), exception.guardMetrics());

@@ -173,6 +173,19 @@
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
       }
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
+      @if (agent && result?.toolTrace; as trace) {
+        <section class="git-tool-trace" aria-label="Фактическое выполнение инструмента">
+          <strong>Инструмент · git_repository_status</strong>
+          <span>Вызов: {{ trace.toolStatus === 'SUCCESS' ? 'выполнен' : 'не выполнен' }} · ход: {{ trace.turnStatus }}</span>
+          @if (trace.toolResult; as status) {
+            <span>Репозиторий: {{ status.repositoryRef }} · наблюдение: {{ status.observedAt }}</span>
+            <span>Ветка: {{ status.branch ?? status.headState }} · HEAD: {{ status.head ?? 'нет' }} · изменения: {{ status.dirty ? 'есть' : 'нет' }}</span>
+            @if (status.changeCounts; as counts) {
+              <span>Изменения: staged {{ counts.staged }}, unstaged {{ counts.unstaged }}, untracked {{ counts.untracked }}, conflicts {{ counts.conflicted }}, submodules {{ counts.submoduleChanged }}</span>
+            }
+          } @else if (trace.code) { <span>Код: {{ trace.code }}</span> }
+        </section>
+      }
       @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
@@ -276,7 +289,10 @@
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
-        <div class="composer-actions"><span>Ctrl+Enter — отправить</span><div class="action-buttons">
+        <div class="composer-actions"><div class="composer-mode">
+          @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option></select></label> }
+          <span>Ctrl+Enter — отправить</span>
+        </div><div class="action-buttons">
           <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask()))">Отправить</button>
         </div></div>
       </div>

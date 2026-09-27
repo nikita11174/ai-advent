@@ -92,6 +92,7 @@ interface TestApp {
   dialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   visibleDialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   currentDialogId(): string | null;
+  toolMode: 'ordinary' | 'git';
   exchanges(): readonly { temperatureConclusion?: unknown }[];
 }
 
@@ -188,6 +189,44 @@ describe('App', () => {
     (fixture.nativeElement.querySelector('.primary-nav button') as HTMLButtonElement).click(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.composer')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('app-agent-inspector')).not.toBeNull();
+  });
+
+  it('sends Git mode once, shows factual result apart from the answer, and then sends ordinary mode', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    const mode = fixture.nativeElement.querySelector('select[aria-label="Режим инструмента"]') as HTMLSelectElement;
+    mode.value = 'git'; mode.dispatchEvent(new Event('change')); fixture.detectChanges();
+    expect(mode.value).toBe('git');
+    component.input = 'Покажи Git статус'; component.analyze();
+    const selected = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(selected.request.body.requireGitStatusTool).toBe(true);
+    selected.flush({ analysis: 'Ответ модели', toolTrace: { turnId: 'turn-1', toolRequested: true,
+      toolStatus: 'SUCCESS', turnStatus: 'SUCCESS', code: null, toolResult: {
+        repositoryRef: 'workspace', observedAt: now, headState: 'ATTACHED', branch: 'fixture', head: 'abc123', dirty: true,
+        changeCounts: { staged: 0, unstaged: 1, untracked: 0, conflicted: 0, submoduleChanged: 0 },
+      } } }); flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Ответ модели');
+    expect(fixture.nativeElement.querySelector('.git-tool-trace')?.textContent).toContain('fixture');
+    expect(component.toolMode).toBe('ordinary');
+    component.input = 'Обычный вопрос'; component.analyze();
+    const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(ordinary.request.body).not.toHaveProperty('requireGitStatusTool');
+    ordinary.flush({ analysis: 'Обычный ответ' }); flushSave();
+  });
+
+  it('clears Git selection on Dialog switch and rejects an unsupported model before a tool request', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
+    component.toolMode = 'git';
+    const nextId = '22222222-2222-2222-2222-222222222222';
+    component.openDialog(nextId);
+    http.expectOne(`/api/dialogs/${nextId}`).flush(dialog(nextId, [], { experiment: 'AGENT' }));
+    flushHealth(); flushTopology(nextId); flushMemory(nextId);
+    expect(component.toolMode).toBe('ordinary');
+    component.chooseAgentModel('MEDIUM'); flushSave();
+    component.toolMode = 'git'; component.input = 'Git статус'; component.analyze();
+    http.expectNone(`/api/dialogs/${nextId}/agent/messages`);
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('не поддерживает вызов инструмента');
+    expect(component.toolMode).toBe('ordinary');
   });
 
   it('UX shell keeps the composer free of settings and reveals memory only on request', () => {
