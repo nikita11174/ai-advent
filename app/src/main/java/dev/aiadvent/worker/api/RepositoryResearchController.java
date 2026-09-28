@@ -2,9 +2,12 @@ package dev.aiadvent.worker.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.aiadvent.worker.mcp.RepositoryResearchPipeline;
+import dev.aiadvent.worker.mcp.WorkspaceToolRuntime;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +18,14 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 @RequestMapping("/api/repository-research")
 final class RepositoryResearchController {
     private final RepositoryResearchPipeline pipeline;
+    private final WorkspaceToolRuntime runtime;
 
-    RepositoryResearchController(RepositoryResearchPipeline pipeline) { this.pipeline = pipeline; }
+    RepositoryResearchController(RepositoryResearchPipeline pipeline, WorkspaceToolRuntime runtime) {
+        this.pipeline = pipeline; this.runtime = runtime;
+    }
+
+    @GetMapping("/reports/{reportRef}")
+    Report readReport(@PathVariable String reportRef) { return new Report(reportRef, runtime.readReport(reportRef)); }
 
     @PostMapping
     RepositoryResearchPipeline.Result run(@RequestBody JsonNode body) {
@@ -48,5 +57,19 @@ final class RepositoryResearchController {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<Failure> malformed() { return invalid(); }
 
+    @ExceptionHandler(IllegalStateException.class)
+    ResponseEntity<ReportError> reportFailure(IllegalStateException e) {
+        String code = e.getMessage();
+        HttpStatus status = switch (code) {
+            case "INVALID_REPORT_REF" -> HttpStatus.BAD_REQUEST;
+            case "REPORT_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "RESEARCH_DISABLED" -> HttpStatus.SERVICE_UNAVAILABLE;
+            default -> HttpStatus.BAD_GATEWAY;
+        };
+        return ResponseEntity.status(status).body(new ReportError(status == HttpStatus.BAD_GATEWAY ? "REPORT_UNAVAILABLE" : code));
+    }
+
     record Failure(String status, String failedStep, int stepsCompleted, String code) { }
+    record Report(String reportRef, String content) { }
+    record ReportError(String code) { }
 }

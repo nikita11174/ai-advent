@@ -1,0 +1,38 @@
+<main class="research-main">
+  <header><p class="eyebrow">Рабочая область / Исследование</p><h1>Поиск по репозиторию</h1>
+    <p>Точный поиск строки в отслеживаемых файлах с ограниченным числом совпадений. Модель не вызывается.</p></header>
+  <form class="card search-form" (ngSubmit)="run()">
+    <label>Строка поиска <input name="query" [(ngModel)]="query" maxlength="100" aria-label="Строка поиска" placeholder="Например, repositoryStatus" /></label>
+    <label>Максимум совпадений <input name="maxResults" type="number" min="1" max="20" step="1" [(ngModel)]="maxResults" aria-label="Максимум совпадений" /></label>
+    <button type="submit" [disabled]="running() || !validInput()">Исследовать</button>
+  </form>
+  @if (running()) { <p class="notice" role="status">Исследование выполняется. Итог появится после завершения запроса.</p> }
+  @if (failure(); as failed) {
+    <section class="card failure" role="alert"><h2>{{ failed.status === 'UNKNOWN' ? 'Результат неизвестен' : 'Исследование не завершено' }}</h2>
+      <p>{{ failed.status === 'UNKNOWN' ? 'Не удалось подтвердить исход сохранения. Отчёт мог быть создан.' : 'Операция завершилась ошибкой.' }}</p>
+      <p>Завершено шагов: {{ failed.stepsCompleted }} · шаг: {{ failed.failedStep }} · код: {{ failed.code }}</p>
+    </section>
+  }
+  @if (result(); as completed) {
+    <section class="card result" aria-label="Результат исследования"><h2>Исследование завершено</h2>
+      <div class="facts"><span>Шаги <strong>{{ completed.stepsCompleted }}</strong></span>
+        <span>Совпадения <strong>{{ completed.matchesSeen }}</strong></span>
+        <span>Файлы <strong>{{ completed.filesMatched }}</strong></span>
+        <span>Предел <strong>{{ requestedMaxResults() }}</strong></span></div>
+      <p>{{ completed.truncated ? 'Результат усечён: совпадений больше заданного предела.' : 'Усечение не потребовалось.' }}</p>
+      <p class="ref">Отчёт: <code>{{ completed.receipt.reportRef }}</code> · сохранён {{ completed.receipt.createdAt | date:'dd.MM.yyyy HH:mm:ss' }}</p>
+      <button type="button" (click)="openReport()" [disabled]="reportLoading()">{{ reportLoading() ? 'Открываем…' : 'Открыть отчёт' }}</button>
+    </section>
+  }
+  @if (reportError()) { <p class="failure notice" role="alert">{{ reportError() }}</p> }
+  @if (report(); as saved) {
+    <section class="card report" aria-label="Сохранённый отчёт"><h2>Сохранённый отчёт</h2>
+      <p class="ref">{{ saved.reportRef }}</p><pre>{{ saved.content }}</pre>
+    </section>
+  }
+</main>
+<aside class="research-aside"><h2>Граница операции</h2>
+  <p>Поиск точной строки → сводка по найденным адресам → сохранение отчёта.</p>
+  <p>В отчёте сохраняются адреса файлов и строки, без исходных фрагментов.</p>
+  <p>Диалог и задача не изменяются.</p>
+</aside>

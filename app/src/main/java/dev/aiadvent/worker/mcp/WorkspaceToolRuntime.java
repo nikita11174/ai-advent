@@ -45,6 +45,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     private final boolean monitorEnabled;
     private final boolean researchEnabled;
     private final boolean demoIntervals;
+    private final Path reportsPath;
     private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
     private final CompletableFuture<Void> closeOutcome = new CompletableFuture<>();
 
@@ -90,6 +91,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
         this.monitorEnabled = monitorEnabled;
         this.researchEnabled = researchEnabled;
         this.demoIntervals = demoIntervals;
+        this.reportsPath = researchEnabled ? configuredReportsPath(reportsDirectory) : null;
         if (monitorEnabled && !Set.of("127.0.0.1", "::1").contains(serverAddress)) {
             throw new IllegalStateException("MONITOR_LOCAL_BIND_REQUIRED");
         }
@@ -139,13 +141,9 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
             builder.environment().put("AI_ADVENT_MONITOR_DEMO", Boolean.toString(demoIntervals));
         }
         if (researchEnabled) {
-            String directory = reportsDirectory.isBlank() ? System.getenv("LOCALAPPDATA") : reportsDirectory;
-            if (directory == null || directory.isBlank()) throw new IllegalStateException("MCP_START_FAILED");
-            if (reportsDirectory.isBlank()) directory = Path.of(directory, "LocalAIWorker", "repository-reports").toString();
-            Path reportPath = Path.of(directory).toAbsolutePath().normalize();
-            if (reportPath.startsWith(root)) throw new IllegalStateException("MCP_START_FAILED");
+            if (reportsPath.startsWith(root)) throw new IllegalStateException("MCP_START_FAILED");
             builder.environment().put("AI_ADVENT_RESEARCH_ENABLED", "true");
-            builder.environment().put("AI_ADVENT_REPORTS_DIRECTORY", reportPath.toString());
+            builder.environment().put("AI_ADVENT_REPORTS_DIRECTORY", reportsPath.toString());
         }
 
         OwnedStdioClientTransport owned = OwnedStdioClientTransport.start(
@@ -195,6 +193,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
         this.monitorEnabled = false;
         this.researchEnabled = false;
         this.demoIntervals = false;
+        this.reportsPath = null;
         this.client = Objects.requireNonNull(client);
         this.child = Objects.requireNonNull(child);
         this.transport = null;
@@ -210,6 +209,18 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     @Override public boolean monitorEnabled() { return monitorEnabled && client != null && state.get() == State.OPEN; }
 
     public boolean researchEnabled() { return researchEnabled && client != null && state.get() == State.OPEN; }
+
+    public String readReport(String ref) {
+        if (!researchEnabled()) throw new IllegalStateException("RESEARCH_DISABLED");
+        return RepositoryResearch.readReport(reportsPath, ref);
+    }
+
+    private static Path configuredReportsPath(String configured) {
+        String directory = configured.isBlank() ? System.getenv("LOCALAPPDATA") : configured;
+        if (directory == null || directory.isBlank()) throw new IllegalStateException("MCP_START_FAILED");
+        if (configured.isBlank()) directory = Path.of(directory, "LocalAIWorker", "repository-reports").toString();
+        return Path.of(directory).toAbsolutePath().normalize();
+    }
 
     synchronized JsonNode researchCall(String name, Map<String, Object> arguments) {
         if (!researchEnabled()) throw new ResearchCallFailure("RESEARCH_DISABLED", false);

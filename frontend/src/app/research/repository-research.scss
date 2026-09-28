@@ -1,0 +1,18 @@
+:host { display:flex; flex:1; min-width:0; min-height:0; color:#17223b; }
+.research-main { box-sizing:border-box; flex:1; min-width:0; overflow:auto; padding:28px clamp(18px,4vw,52px); background:#f6f8fb; }
+.research-main > * { max-width:920px; margin-left:auto; margin-right:auto; }
+header { margin-bottom:20px; } .eyebrow { color:#62708a; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+h1 { margin:4px 0 8px; font-size:27px; } header p:last-child { color:#62708a; }
+.card { box-sizing:border-box; padding:20px; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+.search-form { display:flex; align-items:end; gap:14px; flex-wrap:wrap; } label { display:grid; gap:6px; min-width:160px; color:#62708a; font-size:12px; }
+label:first-child { flex:1; } input { box-sizing:border-box; width:100%; padding:10px; border:1px solid #c8d2e2; border-radius:8px; color:#17223b; font:inherit; font-size:13px; }
+button { padding:10px 16px; border:0; border-radius:9px; background:#355ecc; color:#fff; font-weight:650; cursor:pointer; white-space:nowrap; }
+button:disabled { opacity:.5; cursor:wait; } .notice { padding:14px 18px; border-radius:10px; background:#eef3fa; color:#4f6080; }
+.result,.failure,.report { margin-top:16px; } h2 { margin:0 0 14px; font-size:17px; } .facts { display:flex; gap:12px 24px; flex-wrap:wrap; }
+.facts span { display:grid; gap:4px; color:#62708a; font-size:12px; }.facts strong { color:#17223b; font-size:18px; }
+.failure { border-color:#efc6ca; color:#9f2c39; }.ref { color:#62708a; font-size:12px; overflow-wrap:anywhere; }
+.report pre { max-height:420px; overflow:auto; padding:16px; border-radius:9px; background:#f6f8fb; color:#243451; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.55 Consolas,monospace; }
+.research-aside { box-sizing:border-box; flex:0 0 270px; width:270px; padding:25px 18px; overflow:auto; background:#fff; border-left:1px solid #dfe5ee; font-size:13px; }
+.research-aside h2 { margin:7px 0 24px; font-size:17px; }.research-aside p { color:#62708a; line-height:1.5; }
+:host :is(button,input):focus-visible { outline:2px solid #426ad9; outline-offset:2px; }
+@media(max-width:1050px) { :host { flex-direction:column; overflow:auto; } .research-main { flex:none; overflow:visible; } .research-aside { width:auto; flex:none; border-left:0; border-top:1px solid #dfe5ee; } }

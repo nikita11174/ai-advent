@@ -216,6 +216,19 @@ describe('App', () => {
     http.expectNone(`/api/dialogs/${dialog().id}/agent/messages`);
   });
 
+  it('opens Research in Workspace without starting a search', () => {
+    const workspace = [...fixture.nativeElement.querySelectorAll('.primary-nav button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Рабочая область')) as HTMLButtonElement;
+    workspace.click(); fixture.detectChanges();
+    http.expectOne('/api/mcp/connections').flush([{ id: 'idea', name: 'IntelliJ IDEA MCP', configured: true }]);
+    const research = [...fixture.nativeElement.querySelectorAll('.workspace-nav button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Исследование')) as HTMLButtonElement;
+    research.click(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Поиск по репозиторию');
+    http.expectNone('/api/repository-research');
+    expect(fixture.nativeElement.querySelector('.composer')).toBeNull();
+  });
+
   it('sends Git mode once, shows factual result apart from the answer, and then sends ordinary mode', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
     const mode = fixture.nativeElement.querySelector('select[aria-label="Режим инструмента"]') as HTMLSelectElement;

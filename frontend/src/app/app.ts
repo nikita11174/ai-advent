@@ -15,6 +15,7 @@ import { AgentModelService } from './agent/model/agent-model.service';
 import { AgentInspector } from './agent/inspector/agent-inspector';
 import { McpWorkspace } from './mcp/mcp-workspace';
 import { RepositoryMonitor } from './monitor/repository-monitor';
+import { RepositoryResearch } from './research/repository-research';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
@@ -146,12 +147,12 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector, McpWorkspace, RepositoryMonitor],
+  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector, McpWorkspace, RepositoryMonitor, RepositoryResearch],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit, OnDestroy {
   protected view: 'chat' | 'workspace' = 'chat';
-  protected workspaceSection: 'mcp' | 'monitor' = 'mcp';
+  protected workspaceSection: 'mcp' | 'monitor' | 'research' = 'mcp';
   protected toolMode: 'ordinary' | 'git' | 'monitor' = 'ordinary';
   private readonly http = inject(HttpClient);
   private readonly agentModelService = inject(AgentModelService);

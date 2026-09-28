@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">LW</span><span>Local AI Worker</span></div>
-  <div class="context"><nav class="primary-nav" aria-label="Разделы"><button type="button" [attr.aria-current]="view === 'chat' ? 'page' : null" (click)="view = 'chat'">Беседа</button><button type="button" [attr.aria-current]="view === 'workspace' ? 'page' : null" (click)="view = 'workspace'">Рабочая область</button></nav>@if (view === 'workspace') { <nav class="workspace-nav" aria-label="Рабочая область"><button type="button" [attr.aria-current]="workspaceSection === 'mcp' ? 'page' : null" (click)="workspaceSection = 'mcp'">MCP</button><button type="button" [attr.aria-current]="workspaceSection === 'monitor' ? 'page' : null" (click)="workspaceSection = 'monitor'">Монитор</button></nav> } @else { <button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button> }
+  <div class="context"><nav class="primary-nav" aria-label="Разделы"><button type="button" [attr.aria-current]="view === 'chat' ? 'page' : null" (click)="view = 'chat'">Беседа</button><button type="button" [attr.aria-current]="view === 'workspace' ? 'page' : null" (click)="view = 'workspace'">Рабочая область</button></nav>@if (view === 'workspace') { <nav class="workspace-nav" aria-label="Рабочая область"><button type="button" [attr.aria-current]="workspaceSection === 'mcp' ? 'page' : null" (click)="workspaceSection = 'mcp'">MCP</button><button type="button" [attr.aria-current]="workspaceSection === 'monitor' ? 'page' : null" (click)="workspaceSection = 'monitor'">Монитор</button><button type="button" [attr.aria-current]="workspaceSection === 'research' ? 'page' : null" (click)="workspaceSection = 'research'">Исследование</button></nav> } @else { <button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button> }
     @if (experiment === 'AGENT' && view === 'chat') {
       <span class="model-badge server-status" [class.online]="backendStatus() === 'ONLINE'" [class.offline]="backendStatus() === 'OFFLINE'"
         [style.color]="backendStatus() === 'ONLINE' ? '#86efac' : backendStatus() === 'OFFLINE' ? '#fca5a5' : '#fde68a'" role="status">
@@ -463,7 +463,7 @@
     </details>
   </app-agent-inspector>
   } @else {
-    @if (workspaceSection === 'mcp') { <app-mcp-workspace /> } @else { <app-repository-monitor (explain)="explainMonitor()" /> }
+    @if (workspaceSection === 'mcp') { <app-mcp-workspace /> } @else if (workspaceSection === 'monitor') { <app-repository-monitor (explain)="explainMonitor()" /> } @else { <app-repository-research /> }
   }
   <ng-template #historicalSettings>
       @if (experiment === 'FORMAT') {

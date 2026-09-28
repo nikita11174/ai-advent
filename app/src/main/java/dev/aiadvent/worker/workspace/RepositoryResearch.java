@@ -174,6 +174,25 @@ public final class RepositoryResearch {
         } catch (RuntimeException e) { throw failure("INVALID_ARGUMENTS"); }
     }
 
+    public static String readReport(Path reports, String ref) {
+        if (ref == null || !ref.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+            throw failure("INVALID_REPORT_REF");
+        Path directory = reports.toAbsolutePath().normalize();
+        Path file = directory.resolve(ref + ".md");
+        try {
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                    || !directory.toRealPath().equals(directory)) throw failure("REPORT_UNAVAILABLE");
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw failure("REPORT_NOT_FOUND");
+            byte[] bytes;
+            try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = stream.readNBytes(8193);
+            }
+            if (bytes.length == 0 || bytes.length > 8192) throw failure("REPORT_UNAVAILABLE");
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (IOException e) { throw failure("REPORT_UNAVAILABLE"); }
+    }
+
     private static Map<String, Object> existing(Path file, String ref, byte[] expected, String hash) throws IOException {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > 8192)
             throw failure("REPORT_CONFLICT");
