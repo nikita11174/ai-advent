@@ -375,7 +375,7 @@ public final class WorkspaceMcpServerMain {
                 "additionalProperties", false);
     }
 
-    private static final class EofInputStream extends FilterInputStream {
+    static final class EofInputStream extends FilterInputStream {
         private final CountDownLatch eof;
 
         EofInputStream(InputStream input, CountDownLatch eof) {

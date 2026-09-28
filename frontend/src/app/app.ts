@@ -42,8 +42,10 @@ interface MemorySnapshot {
 }
 interface GitStatusResult { repositoryRef: string; observedAt: string; headState: string; branch: string | null; head: string | null; dirty: boolean; changeCounts: { staged: number; unstaged: number; untracked: number; conflicted: number; submoduleChanged: number } | null; }
 interface ToolTrace { turnId: string; toolRequested: boolean; toolStatus: string; turnStatus: string; code: string | null; toolResult: GitStatusResult | { aggregate: { successCount: number; failureCount: number }; latestDigest: { text: string } | null; enabled: boolean } | null; }
-interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; toolTrace?: ToolTrace | null; }
-interface AgentError { error?: string; code?: string; toolTrace?: ToolTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
+interface RepositoryTrace { status: string; stepsCompleted: number; matchesSeen?: number; filesMatched?: number; snippets?: number; evidenceBytes?: number; reportRef?: string; truncated?: boolean; failedStep?: string; code?: string; }
+interface OrchestrationTrace { turnId: string; status: string; steps: { number: number; server: string; tool: string; status: string; testId?: string | null; runId?: string | null }[]; }
+interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; toolTrace?: ToolTrace | null; repositoryTrace?: RepositoryTrace | null; orchestrationTrace?: OrchestrationTrace | null; }
+interface AgentError { error?: string; code?: string; toolTrace?: ToolTrace | null; status?: string; failedStep?: string; stepsCompleted?: number; repositoryTrace?: RepositoryTrace | null; orchestrationTrace?: OrchestrationTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
 interface ReasoningResponse { strategy: ReasoningStrategy; analysis: string; generatedPrompt?: string; }
 interface TemperatureResponse { temperature: Temperature; analysis: string; }
@@ -53,6 +55,8 @@ interface ResultState {
   loading: boolean; analysis?: string; review?: ControlledReview; rawResponse?: string;
   generatedPrompt?: string; error?: string; showRaw?: boolean; showPrompt?: boolean;
   evaluation?: Evaluation; metrics?: TokenMetrics; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; contextMetadata?: ContextMetadata;
+  repositoryTrace?: RepositoryTrace | null;
+  orchestrationTrace?: OrchestrationTrace | null;
 }
 interface Evaluation { found: string; missed: string; questionable: string; }
 interface TemperatureEvaluation extends Evaluation { creativity: string; diversity: string; suitableTasks: string; }
@@ -206,6 +210,9 @@ export class App implements OnInit, OnDestroy {
   protected readonly memoryEditing = signal(false);
   protected inspectorOpen = false;
   protected selectedAgentModelKey: string | null = null;
+  protected useRepositoryResearch = false;
+  protected useMcpOrchestration = false;
+  protected repositorySearchQuery = '';
   protected readonly agentModelOptions = this.agentModelService.options;
   protected readonly agentModelError = this.agentModelService.error;
   protected readonly profiles = signal<readonly AgentProfile[]>([]);
@@ -713,7 +720,8 @@ export class App implements OnInit, OnDestroy {
   protected analyze(): void {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId()
-      || (this.experiment === 'AGENT' && (this.topologyBusy() || this.isPausedTask()))) return;
+      || (this.experiment === 'AGENT' && (this.topologyBusy() || this.isPausedTask()
+        || (this.useRepositoryResearch && !this.repositorySearchQuery.trim())))) return;
     if (this.experiment === 'AGENT') { if (this.agentModelAvailable()) this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
@@ -875,6 +883,7 @@ export class App implements OnInit, OnDestroy {
   }
   private activateDialog(dialog: DialogDocument, fresh = false, preserveProfileSelection = false): void {
     this.toolMode = 'ordinary';
+    if (dialog.id !== this.currentDialogId()) { this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false; }
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
@@ -982,10 +991,13 @@ export class App implements OnInit, OnDestroy {
     const selectedToolMode = this.toolMode;
     const requireGitStatusTool = selectedToolMode === 'git';
     const requireRepositoryMonitorRead = selectedToolMode === 'monitor';
+    const useRepositoryResearch = this.useRepositoryResearch;
+    const useMcpOrchestration = this.useMcpOrchestration;
+    const repositorySearchQuery = this.repositorySearchQuery.trim();
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
       toolMode: selectedToolMode, free: { loading: true, agentModelKey } });
-    this.prepareAfterSubmit(); this.toolMode = 'ordinary';
-    if ((requireGitStatusTool || requireRepositoryMonitorRead) && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
+    this.prepareAfterSubmit(); this.toolMode = 'ordinary'; this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false;
+    if ((requireGitStatusTool || requireRepositoryMonitorRead || useRepositoryResearch || useMcpOrchestration) && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
       this.updateExchange(id, { free: { loading: false, agentModelKey,
         error: 'Инструмент доступен только с моделью DeepSeek: выбранная модель не поддерживает вызов инструмента.' } });
       return;
@@ -995,19 +1007,25 @@ export class App implements OnInit, OnDestroy {
       agentModelKey, ...(requireGitStatusTool ? { requireGitStatusTool: true } : {}),
       ...(requireRepositoryMonitorRead ? { requireRepositoryMonitorRead: true } : {}),
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
-      ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}) };
+      ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}),
+      ...(useRepositoryResearch ? { useRepositoryResearch: true, repositorySearchQuery } : {}),
+      ...(useMcpOrchestration ? { useMcpOrchestration: true } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,
         summaryMetrics: response.summaryMetrics, factsMetrics: response.factsMetrics, guardMetrics: response.guardMetrics,
-        contextMetadata: response.contextMetadata, toolTrace: response.toolTrace, loading: false }),
+        contextMetadata: response.contextMetadata, toolTrace: response.toolTrace,
+        repositoryTrace: response.repositoryTrace, orchestrationTrace: response.orchestrationTrace, loading: false }),
       error: (error: HttpErrorResponse) => {
         const details = error.error as AgentError | null;
-        this.finishAgentResult(dialogId, id, { error: details?.code === 'TOOL_CAPABILITY_UNSUPPORTED'
-          ? 'Выбранная модель не поддерживает вызов инструмента Статус Git.'
+        this.finishAgentResult(dialogId, id, { error: details?.status ? `Исследование репозитория: ${details.status} · ${details.code}`
+          : details?.code === 'TOOL_CAPABILITY_UNSUPPORTED' ? 'Выбранная модель не поддерживает вызов инструмента.'
           : this.invariantErrorMessage(details) ?? this.errorMessage(error, false), toolTrace: details?.toolTrace,
           summaryMetrics: details?.summaryMetrics ?? null, factsMetrics: details?.factsMetrics ?? [],
-          guardMetrics: details?.guardMetrics ?? null, loading: false });
+          guardMetrics: details?.guardMetrics ?? null,
+          repositoryTrace: details?.repositoryTrace ?? (details?.status ? { status: details.status, stepsCompleted: details.stepsCompleted ?? 0,
+            failedStep: details.failedStep, code: details.code } : null),
+          orchestrationTrace: details?.orchestrationTrace, loading: false });
       },
     });
   }

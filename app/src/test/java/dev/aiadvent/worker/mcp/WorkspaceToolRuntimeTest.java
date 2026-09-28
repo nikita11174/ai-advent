@@ -15,6 +15,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 import io.modelcontextprotocol.client.McpSyncClient;
 import org.mockito.MockedStatic;
@@ -25,6 +29,33 @@ import static org.mockito.Mockito.*;
 
 class WorkspaceToolRuntimeTest {
     @TempDir Path repository;
+
+    @Test void launchesWorkspaceMainFromIdeClasspathAndBootJarFromPackage() throws Exception {
+        String ideClasspath = "target/classes" + java.io.File.pathSeparator + "spring-jcl.jar";
+        assertEquals("dev.aiadvent.worker.mcp.WorkspaceMcpServerMain",
+                WorkspaceToolRuntime.childCommand("java", ideClasspath).getLast());
+        Path classpathJar = jar("classpath.jar", false);
+        assertEquals("dev.aiadvent.worker.mcp.WorkspaceMcpServerMain",
+                WorkspaceToolRuntime.childCommand("java", classpathJar.toString()).getLast());
+        Path bootJar = jar("local-ai-worker.jar", true);
+        assertEquals("org.springframework.boot.loader.launch.PropertiesLauncher",
+                WorkspaceToolRuntime.childCommand("java", bootJar.toString()).getLast());
+    }
+
+    private Path jar(String name, boolean boot) throws Exception {
+        Path path = repository.resolve(name);
+        var manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        if (boot) manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS,
+                "org.springframework.boot.loader.launch.JarLauncher");
+        try (var out = new JarOutputStream(Files.newOutputStream(path), manifest)) {
+            if (boot) {
+                out.putNextEntry(new JarEntry("BOOT-INF/classes/dev/aiadvent/worker/mcp/WorkspaceMcpServerMain.class"));
+                out.closeEntry();
+            }
+        }
+        return path;
+    }
 
     @Test void ownershipIsRequiredBeforeOpen() {
         assertThrows(NullPointerException.class, () -> new WorkspaceToolRuntime(mock(McpSyncClient.class), null));

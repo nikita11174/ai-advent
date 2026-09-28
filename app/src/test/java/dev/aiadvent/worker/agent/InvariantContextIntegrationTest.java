@@ -18,6 +18,8 @@ import dev.aiadvent.worker.memory.ConversationSummary;
 import dev.aiadvent.worker.memory.StickyFactsStore;
 import dev.aiadvent.worker.model.AgentModelExecutor;
 import dev.aiadvent.worker.model.AgentModelRequest;
+import dev.aiadvent.worker.model.ToolCapableModelExecutor;
+import dev.aiadvent.worker.mcp.OrchestrationTools;
 import dev.aiadvent.worker.profile.Profile;
 import dev.aiadvent.worker.task.Task;
 import dev.aiadvent.worker.task.TaskStage;
@@ -37,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -90,6 +93,49 @@ class InvariantContextIntegrationTest {
                 () -> agent(executor, histories).reply("request", ContextMode.FULL, 4, AgentMemory.Snapshot.empty(null),
                         executor, config(), null, null, List.of(invariant(null))));
         verify(histories, never()).save(any(), any());
+    }
+
+    @Test
+    void orchestrationGuardFailuresRetainTraceWithoutPersistingCandidate() throws Exception {
+        for (String decision : List.of("CONFLICT", "UNCERTAIN", "INVALID")) {
+            AgentModelExecutor executor = mock(AgentModelExecutor.class,
+                    withSettings().extraInterfaces(ToolCapableModelExecutor.class));
+            ToolCapableModelExecutor nativeExecutor = (ToolCapableModelExecutor) executor;
+            var prepared = mock(ToolCapableModelExecutor.PreparedToolTurn.class);
+            var continuation = mock(ToolCapableModelExecutor.PreparedContinuation.class);
+            var state = mock(ToolCapableModelExecutor.ToolContinuation.class);
+            var tools = mock(OrchestrationTools.class);
+            var request = new ToolCapableModelExecutor.ToolRequest("git_repository_status",
+                    new ObjectMapper().readTree("{\"includeChangeCounts\":false}"));
+            when(tools.ready()).thenReturn(true);
+            when(tools.server("git_repository_status")).thenReturn("workspace");
+            when(tools.execute(any())).thenReturn(new ToolCapableModelExecutor.ToolResult(
+                    "git_repository_status", new ObjectMapper().readTree("{\"status\":\"SUCCESS\"}")));
+            when(nativeExecutor.prepareChoiceTurn(any(), any())).thenReturn(prepared);
+            when(nativeExecutor.beginToolTurn(prepared)).thenReturn(
+                    new ToolCapableModelExecutor.ToolRequestStep(request, state, null));
+            when(nativeExecutor.prepareContinuation(any(), any())).thenReturn(continuation);
+            when(nativeExecutor.continueChoiceTurn(continuation)).thenReturn(
+                    new ToolCapableModelExecutor.FinalAnswer("candidate", null));
+            Invariant invariant = invariant(null);
+            String guardAnswer = decision.equals("INVALID") ? "not json" : """
+                    {"decision":"%s","invariantId":%s,"explanation":"Violates rule.","compatibleContinuation":"Keep PostgreSQL."}
+                    """.formatted(decision, decision.equals("CONFLICT") ? "\"" + invariant.id() + "\"" : "null");
+            when(executor.complete(any())).thenReturn(completion(guardAnswer));
+            AgentHistoryStore histories = mock(AgentHistoryStore.class);
+
+            var error = assertThrows(ConversationAgent.MaintenanceMetricsException.class, () -> agent(executor, histories)
+                    .replyWithOrchestration("request", ContextMode.FULL, 4, AgentMemory.Snapshot.empty(null),
+                            executor, config(), null, null, List.of(invariant), List.of(), tools));
+
+            assertEquals("git_repository_status", error.orchestrationTrace().steps().getFirst().tool());
+            if (decision.equals("INVALID")) {
+                assertNotNull(((InvariantGuard.GuardFailureException) error.getCause()).guardMetrics());
+            } else {
+                assertNotNull(((InvariantGuard.RejectedCandidateException) error.getCause()).guardMetrics());
+            }
+            verify(histories, never()).save(any(), any());
+        }
     }
 
     @Test

@@ -191,9 +191,27 @@
           } @else if (trace.code) { <span>Код: {{ trace.code }}</span> }
         </section>
       }
-      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics)) {
+      @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics || result?.repositoryTrace || result?.orchestrationTrace)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
+          @if (result?.repositoryTrace; as research) {
+            <span class="control-metadata">Исследование репозитория: {{ research.status }} · MCP pipeline: {{ research.stepsCompleted }} шага(ов)
+              @if (research.failedStep) { · этап: {{ research.failedStep }} · {{ research.code }} }
+              @if (research.matchesSeen !== undefined) {<br>Совпадений: {{ research.matchesSeen }} · файлов: {{ research.filesMatched }} · фрагментов: {{ research.snippets }} · байт evidence: {{ research.evidenceBytes }}
+                @if (research.truncated) { · ограничено }
+                <br>Report ref: {{ research.reportRef }} · Модель: {{ agentModelLabel(result.agentModelKey) }}
+              }
+            </span>
+          }
+          @if (result?.orchestrationTrace; as trace) {
+            <div class="control-metadata">Оркестрация MCP: {{ trace.status }}
+              @for (step of trace.steps; track step.number) {
+                <br>{{ step.number }}. {{ step.server }} / {{ step.tool }} · {{ step.status }}
+                @if (step.testId) { · {{ step.testId }} }
+                @if (step.runId) { · run {{ step.runId }} }
+              }
+            </div>
+          }
           @if (result?.metrics) {
             <span class="control-metadata">Локальная оценка токенов:<br>
               request / context / response: {{ result.metrics.currentRequestTokens }} / {{ result.metrics.contextTokens }} / {{ result.metrics.responseTokens }}
@@ -293,12 +311,21 @@
     <section class="composer-wrap">
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
+        @if (experiment === 'AGENT') {
+          <label><input id="use-repository-research" type="checkbox" [(ngModel)]="useRepositoryResearch" [disabled]="loading() || useMcpOrchestration"> Использовать репозиторий</label>
+          <label><input id="use-mcp-orchestration" type="checkbox" [(ngModel)]="useMcpOrchestration" [disabled]="loading() || useRepositoryResearch"> Оркестрация MCP / разрешить одну локальную проверку</label>
+          @if (useMcpOrchestration) { <small>Проверка может записать build-артефакты. Найденные ограниченные фрагменты кода будут отправлены выбранной внешней модели.</small> }
+          @if (useRepositoryResearch) {
+            <label>Поисковый термин <input id="repository-search-query" type="text" [(ngModel)]="repositorySearchQuery" maxlength="100" [disabled]="loading()" aria-label="Поисковый термин"></label>
+            <small>Найденные фрагменты кода будут отправлены выбранной модели.</small>
+          }
+        }
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><div class="composer-mode">
           @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option><option value="monitor">Сводка монитора</option></select></label> }
           <span>Ctrl+Enter — отправить</span>
         </div><div class="action-buttons">
-          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask()))">Отправить</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask() || (useRepositoryResearch && !repositorySearchQuery.trim())))">Отправить</button>
         </div></div>
       </div>
     </section>

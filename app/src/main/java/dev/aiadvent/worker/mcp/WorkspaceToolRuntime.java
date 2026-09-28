@@ -15,10 +15,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +31,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
 
 @Component
 public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExecutor, AutoCloseable {
@@ -114,15 +117,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
         }
         String java = Path.of(System.getProperty("java.home"), "bin", "java.exe").toString();
         String classPath = System.getProperty("java.class.path");
-        var command = new ArrayList<String>();
-        command.add(java);
-        if (classPath.endsWith(".jar")) {
-            command.addAll(List.of("-Dloader.main=" + WorkspaceMcpServerMain.class.getName(),
-                    "-cp", classPath, "org.springframework.boot.loader.launch.PropertiesLauncher"));
-        } else {
-            command.addAll(List.of("-cp", classPath, WorkspaceMcpServerMain.class.getName()));
-        }
-        var builder = new ProcessBuilder(command);
+        var builder = new ProcessBuilder(childCommand(java, classPath));
         Map<String, String> inherited = new HashMap<>(builder.environment());
         builder.environment().clear();
         for (var entry : inherited.entrySet()) {
@@ -188,6 +183,32 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
         state.set(State.OPEN);
     }
 
+    static List<String> childCommand(String javaExecutable, String classPath) {
+        return childCommand(javaExecutable, classPath, WorkspaceMcpServerMain.class);
+    }
+
+    static List<String> childCommand(String javaExecutable, String classPath, Class<?> mainClass) {
+        if (packagedBootJar(classPath)) {
+            return List.of(javaExecutable, "-Dloader.main=" + mainClass.getName(),
+                    "-cp", classPath, "org.springframework.boot.loader.launch.PropertiesLauncher");
+        }
+        return List.of(javaExecutable, "-cp", classPath, mainClass.getName());
+    }
+
+    private static boolean packagedBootJar(String classPath) {
+        if (classPath.indexOf(File.pathSeparatorChar) >= 0 || !classPath.endsWith(".jar")) return false;
+        try (var jar = new JarFile(classPath)) {
+            var manifest = jar.getManifest();
+            return manifest != null
+                    && "org.springframework.boot.loader.launch.JarLauncher".equals(
+                    manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS))
+                    && jar.getJarEntry("BOOT-INF/classes/" + WorkspaceMcpServerMain.class.getName().replace('.', '/')
+                    + ".class") != null;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     WorkspaceToolRuntime(McpSyncClient client, Process child) {
         this.gitEnabled = true;
         this.monitorEnabled = false;
@@ -220,6 +241,12 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
         if (directory == null || directory.isBlank()) throw new IllegalStateException("MCP_START_FAILED");
         if (configured.isBlank()) directory = Path.of(directory, "LocalAIWorker", "repository-reports").toString();
         return Path.of(directory).toAbsolutePath().normalize();
+    }
+    public boolean orchestrationReady() { return client != null && state.get() == State.OPEN && gitEnabled && researchEnabled; }
+
+    public synchronized JsonNode orchestrationSearch(String query) {
+        if (!orchestrationReady()) throw new IllegalStateException("TOOL_DISABLED");
+        return researchCall(WorkspaceMcpServerMain.SEARCH, Map.of("query", query, "maxResults", 8));
     }
 
     synchronized JsonNode researchCall(String name, Map<String, Object> arguments) {

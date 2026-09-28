@@ -33,6 +33,60 @@ class DeepSeekTransportTest {
             new AgentModelMessage("user", "next")), "deepseek-v4-flash", 0.7, 450);
 
     @Test
+    void nativeChoiceContinuesAcrossTwoDistinctTools() throws Exception {
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn(
+                "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"git_repository_status\",\"arguments\":\"{\\\"includeChangeCounts\\\":true}\"}}]}}]}",
+                "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"c2\",\"type\":\"function\",\"function\":{\"name\":\"find_allowed_tests\",\"arguments\":\"{\\\"concept\\\":\\\"branch\\\"}\"}}]}}]}",
+                "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\",\"content\":\"Done\"}}]}");
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        var executor = new DeepSeekAgentModelExecutor(transport);
+        var tools = List.of(new ToolCapableModelExecutor.ToolDefinition("git_repository_status", "Git", json.readTree("{\"type\":\"object\"}")),
+                new ToolCapableModelExecutor.ToolDefinition("find_allowed_tests", "Checks", json.readTree("{\"type\":\"object\"}")));
+        var first = (ToolCapableModelExecutor.ToolRequestStep) executor.beginToolTurn(executor.prepareChoiceTurn(request, tools));
+        var second = (ToolCapableModelExecutor.ToolRequestStep) executor.continueChoiceTurn(executor.prepareContinuation(
+                first.continuation(), new ToolCapableModelExecutor.ToolResult(first.request().name(), json.readTree("{\"dirty\":false}"))));
+        var last = (ToolCapableModelExecutor.FinalAnswer) executor.continueChoiceTurn(executor.prepareContinuation(
+                second.continuation(), new ToolCapableModelExecutor.ToolResult(second.request().name(), json.readTree("{\"checks\":[]}"))));
+        assertEquals("git_repository_status", first.request().name());
+        assertEquals("find_allowed_tests", second.request().name());
+        assertEquals("Done", last.text());
+        ArgumentCaptor<HttpRequest> sent = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, times(3)).send(sent.capture(), any(HttpResponse.BodyHandler.class));
+        var third = json.readTree(body(sent.getAllValues().get(2)));
+        assertEquals("auto", third.path("tool_choice").asText());
+        assertEquals(2, third.path("tools").size());
+        assertEquals(4 + 4, third.path("messages").size());
+    }
+
+    @Test
+    void nativeChoiceAcceptsBoundedIndependentBatch() throws Exception {
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn(
+                "{\"choices\":[{\"finish_reason\":\"tool_calls\",\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":["
+                        + "{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"git_repository_status\",\"arguments\":\"{\\\"includeChangeCounts\\\":true}\"}},"
+                        + "{\"id\":\"c2\",\"type\":\"function\",\"function\":{\"name\":\"find_allowed_tests\",\"arguments\":\"{\\\"concept\\\":\\\"branch\\\"}\"}}]}}]}",
+                "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\",\"content\":\"Done\"}}]}");
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
+        var executor = new DeepSeekAgentModelExecutor(transport);
+        var tools = List.of(new ToolCapableModelExecutor.ToolDefinition("git_repository_status", "Git", json.readTree("{\"type\":\"object\"}")),
+                new ToolCapableModelExecutor.ToolDefinition("find_allowed_tests", "Checks", json.readTree("{\"type\":\"object\"}")));
+        var batch = (ToolCapableModelExecutor.ToolRequestBatchStep) executor.beginToolTurn(executor.prepareChoiceTurn(request, tools));
+        assertEquals(List.of("git_repository_status", "find_allowed_tests"),
+                batch.requests().stream().map(ToolCapableModelExecutor.ToolRequest::name).toList());
+        var prepared = executor.prepareBatchContinuation(batch.continuation(), List.of(
+                new ToolCapableModelExecutor.ToolResult("git_repository_status", json.readTree("{\"dirty\":false}")),
+                new ToolCapableModelExecutor.ToolResult("find_allowed_tests", json.readTree("{\"checks\":[]}"))));
+        assertEquals("Done", ((ToolCapableModelExecutor.FinalAnswer) executor.continueChoiceTurn(prepared)).text());
+        ArgumentCaptor<HttpRequest> sent = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, times(2)).send(sent.capture(), any(HttpResponse.BodyHandler.class));
+        var body = json.readTree(body(sent.getAllValues().get(1)));
+        assertEquals(2, body.path("messages").get(4).path("tool_calls").size());
+        assertEquals("c1", body.path("messages").get(5).path("tool_call_id").asText());
+        assertEquals("c2", body.path("messages").get(6).path("tool_call_id").asText());
+    }
+
+    @Test
     void sendsTheExactEndpointAndOrderedPayloadAndReturnsProviderMetadata() throws Exception {
         when(response.statusCode()).thenReturn(200);
         when(response.body()).thenReturn("""
