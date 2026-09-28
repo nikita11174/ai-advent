@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aiadvent.worker.mcp.WorkspaceToolRuntime;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -34,6 +35,14 @@ class RepositoryMonitorControllerTest {
         assertEquals("APPLIED", response.getBody().operationStatus());
         assertEquals(300, response.getBody().view().path("intervalSeconds").asInt());
         verify(runtime).startMonitor(300, id, 2);
+    }
+
+    @Test void intervalConfigurationReflectsBackendDemoMode() {
+        assertEquals(60, controller.configuration().minimumIntervalSeconds());
+        ReflectionTestUtils.setField(controller, "demoIntervals", true);
+        assertEquals(10, controller.configuration().minimumIntervalSeconds());
+        assertEquals(300, controller.configuration().defaultIntervalSeconds());
+        verifyNoInteractions(runtime);
     }
 
     @Test void rejectsExtraArgumentsAndMalformedTypes() throws Exception {

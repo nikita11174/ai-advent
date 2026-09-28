@@ -67,3 +67,6 @@ app-root .composer-mode label { display:flex; align-items:center; gap:6px; color
 app-root .composer-mode select { padding:6px 8px; border:1px solid #cbd5e1; border-radius:7px; background:#fff; color:#17223b; font:inherit; }
 app-root .git-tool-trace { display:grid; gap:4px; margin-top:12px; padding:10px 12px; border:1px solid #d9e4f2; border-radius:8px; background:#f4f8fd; color:#43536f; font-size:12px; overflow-wrap:anywhere; }
 app-root .git-tool-trace strong { color:#263f65; }
+.workspace-nav { display:flex; gap:3px; padding-left:12px; border-left:1px solid #43516b; }
+.workspace-nav button { padding:7px 10px; color:#c8d5ec; background:transparent; border:0; border-radius:7px; cursor:pointer; }
+.workspace-nav button[aria-current=page] { color:#fff; background:#30476f; }

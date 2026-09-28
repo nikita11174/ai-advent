@@ -14,6 +14,7 @@ import { AgentModelOption } from './agent/agent-ui.types';
 import { AgentModelService } from './agent/model/agent-model.service';
 import { AgentInspector } from './agent/inspector/agent-inspector';
 import { McpWorkspace } from './mcp/mcp-workspace';
+import { RepositoryMonitor } from './monitor/repository-monitor';
 
 type ReviewMode = 'FREE' | 'CONTROLLED';
 type Experiment = 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
@@ -39,7 +40,7 @@ interface MemorySnapshot {
   taskId: string | null; shortTerm: Record<string, string>; working: Record<string, string>; longTerm: Record<string, string>;
 }
 interface GitStatusResult { repositoryRef: string; observedAt: string; headState: string; branch: string | null; head: string | null; dirty: boolean; changeCounts: { staged: number; unstaged: number; untracked: number; conflicted: number; submoduleChanged: number } | null; }
-interface ToolTrace { turnId: string; toolRequested: boolean; toolStatus: string; turnStatus: string; code: string | null; toolResult: GitStatusResult | null; }
+interface ToolTrace { turnId: string; toolRequested: boolean; toolStatus: string; turnStatus: string; code: string | null; toolResult: GitStatusResult | { aggregate: { successCount: number; failureCount: number }; latestDigest: { text: string } | null; enabled: boolean } | null; }
 interface AgentResponse extends FreeResponse { metrics: TokenMetrics; summaryMetrics: TokenMetrics | null; factsMetrics: TokenMetrics[]; guardMetrics: TokenMetrics | null; contextMetadata: ContextMetadata; toolTrace?: ToolTrace | null; }
 interface AgentError { error?: string; code?: string; toolTrace?: ToolTrace | null; invariantName?: string | null; explanation?: string; compatibleContinuation?: string | null; summaryMetrics?: TokenMetrics | null; factsMetrics?: TokenMetrics[]; guardMetrics?: TokenMetrics | null; }
 interface ControlledResponse { review: ControlledReview; rawResponse: string; }
@@ -57,6 +58,7 @@ interface TemperatureEvaluation extends Evaluation { creativity: string; diversi
 interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
   id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS' | 'AGENT';
+  toolMode?: 'ordinary' | 'git' | 'monitor';
   branchId?: string | null;
   models?: ModelProfile[]; modelResults?: Record<string, ModelResultState>;
   modelEvaluations?: Record<string, Evaluation>; modelConclusion?: string;
@@ -144,12 +146,13 @@ const markdownRenderer = new Renderer();
 markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 @Component({
-  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector, McpWorkspace],
+  imports: [FormsModule, JsonPipe, NgTemplateOutlet, MatButtonModule, MatInputModule, MatProgressBarModule, MatToolbarModule, ModelResult, AgentInspector, McpWorkspace, RepositoryMonitor],
   selector: 'app-root', styleUrl: './app.scss', templateUrl: './app.html',
 })
 export class App implements OnInit, OnDestroy {
   protected view: 'chat' | 'workspace' = 'chat';
-  protected toolMode: 'ordinary' | 'git' = 'ordinary';
+  protected workspaceSection: 'mcp' | 'monitor' = 'mcp';
+  protected toolMode: 'ordinary' | 'git' | 'monitor' = 'ordinary';
   private readonly http = inject(HttpClient);
   private readonly agentModelService = inject(AgentModelService);
   private readonly pageTitle = inject(Title);
@@ -383,6 +386,11 @@ export class App implements OnInit, OnDestroy {
     this.checkBackend();
     this.loadTopology();
     this.loadMemory();
+  }
+
+  protected explainMonitor(): void {
+    this.view = 'chat'; this.selectAgent(); this.toolMode = 'monitor';
+    this.input = 'Объясни текущую сводку монитора репозитория.';
   }
 
   protected isPausedTask(): boolean { return this.currentTask()?.state.status === 'PAUSED'; }
@@ -970,18 +978,21 @@ export class App implements OnInit, OnDestroy {
     const dialogId = this.currentDialogId(); if (!dialogId || this.isPausedTask()) return;
     const requestBranchId = this.branchId;
     const agentModelKey = this.activeAgentModelKey();
-    const requireGitStatusTool = this.toolMode === 'git';
+    const selectedToolMode = this.toolMode;
+    const requireGitStatusTool = selectedToolMode === 'git';
+    const requireRepositoryMonitorRead = selectedToolMode === 'monitor';
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
-      free: { loading: true, agentModelKey } });
+      toolMode: selectedToolMode, free: { loading: true, agentModelKey } });
     this.prepareAfterSubmit(); this.toolMode = 'ordinary';
-    if (requireGitStatusTool && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
+    if ((requireGitStatusTool || requireRepositoryMonitorRead) && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
       this.updateExchange(id, { free: { loading: false, agentModelKey,
-        error: 'Статус Git доступен только с моделью DeepSeek: выбранная модель не поддерживает вызов инструмента.' } });
+        error: 'Инструмент доступен только с моделью DeepSeek: выбранная модель не поддерживает вызов инструмента.' } });
       return;
     }
     this.startRequest();
     const request = { input, contextMode: this.contextMode, recentMessageCount: this.recentMessageCount,
       agentModelKey, ...(requireGitStatusTool ? { requireGitStatusTool: true } : {}),
+      ...(requireRepositoryMonitorRead ? { requireRepositoryMonitorRead: true } : {}),
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
       ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,

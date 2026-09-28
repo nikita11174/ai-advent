@@ -1,6 +1,6 @@
 <mat-toolbar class="topbar">
   <div class="brand"><button class="sidebar-toggle" type="button" aria-label="Открыть диалоги" (click)="toggleSidebar()">☰</button><span class="brand-mark">LW</span><span>Local AI Worker</span></div>
-  <div class="context"><nav class="primary-nav" aria-label="Разделы"><button type="button" [attr.aria-current]="view === 'chat' ? 'page' : null" (click)="view = 'chat'">Беседа</button><button type="button" [attr.aria-current]="view === 'workspace' ? 'page' : null" (click)="view = 'workspace'">Рабочая область</button></nav>@if (view === 'chat') { <button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button> }
+  <div class="context"><nav class="primary-nav" aria-label="Разделы"><button type="button" [attr.aria-current]="view === 'chat' ? 'page' : null" (click)="view = 'chat'">Беседа</button><button type="button" [attr.aria-current]="view === 'workspace' ? 'page' : null" (click)="view = 'workspace'">Рабочая область</button></nav>@if (view === 'workspace') { <nav class="workspace-nav" aria-label="Рабочая область"><button type="button" [attr.aria-current]="workspaceSection === 'mcp' ? 'page' : null" (click)="workspaceSection = 'mcp'">MCP</button><button type="button" [attr.aria-current]="workspaceSection === 'monitor' ? 'page' : null" (click)="workspaceSection = 'monitor'">Монитор</button></nav> } @else { <button class="inspector-toggle" type="button" (click)="inspectorOpen = !inspectorOpen" [attr.aria-expanded]="inspectorOpen">Инспектор</button> }
     @if (experiment === 'AGENT' && view === 'chat') {
       <span class="model-badge server-status" [class.online]="backendStatus() === 'ONLINE'" [class.offline]="backendStatus() === 'OFFLINE'"
         [style.color]="backendStatus() === 'ONLINE' ? '#86efac' : backendStatus() === 'OFFLINE' ? '#fca5a5' : '#fde68a'" role="status">
@@ -156,7 +156,7 @@
             <article class="message-row mentor-row"><div class="message mentor-message">
               <span class="message-label">Worker · {{ exchange.mode === 'AGENT' ? agentModelLabel(exchange.free?.agentModelKey) : exchange.mode === 'FREE' ? 'Свободный' : 'Контролируемый' }}</span>
               @if (exchange.mode === 'FREE' || exchange.mode === 'AGENT') {
-                <ng-container [ngTemplateOutlet]="freeResult" [ngTemplateOutletContext]="{ result: exchange.free, agent: exchange.mode === 'AGENT' }" />
+                <ng-container [ngTemplateOutlet]="freeResult" [ngTemplateOutletContext]="{ result: exchange.free, agent: exchange.mode === 'AGENT', toolMode: exchange.toolMode }" />
               } @else {
                 <span class="control-metadata">{{ controlsMetadata(exchange.controls!) }}</span>
                 <ng-container [ngTemplateOutlet]="controlledResult" [ngTemplateOutletContext]="{ exchange: exchange }" />
@@ -167,7 +167,7 @@
       </div>
     </section>
 
-    <ng-template #freeResult let-result="result" let-agent="agent">
+    <ng-template #freeResult let-result="result" let-agent="agent" let-toolMode="toolMode">
       @if (result?.loading) { <div class="mentor-loading"><span>Ментор анализирует...</span><mat-progress-bar mode="indeterminate" /></div> }
       @else if (result?.analysis) {
         <div class="analysis-text" [innerHTML]="renderMarkdown(result.analysis)"></div>
@@ -175,13 +175,18 @@
       @else if (result?.error) { <div class="inline-error" role="alert">{{ result.error }}</div> }
       @if (agent && result?.toolTrace; as trace) {
         <section class="git-tool-trace" aria-label="Фактическое выполнение инструмента">
-          <strong>Инструмент · git_repository_status</strong>
+          <strong>Инструмент · {{ toolMode === 'monitor' ? 'get_repository_monitor_summary' : 'git_repository_status' }}</strong>
           <span>Вызов: {{ trace.toolStatus === 'SUCCESS' ? 'выполнен' : 'не выполнен' }} · ход: {{ trace.turnStatus }}</span>
           @if (trace.toolResult; as status) {
-            <span>Репозиторий: {{ status.repositoryRef }} · наблюдение: {{ status.observedAt }}</span>
-            <span>Ветка: {{ status.branch ?? status.headState }} · HEAD: {{ status.head ?? 'нет' }} · изменения: {{ status.dirty ? 'есть' : 'нет' }}</span>
-            @if (status.changeCounts; as counts) {
-              <span>Изменения: staged {{ counts.staged }}, unstaged {{ counts.unstaged }}, untracked {{ counts.untracked }}, conflicts {{ counts.conflicted }}, submodules {{ counts.submoduleChanged }}</span>
+            @if (toolMode === 'monitor') {
+              <span>Монитор: {{ $any(status).enabled ? 'работает' : 'остановлен' }} · наблюдения: {{ $any(status).aggregate.successCount }} успешно, {{ $any(status).aggregate.failureCount }} с ошибкой</span>
+              @if ($any(status).latestDigest; as digest) { <span>{{ digest.text }}</span> }
+            } @else {
+              <span>Репозиторий: {{ $any(status).repositoryRef }} · наблюдение: {{ $any(status).observedAt }}</span>
+              <span>Ветка: {{ $any(status).branch ?? $any(status).headState }} · HEAD: {{ $any(status).head ?? 'нет' }} · изменения: {{ $any(status).dirty ? 'есть' : 'нет' }}</span>
+              @if ($any(status).changeCounts; as counts) {
+                <span>Изменения: staged {{ counts.staged }}, unstaged {{ counts.unstaged }}, untracked {{ counts.untracked }}, conflicts {{ counts.conflicted }}, submodules {{ counts.submoduleChanged }}</span>
+              }
             }
           } @else if (trace.code) { <span>Код: {{ trace.code }}</span> }
         </section>
@@ -290,7 +295,7 @@
       <div class="composer">
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><div class="composer-mode">
-          @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option></select></label> }
+          @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option><option value="monitor">Сводка монитора</option></select></label> }
           <span>Ctrl+Enter — отправить</span>
         </div><div class="action-buttons">
           <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask()))">Отправить</button>
@@ -458,7 +463,7 @@
     </details>
   </app-agent-inspector>
   } @else {
-    <app-mcp-workspace />
+    @if (workspaceSection === 'mcp') { <app-mcp-workspace /> } @else { <app-repository-monitor (explain)="explainMonitor()" /> }
   }
   <ng-template #historicalSettings>
       @if (experiment === 'FORMAT') {

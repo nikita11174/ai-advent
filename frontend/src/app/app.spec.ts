@@ -92,7 +92,7 @@ interface TestApp {
   dialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   visibleDialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   currentDialogId(): string | null;
-  toolMode: 'ordinary' | 'git';
+  toolMode: 'ordinary' | 'git' | 'monitor';
   exchanges(): readonly { temperatureConclusion?: unknown }[];
 }
 
@@ -189,6 +189,31 @@ describe('App', () => {
     (fixture.nativeElement.querySelector('.primary-nav button') as HTMLButtonElement).click(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.composer')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('app-agent-inspector')).not.toBeNull();
+  });
+
+  it('opens Monitor in Workspace and prepares explicit chat read without auto-sending', () => {
+    const workspace = [...fixture.nativeElement.querySelectorAll('.primary-nav button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Рабочая область')) as HTMLButtonElement;
+    workspace.click(); fixture.detectChanges();
+    http.expectOne('/api/mcp/connections').flush([{ id: 'idea', name: 'IntelliJ IDEA MCP', configured: true }]);
+    const monitorTab = [...fixture.nativeElement.querySelectorAll('.workspace-nav button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Монитор')) as HTMLButtonElement;
+    monitorTab.click(); fixture.detectChanges();
+    http.expectOne('/api/repository-monitor/configuration').flush({ minimumIntervalSeconds: 60,
+      maximumIntervalSeconds: 86400, defaultIntervalSeconds: 300 });
+    http.expectOne('/api/repository-monitor').flush({ monitorId: 'fixture', repositoryRef: 'fixture',
+      enabled: false, intervalSeconds: null, configRevision: 0, nextRunAt: null,
+      aggregate: { successCount: 0, failureCount: 0, dirtySampleCount: 0, headTransitionCount: 0,
+        branchTransitionCount: 0, firstSuccessAt: null, lastSuccessAt: null, lastCompletedAt: null,
+        lastOutcome: null, lastFailureCode: null, latestStatus: null }, latestDigest: null,
+      lastCommand: null, health: { status: 'IDLE', code: null } });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Монитор остановлен');
+    (fixture.nativeElement.querySelector('.observations button') as HTMLButtonElement).click(); fixture.detectChanges();
+    flushHealth(); flushTopology(); flushMemory();
+    expect(component.toolMode).toBe('monitor');
+    expect(component.input).toContain('сводку монитора');
+    http.expectNone(`/api/dialogs/${dialog().id}/agent/messages`);
   });
 
   it('sends Git mode once, shows factual result apart from the answer, and then sends ordinary mode', () => {

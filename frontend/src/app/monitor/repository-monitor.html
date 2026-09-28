@@ -1,0 +1,47 @@
+<main class="monitor-main">
+  <header><p class="eyebrow">Рабочая область / Монитор</p><h1>Монитор репозитория</h1><p>Наблюдения выполняются приложением независимо от открытой страницы.</p></header>
+  @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p class="notice" role="status">{{ notice() }}</p> }
+  @if (loading()) { <p class="empty">Загрузка состояния монитора…</p> }
+  @else if (view(); as state) {
+    <section class="card controls" aria-label="Управление монитором">
+      <div><h2>{{ state.enabled ? 'Монитор работает' : 'Монитор остановлен' }}</h2>
+        <p class="subtle">{{ state.repositoryRef }} · {{ healthLabel(state.health.status) }} · ревизия {{ state.configRevision }}</p>
+        @if (state.health.code) { <p class="error-inline">Код состояния: {{ state.health.code }}</p> }
+      </div>
+      <div class="actions">
+        @if (!state.enabled) {
+          <label>Интервал <select [value]="interval()" (change)="interval.set(+$any($event.target).value)" aria-label="Интервал наблюдений">
+            @if (minimumInterval() === 10) { <option value="10">10 секунд · демонстрация</option> }
+            <option value="60">1 минута</option><option value="300">5 минут</option><option value="900">15 минут</option>
+          </select></label>
+          <button type="button" (click)="start()" [disabled]="busy() || unresolved()">Запустить</button>
+        } @else { <button type="button" (click)="stop()" [disabled]="busy() || unresolved()">Остановить</button> }
+      </div>
+    </section>
+    <section class="facts" aria-label="Текущее состояние">
+      <div class="card"><span>Интервал</span><strong>{{ state.intervalSeconds ? state.intervalSeconds + ' с' : '—' }}</strong></div>
+      <div class="card"><span>Следующее наблюдение</span><strong>{{ state.nextRunAt ? (state.nextRunAt | date:'dd.MM.yyyy HH:mm:ss') : '—' }}</strong></div>
+      <div class="card"><span>Последнее завершение</span><strong>{{ state.aggregate.lastCompletedAt ? (state.aggregate.lastCompletedAt | date:'dd.MM.yyyy HH:mm:ss') : '—' }}</strong></div>
+      <div class="card"><span>Наблюдения</span><strong>{{ state.aggregate.successCount }} успешно · {{ state.aggregate.failureCount }} с ошибкой</strong></div>
+    </section>
+    <section class="card observations"><h2>Наблюдения</h2>
+      @if (state.aggregate.latestStatus; as git) {
+        <p>Последний Git: <strong>{{ git.branch ?? git.headState }}</strong> · {{ git.dirty ? 'есть изменения' : 'чисто' }} · {{ git.observedAt | date:'dd.MM.yyyy HH:mm:ss' }}</p>
+        <p class="subtle">HEAD {{ git.head ?? '—' }} · грязных снимков {{ state.aggregate.dirtySampleCount }} · смен HEAD {{ state.aggregate.headTransitionCount }} · смен ветки {{ state.aggregate.branchTransitionCount }}</p>
+        @if (git.changeCounts; as counts) { <p class="subtle">staged {{ counts.staged }} · unstaged {{ counts.unstaged }} · untracked {{ counts.untracked }} · conflicts {{ counts.conflicted }}</p> }
+      } @else { <p class="subtle">Успешных наблюдений пока нет.</p> }
+      @if (state.aggregate.lastOutcome === 'FAILURE') { <p class="error-inline">Последнее наблюдение завершилось с ошибкой: {{ state.aggregate.lastFailureCode ?? 'код не указан' }}</p> }
+      @if (state.latestDigest; as digest) { <h3>Техническая сводка</h3><p class="digest">{{ digest.text }}</p><p class="subtle">Обновлено {{ digest.generatedAt | date:'dd.MM.yyyy HH:mm:ss' }}</p> }
+      <button class="secondary" type="button" (click)="explain.emit()">Объяснить сводку в беседе</button>
+    </section>
+  }
+</main>
+<aside class="monitor-aside"><h2>Состояние монитора</h2>
+  @if (view(); as state) {
+    <p>{{ state.enabled ? 'Включён' : 'Остановлен' }}</p>
+    <p>Состояние: {{ healthLabel(state.health.status) }}</p>
+    <p>Ревизия: {{ state.configRevision }}</p>
+    @if (state.lastCommand; as command) { <h3>Последняя команда</h3><p>{{ command.action }} · {{ command.operationStatus }}</p> }
+  } @else { <p>Нет данных.</p> }
+</aside>

@@ -2,6 +2,7 @@ package dev.aiadvent.worker.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.aiadvent.worker.mcp.WorkspaceToolRuntime;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -19,6 +20,8 @@ import java.util.UUID;
 @RequestMapping("/api/repository-monitor")
 final class RepositoryMonitorController {
     private final WorkspaceToolRuntime runtime;
+    @Value("${mentor.repository-monitor.demo-intervals:false}")
+    private boolean demoIntervals;
 
     RepositoryMonitorController(WorkspaceToolRuntime runtime) { this.runtime = runtime; }
 
@@ -67,6 +70,9 @@ final class RepositoryMonitorController {
     @GetMapping
     JsonNode get() { return runtime.getMonitor(); }
 
+    @GetMapping("/configuration")
+    IntervalConfiguration configuration() { return new IntervalConfiguration(demoIntervals ? 10 : 60, 86_400, 300); }
+
     private static CommandResponse response(JsonNode result) {
         return new CommandResponse(result.path("receipt").path("operationStatus").asText(),
                 "NOT_STARTED", result.path("receipt"), result.path("view"));
@@ -104,4 +110,5 @@ final class RepositoryMonitorController {
     record StartCommand(int intervalSeconds, String commandId, long expectedRevision) { }
     record StopCommand(String commandId, long expectedRevision) { }
     record CommandResponse(String operationStatus, String turnStatus, JsonNode receipt, JsonNode view) { }
+    record IntervalConfiguration(int minimumIntervalSeconds, int maximumIntervalSeconds, int defaultIntervalSeconds) { }
 }
