@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aiadvent.worker.workspace.GitStatusReader;
+import dev.aiadvent.worker.workspace.RepositoryResearch;
 import dev.aiadvent.worker.workspace.monitor.MonitorStateStore;
 import dev.aiadvent.worker.workspace.monitor.RepositoryMonitor;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -29,6 +30,9 @@ public final class WorkspaceMcpServerMain {
     static final String START_MONITOR = "start_repository_monitor";
     static final String READ_MONITOR = "get_repository_monitor_summary";
     static final String STOP_MONITOR = "stop_repository_monitor";
+    static final String SEARCH = "search_repository";
+    static final String SUMMARIZE = "summarize_repository_search";
+    static final String SAVE = "save_repository_report";
     private static final String REPOSITORY_ENV = "AI_ADVENT_WORKSPACE_REPOSITORY";
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules()
             .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -55,6 +59,7 @@ public final class WorkspaceMcpServerMain {
             return;
         }
         RepositoryMonitor monitor = null;
+        RepositoryResearch research = null;
         try {
             if ("true".equals(System.getenv("AI_ADVENT_MONITOR_ENABLED"))) {
                 String stateDirectory = System.getenv("AI_ADVENT_MONITOR_STATE_DIRECTORY");
@@ -62,6 +67,11 @@ public final class WorkspaceMcpServerMain {
                 monitor = new RepositoryMonitor(new MonitorStateStore(Path.of(System.getenv(REPOSITORY_ENV)),
                         Path.of(stateDirectory)), reader, Clock.systemUTC(),
                         "true".equals(System.getenv("AI_ADVENT_MONITOR_DEMO")));
+            }
+            if ("true".equals(System.getenv("AI_ADVENT_RESEARCH_ENABLED"))) {
+                String directory = System.getenv("AI_ADVENT_REPORTS_DIRECTORY");
+                if (directory == null || directory.isBlank()) throw new IllegalStateException("INVALID_REPORTS_DIRECTORY");
+                research = new RepositoryResearch(Path.of(System.getenv(REPOSITORY_ENV)), Path.of(directory));
             }
         } catch (RuntimeException e) {
             System.err.println("WORKSPACE_MCP_STARTUP_FAILED");
@@ -94,6 +104,15 @@ public final class WorkspaceMcpServerMain {
             serverBuilder.toolCall(monitorTool(STOP_MONITOR, stopInputSchema(), mutationOutputSchema(), false),
                     (exchange, request) -> monitorCall(owned, request));
         }
+        if (research != null) {
+            RepositoryResearch owned = research;
+            serverBuilder.toolCall(researchTool(SEARCH, searchInputSchema(), searchOutputSchema(), true),
+                    (exchange, request) -> researchCall(owned, request));
+            serverBuilder.toolCall(researchTool(SUMMARIZE, summaryInputSchema(), summaryOutputSchema(), true),
+                    (exchange, request) -> researchCall(owned, request));
+            serverBuilder.toolCall(researchTool(SAVE, saveInputSchema(), saveOutputSchema(), false),
+                    (exchange, request) -> researchCall(owned, request));
+        }
         var server = serverBuilder.build();
         System.err.println("WORKSPACE_MCP_PID=" + ProcessHandle.current().pid());
         try {
@@ -115,6 +134,74 @@ public final class WorkspaceMcpServerMain {
                 .inputSchema(input).outputSchema(output)
                 .annotations(McpSchema.ToolAnnotations.builder().readOnlyHint(readOnly).destructiveHint(!readOnly).build())
                 .build();
+    }
+
+    private static McpSchema.Tool researchTool(String name, Map<String, Object> input,
+                                               Map<String, Object> output, boolean readOnly) {
+        return McpSchema.Tool.builder().name(name).description("Fixed repository research pipeline step")
+                .inputSchema(input).outputSchema(output)
+                .annotations(McpSchema.ToolAnnotations.builder().readOnlyHint(readOnly).destructiveHint(false).build()).build();
+    }
+
+    static McpSchema.CallToolResult researchCall(RepositoryResearch research, McpSchema.CallToolRequest request) {
+        try {
+            Map<String, Object> args = request.arguments();
+            if (args == null) return error("INVALID_ARGUMENTS");
+            Map<String, Object> value;
+            switch (request.name()) {
+                case SEARCH -> {
+                    if (args.size() != 2 || !(args.get("query") instanceof String query)
+                            || !(args.get("maxResults") instanceof Integer max)) return error("INVALID_ARGUMENTS");
+                    value = research.search(query, max);
+                }
+                case SUMMARIZE -> {
+                    if (args.size() != 1 || !args.containsKey("searchResult")) return error("INVALID_ARGUMENTS");
+                    value = RepositoryResearch.summarize(JSON.valueToTree(args.get("searchResult")));
+                }
+                case SAVE -> {
+                    if (args.size() != 2 || !(args.get("operationId") instanceof String id)
+                            || !args.containsKey("summary")) return error("INVALID_ARGUMENTS");
+                    value = research.save(id, JSON.valueToTree(args.get("summary")));
+                }
+                default -> { return error("UNKNOWN_TOOL"); }
+            }
+            if (JSON.writeValueAsBytes(value).length > 16_384) return error("RESULT_LIMIT");
+            return McpSchema.CallToolResult.builder().structuredContent(value).build();
+        } catch (IllegalStateException e) {
+            String code = e.getMessage();
+            return error(code != null && RESEARCH_ERRORS.contains(code) ? code : "MCP_CALL_FAILED");
+        } catch (RuntimeException | IOException e) { return error("MCP_CALL_FAILED"); }
+    }
+
+    private static final java.util.Set<String> RESEARCH_ERRORS = java.util.Set.of("INVALID_ARGUMENTS", "SEARCH_FAILED",
+            "SEARCH_TIMEOUT", "SEARCH_INCOMPLETE", "INVALID_SEARCH_RESULT", "INVALID_SUMMARY_RESULT",
+            "SAVE_FAILED", "SAVE_OUTCOME_UNKNOWN", "REPORT_CONFLICT", "RESULT_LIMIT");
+
+    static Map<String, Object> searchInputSchema() {
+        return object(Map.of("query", Map.of("type", "string", "minLength", 1, "maxLength", 100),
+                "maxResults", Map.of("type", "integer", "minimum", 1, "maximum", 20)));
+    }
+    static Map<String, Object> searchOutputSchema() {
+        return object(Map.of("query", Map.of("type", "string"), "observedAt", Map.of("type", "string"),
+                "matchCount", Map.of("type", "integer"), "truncated", Map.of("type", "boolean"),
+                "matches", Map.of("type", "array", "items", object(Map.of("relativePath", Map.of("type", "string"),
+                        "line", Map.of("type", "integer"))))));
+    }
+    static Map<String, Object> summaryInputSchema() { return object(Map.of("searchResult", searchOutputSchema())); }
+    static Map<String, Object> summaryOutputSchema() {
+        return object(Map.of("query", Map.of("type", "string"), "matchesSeen", Map.of("type", "integer"),
+                "filesMatched", Map.of("type", "integer"), "truncated", Map.of("type", "boolean"),
+                "evidence", Map.of("type", "array", "items", object(Map.of("relativePath", Map.of("type", "string"),
+                        "line", Map.of("type", "integer")))),
+                "summaryMarkdown", Map.of("type", "string")));
+    }
+    static Map<String, Object> saveInputSchema() {
+        return object(Map.of("operationId", Map.of("type", "string", "format", "uuid"),
+                "summary", summaryOutputSchema()));
+    }
+    static Map<String, Object> saveOutputSchema() {
+        return object(Map.of("reportRef", Map.of("type", "string"), "createdAt", Map.of("type", "string"),
+                "bytesWritten", Map.of("type", "integer"), "contentHash", Map.of("type", "string")));
     }
 
     static McpSchema.CallToolResult monitorCall(RepositoryMonitor monitor, McpSchema.CallToolRequest request) {

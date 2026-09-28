@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aiadvent.worker.agent.ToolExecutor;
 import dev.aiadvent.worker.agent.MonitorReadExecutor;
+import dev.aiadvent.worker.workspace.RepositoryResearch;
 import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolRequest;
 import dev.aiadvent.worker.model.ToolCapableModelExecutor.ToolResult;
 import io.modelcontextprotocol.client.McpClient;
@@ -42,6 +43,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     private final Process child;
     private final boolean gitEnabled;
     private final boolean monitorEnabled;
+    private final boolean researchEnabled;
     private final boolean demoIntervals;
     private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
     private final CompletableFuture<Void> closeOutcome = new CompletableFuture<>();
@@ -52,29 +54,49 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
                                 @Value("${mentor.repository-monitor.enabled:false}") boolean monitorEnabled,
                                 @Value("${mentor.repository-monitor.state-directory:}") String stateDirectory,
                                 @Value("${mentor.repository-monitor.demo-intervals:false}") boolean demoIntervals,
+                                @Value("${mentor.repository-research.enabled:false}") boolean researchEnabled,
+                                @Value("${mentor.repository-research.reports-directory:}") String reportsDirectory,
                                 @Value("${server.address:}") String serverAddress) {
-        this(enabled, repository, monitorEnabled, stateDirectory, demoIntervals, serverAddress, CHILD_START_TIMEOUT, null);
+        this(enabled, repository, monitorEnabled, stateDirectory, demoIntervals, researchEnabled, reportsDirectory,
+                serverAddress, CHILD_START_TIMEOUT, null);
     }
 
     public WorkspaceToolRuntime(boolean enabled, String repository) {
         this(enabled, repository, CHILD_START_TIMEOUT, null);
     }
 
+    public WorkspaceToolRuntime(boolean enabled, String repository, boolean monitorEnabled,
+                                String stateDirectory, boolean demoIntervals, String serverAddress) {
+        this(enabled, repository, monitorEnabled, stateDirectory, demoIntervals, serverAddress,
+                CHILD_START_TIMEOUT, null);
+    }
+
     WorkspaceToolRuntime(boolean enabled, String repository, Duration startTimeout,
                          OwnedStdioClientTransport.ProcessStarter processStarter) {
-        this(enabled, repository, false, "", false, "", startTimeout, processStarter);
+        this(enabled, repository, false, "", false, false, "", "", startTimeout, processStarter);
     }
 
     WorkspaceToolRuntime(boolean enabled, String repository, boolean monitorEnabled, String stateDirectory,
                          boolean demoIntervals, String serverAddress, Duration startTimeout,
                          OwnedStdioClientTransport.ProcessStarter processStarter) {
+        this(enabled, repository, monitorEnabled, stateDirectory, demoIntervals, false, "", serverAddress,
+                startTimeout, processStarter);
+    }
+
+    WorkspaceToolRuntime(boolean enabled, String repository, boolean monitorEnabled, String stateDirectory,
+                         boolean demoIntervals, boolean researchEnabled, String reportsDirectory, String serverAddress,
+                         Duration startTimeout, OwnedStdioClientTransport.ProcessStarter processStarter) {
         this.gitEnabled = enabled;
         this.monitorEnabled = monitorEnabled;
+        this.researchEnabled = researchEnabled;
         this.demoIntervals = demoIntervals;
         if (monitorEnabled && !Set.of("127.0.0.1", "::1").contains(serverAddress)) {
             throw new IllegalStateException("MONITOR_LOCAL_BIND_REQUIRED");
         }
-        if (!enabled && !monitorEnabled) {
+        if (researchEnabled && !Set.of("127.0.0.1", "::1").contains(serverAddress)) {
+            throw new IllegalStateException("RESEARCH_LOCAL_BIND_REQUIRED");
+        }
+        if (!enabled && !monitorEnabled && !researchEnabled) {
             client = null;
             transport = null;
             child = null;
@@ -116,6 +138,15 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
             builder.environment().put("AI_ADVENT_MONITOR_STATE_DIRECTORY", directory);
             builder.environment().put("AI_ADVENT_MONITOR_DEMO", Boolean.toString(demoIntervals));
         }
+        if (researchEnabled) {
+            String directory = reportsDirectory.isBlank() ? System.getenv("LOCALAPPDATA") : reportsDirectory;
+            if (directory == null || directory.isBlank()) throw new IllegalStateException("MCP_START_FAILED");
+            if (reportsDirectory.isBlank()) directory = Path.of(directory, "LocalAIWorker", "repository-reports").toString();
+            Path reportPath = Path.of(directory).toAbsolutePath().normalize();
+            if (reportPath.startsWith(root)) throw new IllegalStateException("MCP_START_FAILED");
+            builder.environment().put("AI_ADVENT_RESEARCH_ENABLED", "true");
+            builder.environment().put("AI_ADVENT_REPORTS_DIRECTORY", reportPath.toString());
+        }
 
         OwnedStdioClientTransport owned = OwnedStdioClientTransport.start(
                 processStarter == null ? builder::start : processStarter,
@@ -127,9 +158,15 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
             started.initialize();
             var listed = started.listTools();
             if (listed == null || listed.nextCursor() != null || listed.tools() == null
-                    || listed.tools().size() != (monitorEnabled ? 4 : 1)
+                    || listed.tools().size() != 1 + (monitorEnabled ? 3 : 0) + (researchEnabled ? 3 : 0)
                     || !matches(listed.tools(), WorkspaceMcpServerMain.TOOL_NAME,
                     WorkspaceMcpServerMain.inputSchema(), WorkspaceMcpServerMain.outputSchema())
+                    || (researchEnabled && (!matches(listed.tools(), WorkspaceMcpServerMain.SEARCH,
+                    WorkspaceMcpServerMain.searchInputSchema(), WorkspaceMcpServerMain.searchOutputSchema())
+                    || !matches(listed.tools(), WorkspaceMcpServerMain.SUMMARIZE,
+                    WorkspaceMcpServerMain.summaryInputSchema(), WorkspaceMcpServerMain.summaryOutputSchema())
+                    || !matches(listed.tools(), WorkspaceMcpServerMain.SAVE,
+                    WorkspaceMcpServerMain.saveInputSchema(), WorkspaceMcpServerMain.saveOutputSchema())))
                     || (monitorEnabled && (!matches(listed.tools(), WorkspaceMcpServerMain.START_MONITOR,
                     WorkspaceMcpServerMain.startInputSchema(demoIntervals), WorkspaceMcpServerMain.mutationOutputSchema())
                     || !matches(listed.tools(), WorkspaceMcpServerMain.READ_MONITOR,
@@ -156,6 +193,7 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     WorkspaceToolRuntime(McpSyncClient client, Process child) {
         this.gitEnabled = true;
         this.monitorEnabled = false;
+        this.researchEnabled = false;
         this.demoIntervals = false;
         this.client = Objects.requireNonNull(client);
         this.child = Objects.requireNonNull(child);
@@ -170,6 +208,45 @@ public final class WorkspaceToolRuntime implements ToolExecutor, MonitorReadExec
     @Override public boolean enabled() { return gitEnabled && client != null && state.get() == State.OPEN; }
 
     @Override public boolean monitorEnabled() { return monitorEnabled && client != null && state.get() == State.OPEN; }
+
+    public boolean researchEnabled() { return researchEnabled && client != null && state.get() == State.OPEN; }
+
+    synchronized JsonNode researchCall(String name, Map<String, Object> arguments) {
+        if (!researchEnabled()) throw new ResearchCallFailure("RESEARCH_DISABLED", false);
+        McpSchema.CallToolResult response;
+        try { response = client.callTool(new McpSchema.CallToolRequest(name, arguments)); }
+        catch (RuntimeException e) { throw new ResearchCallFailure("MCP_CALL_FAILED", true); }
+        if (response == null) throw new ResearchCallFailure("MCP_CALL_FAILED", true);
+        if (Boolean.TRUE.equals(response.isError())) {
+            String code = JSON.valueToTree(response).path("content").path(0).path("text").asText();
+            if (!Set.of("INVALID_ARGUMENTS", "SEARCH_FAILED", "SEARCH_TIMEOUT", "SEARCH_INCOMPLETE",
+                    "INVALID_SEARCH_RESULT", "INVALID_SUMMARY_RESULT", "SAVE_FAILED", "REPORT_CONFLICT",
+                    "RESULT_LIMIT", "SAVE_OUTCOME_UNKNOWN").contains(code)) code = "MCP_CALL_FAILED";
+            throw new ResearchCallFailure(code, "SAVE_OUTCOME_UNKNOWN".equals(code)
+                    || (WorkspaceMcpServerMain.SAVE.equals(name) && "MCP_CALL_FAILED".equals(code)));
+        }
+        if (response.structuredContent() == null) throw new ResearchCallFailure("INVALID_TOOL_RESULT", true);
+        JsonNode result;
+        try { result = JSON.valueToTree(response.structuredContent()); }
+        catch (RuntimeException e) { throw new ResearchCallFailure("INVALID_TOOL_RESULT", true); }
+        if (result.toString().getBytes(StandardCharsets.UTF_8).length > 16_384)
+            throw new ResearchCallFailure("INVALID_TOOL_RESULT", true);
+        try {
+            switch (name) {
+                case WorkspaceMcpServerMain.SEARCH -> RepositoryResearch.validateSearch(result);
+                case WorkspaceMcpServerMain.SUMMARIZE -> RepositoryResearch.validateSummary(result);
+                case WorkspaceMcpServerMain.SAVE -> RepositoryResearch.validateReceipt(result);
+                default -> throw new IllegalStateException("TOOL_NOT_ALLOWED");
+            }
+        } catch (IllegalStateException e) { throw new ResearchCallFailure("INVALID_TOOL_RESULT", true); }
+        return result;
+    }
+
+    static final class ResearchCallFailure extends IllegalStateException {
+        private final boolean uncertain;
+        ResearchCallFailure(String code, boolean uncertain) { super(code); this.uncertain = uncertain; }
+        boolean uncertain() { return uncertain; }
+    }
 
     @Override public synchronized ToolResult execute(ToolRequest request) {
         if (state.get() != State.OPEN) throw new IllegalStateException("MCP_RUNTIME_CLOSED");
