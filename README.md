@@ -1,82 +1,46 @@
-# AI Advent Challenge 9
+# AI Advent Challenge — Local AI Worker
 
-Чистый sandbox-проект для последовательного выполнения заданий AI Advent Challenge 9.
+Local AI Worker — учебное приложение, которое развивается по заданиям AI Advent Challenge. Оно объединяет беседу с моделью, локальное состояние диалогов и ограниченные инструменты для исследования репозитория.
 
-Repository: https://github.com/nikita11174/ai-advent
+## Возможности
 
-Проект содержит только учебный код AI Advent, без данных внешних проектов.
+- Angular-интерфейс для беседы, выбора модели и просмотра фактических результатов инструментов.
+- Рабочая область: проверка подключения к MCP и просмотр каталога инструментов, монитор Git-репозитория, точный поиск по отслеживаемым файлам и чтение сохранённых отчётов.
+- Явные режимы беседы для статуса Git и инструментов репозитория. Запуск разрешённой локальной проверки требует отдельного разрешения на текущий запрос.
+- Backend на Java 21 и Spring Boot. Он владеет MCP-подключениями, расписанием монитора, маршрутизацией инструментов и ограниченным запуском проверки.
 
-Это один развивающийся проект для ежедневных заданий challenge. Первый baseline — Java 21,
-Spring Boot, Angular 22 и вызов DeepSeek REST API для Day 1. Claude Code и Codex —
-взаимозаменяемые исполнители; продолжение работы опирается на состояние репозитория, а не на
-память конкретной модели.
+Ветка [`day_20`](https://github.com/nikita11174/ai-advent/tree/day_20) содержит итоговую интегрированную версию Week 4. Ветки `day_1`–`day_20` показывают последовательное развитие проекта; для Days 16–20 публичные ветки соответствуют версиям, использованным в видео.
 
-Product direction и правила постепенного развития продукта зафиксированы в
-[`docs/PRODUCT-MANIFEST.md`](docs/PRODUCT-MANIFEST.md).
+## Локальный запуск
 
-## Начало работы
+Нужны JDK 21, Maven, Node.js 22.22.0 и npm. Для запросов к DeepSeek создайте игнорируемый Git файл `.env.local` по образцу `.env.example` и задайте в нём свой `DEEPSEEK_API_KEY`. Не добавляйте ключи в репозиторий.
 
-1. Прочитать `AGENTS.md`.
-2. Следовать краткому entrypoint `docs/SESSION_START.md`.
-3. Проверить `git status` и `git diff` перед изменениями.
-
-## Day 1
-
-Требования:
-
-- Java 21 and Maven;
-- Node.js 22.22.3 and npm 10.9.8 (`nvm use 22.22.3`);
-- `DEEPSEEK_API_KEY` in the ignored repository-root `.env.local`.
-
-Day 1 демонстрирует минимальный web vertical slice: Java-код или инженерный вопрос из русского
-Angular chat проходит через Spring Boot `/api/review` в DeepSeek, а Markdown-анализ возвращается
-в браузер. Визуальная история хранится только в текущей вкладке и не отправляется модели.
-
-Backend build и tests:
+Из корня репозитория запустите backend:
 
 ```powershell
-cd <local-workspace>
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-21'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
 mvn clean package
+.\scripts\run-backend.ps1
 ```
 
-Frontend install, tests и build:
+В другом терминале запустите Angular:
 
 ```powershell
-cd <local-workspace>
-nvm use 22.22.3
+cd frontend
 npm ci
+npm start
+```
+
+Откройте `http://127.0.0.1:4200/`. Backend по умолчанию слушает loopback-порт `18080`; Angular dev proxy передаёт ему запросы `/api`.
+
+Отдельные функции рабочей области требуют локальной конфигурации: MCP discovery — доступного внешнего сервера, а Git-инструменты, монитор и исследование — явно выбранного репозитория. Для исследования используйте отдельный тестовый репозиторий. Конфигурация и локальные данные остаются вне публикуемого кода.
+
+## Проверка
+
+```powershell
+mvn test
+cd frontend
 npm test -- --watch=false
 npm run build
 ```
 
-### Локальный web-запуск
-
-1. Скопировать `.env.example` в `.env.local` и заменить placeholder своим ключом. `.env.local`
-   игнорируется Git; ключ нельзя добавлять в tracked-файлы или показывать в выводе.
-2. Запустить backend в первом PowerShell:
-
-```powershell
-cd <local-workspace>
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-21'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-.\scripts\run-backend.ps1
-```
-
-Backend слушает `http://localhost:18080`. Launcher загружает ключ только в environment дочернего
-процесса и не печатает его. Java читает ключ только через
-`System.getenv("DEEPSEEK_API_KEY")`.
-
-3. Запустить frontend во втором PowerShell:
-
-```powershell
-cd <local-workspace>
-nvm use 22.22.3
-npm start
-```
-
-4. Открыть `http://localhost:4200`. Angular dev proxy направляет `/api` на backend без CORS и
-hardcoded backend URL в application code.
-
-Первоначальный CLI остаётся доступен через `.\scripts\run.ps1`, но основной Day 1 demo — web UI.
+Приложение различает ответ модели и факты выполнения инструментов. Исследование репозитория сохраняет ограниченный отчёт без вызова модели; локальная проверка доступна только из фиксированного списка и показывает собственный результат `TEST_*` отдельно от статуса MCP.
