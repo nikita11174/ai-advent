@@ -63,7 +63,7 @@ interface TemperatureEvaluation extends Evaluation { creativity: string; diversi
 interface TemperatureConclusion { accuracy: string; creativity: string; diversity: string; taskFit: string; }
 interface Exchange {
   id: number; input: string; mode: ReviewMode | 'COMPARE' | 'REASONING' | 'REASONING_COMPARE' | 'TEMPERATURE' | 'TEMPERATURE_COMPARE' | 'MODELS' | 'AGENT';
-  toolMode?: 'ordinary' | 'git' | 'monitor';
+  toolMode?: 'ordinary' | 'git' | 'monitor' | 'research' | 'orchestration';
   branchId?: string | null;
   models?: ModelProfile[]; modelResults?: Record<string, ModelResultState>;
   modelEvaluations?: Record<string, Evaluation>; modelConclusion?: string;
@@ -157,7 +157,7 @@ markdownRenderer.html = ({ text }) => text.replaceAll('&', '&amp;').replaceAll('
 export class App implements OnInit, OnDestroy {
   protected view: 'chat' | 'workspace' = 'chat';
   protected workspaceSection: 'mcp' | 'monitor' | 'research' = 'mcp';
-  protected toolMode: 'ordinary' | 'git' | 'monitor' = 'ordinary';
+  protected toolMode: 'ordinary' | 'git' | 'monitor' | 'research' | 'orchestration' = 'ordinary';
   private readonly http = inject(HttpClient);
   private readonly agentModelService = inject(AgentModelService);
   private readonly pageTitle = inject(Title);
@@ -210,8 +210,7 @@ export class App implements OnInit, OnDestroy {
   protected readonly memoryEditing = signal(false);
   protected inspectorOpen = false;
   protected selectedAgentModelKey: string | null = null;
-  protected useRepositoryResearch = false;
-  protected useMcpOrchestration = false;
+  protected allowVerificationRun = false;
   protected repositorySearchQuery = '';
   protected readonly agentModelOptions = this.agentModelService.options;
   protected readonly agentModelError = this.agentModelService.error;
@@ -399,6 +398,10 @@ export class App implements OnInit, OnDestroy {
   protected explainMonitor(): void {
     this.view = 'chat'; this.selectAgent(); this.toolMode = 'monitor';
     this.input = 'Объясни текущую сводку монитора репозитория.';
+  }
+
+  protected onToolModeChange(): void {
+    if (this.toolMode !== 'orchestration') this.allowVerificationRun = false;
   }
 
   protected isPausedTask(): boolean { return this.currentTask()?.state.status === 'PAUSED'; }
@@ -721,7 +724,7 @@ export class App implements OnInit, OnDestroy {
     const input = this.input;
     if (!input.trim() || this.loading() || !this.currentDialogId()
       || (this.experiment === 'AGENT' && (this.topologyBusy() || this.isPausedTask()
-        || (this.useRepositoryResearch && !this.repositorySearchQuery.trim())))) return;
+        || (this.toolMode === 'research' && !this.repositorySearchQuery.trim())))) return;
     if (this.experiment === 'AGENT') { if (this.agentModelAvailable()) this.analyzeAgent(input); return; }
     if (this.experiment === 'MODELS') { this.runModels(this.modelOptions().filter(model => model.key === this.selectedModelKey)); return; }
     if (this.experiment === 'REASONING') { this.analyzeReasoning(input); return; }
@@ -883,7 +886,7 @@ export class App implements OnInit, OnDestroy {
   }
   private activateDialog(dialog: DialogDocument, fresh = false, preserveProfileSelection = false): void {
     this.toolMode = 'ordinary';
-    if (dialog.id !== this.currentDialogId()) { this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false; }
+    if (dialog.id !== this.currentDialogId()) { this.repositorySearchQuery = ''; this.allowVerificationRun = false; }
     const exchanges = (dialog.state?.exchanges ?? []).map(exchange => typeof exchange.temperatureConclusion === 'string'
       ? { ...exchange, temperatureConclusion: { ...blankTemperatureConclusion(), accuracy: exchange.temperatureConclusion } }
       : exchange);
@@ -991,12 +994,13 @@ export class App implements OnInit, OnDestroy {
     const selectedToolMode = this.toolMode;
     const requireGitStatusTool = selectedToolMode === 'git';
     const requireRepositoryMonitorRead = selectedToolMode === 'monitor';
-    const useRepositoryResearch = this.useRepositoryResearch;
-    const useMcpOrchestration = this.useMcpOrchestration;
+    const useRepositoryResearch = selectedToolMode === 'research';
+    const useMcpOrchestration = selectedToolMode === 'orchestration';
+    const allowVerificationRun = useMcpOrchestration && this.allowVerificationRun;
     const repositorySearchQuery = this.repositorySearchQuery.trim();
     const id = this.appendExchange({ id: this.nextExchangeId++, input, mode: 'AGENT', branchId: requestBranchId,
       toolMode: selectedToolMode, free: { loading: true, agentModelKey } });
-    this.prepareAfterSubmit(); this.toolMode = 'ordinary'; this.useRepositoryResearch = false; this.repositorySearchQuery = ''; this.useMcpOrchestration = false;
+    this.prepareAfterSubmit(); this.toolMode = 'ordinary'; this.repositorySearchQuery = ''; this.allowVerificationRun = false;
     if ((requireGitStatusTool || requireRepositoryMonitorRead || useRepositoryResearch || useMcpOrchestration) && this.agentModelOptions().find(option => option.key === agentModelKey)?.provider !== 'DEEPSEEK') {
       this.updateExchange(id, { free: { loading: false, agentModelKey,
         error: 'Инструмент доступен только с моделью DeepSeek: выбранная модель не поддерживает вызов инструмента.' } });
@@ -1009,7 +1013,7 @@ export class App implements OnInit, OnDestroy {
       ...(requestBranchId ? { branchId: requestBranchId } : {}), ...(this.appliedTaskId ? { taskId: this.appliedTaskId } : {}),
       ...(this.selectedProfileId ? { profileId: this.selectedProfileId } : {}),
       ...(useRepositoryResearch ? { useRepositoryResearch: true, repositorySearchQuery } : {}),
-      ...(useMcpOrchestration ? { useMcpOrchestration: true } : {}) };
+      ...(useMcpOrchestration ? { useMcpOrchestration: true, allowVerificationRun } : {}) };
     this.http.post<AgentResponse>(`/api/dialogs/${dialogId}/agent/messages`,
       request).subscribe({
       next: response => this.finishAgentResult(dialogId, id, { analysis: response.analysis, metrics: response.metrics,

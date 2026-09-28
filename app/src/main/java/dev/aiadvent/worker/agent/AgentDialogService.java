@@ -194,6 +194,16 @@ public class AgentDialogService {
                      boolean requireGitStatusTool, boolean requireRepositoryMonitorRead,
                      RepositoryEvidenceReader.Evidence evidence, OrchestrationTools orchestration)
             throws IOException, ModelExecutionException {
+        return replyWithOrchestration(dialogId, input, mode, recentMessageCount, branchId, taskId, agentModelKey,
+                profileId, requireGitStatusTool, requireRepositoryMonitorRead, evidence, orchestration, true);
+    }
+
+    public AgentReply replyWithOrchestration(UUID dialogId, String input, ContextMode mode, Integer recentMessageCount,
+                     String branchId, UUID taskId, String agentModelKey, UUID profileId,
+                     boolean requireGitStatusTool, boolean requireRepositoryMonitorRead,
+                     RepositoryEvidenceReader.Evidence evidence, OrchestrationTools orchestration,
+                     boolean allowVerificationRun)
+            throws IOException, ModelExecutionException {
         if (orchestration != null && (evidence != null || requireGitStatusTool || requireRepositoryMonitorRead))
             throw new IllegalArgumentException("One repository capability per turn");
         if (evidence != null && (requireGitStatusTool || requireRepositoryMonitorRead))
@@ -237,7 +247,7 @@ public class AgentDialogService {
         return orchestration != null
                 ? agent.replyWithOrchestration(input, mode, recentMessageCount, memory,
                     model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,
-                    allowedActions, orchestration)
+                    allowedActions, orchestration, allowVerificationRun)
                 : evidence == null
                 ? agent.replyWithTool(input, mode, recentMessageCount, memory,
                         model.executor(), defaultConfig.withModel(model.model()), profile, task, effectiveInvariants,

@@ -9,8 +9,8 @@ interface TestApp {
   experiment: 'FORMAT' | 'REASONING' | 'TEMPERATURE' | 'MODELS' | 'AGENT';
   selectedModelKey: string;
   selectedAgentModelKey: string | null;
-  useRepositoryResearch: boolean;
-  useMcpOrchestration: boolean;
+  toolMode: 'ordinary' | 'git' | 'monitor' | 'research' | 'orchestration';
+  allowVerificationRun: boolean;
   repositorySearchQuery: string;
   selectedProfileId: string | null;
   chooseProfile(id: string | null): void;
@@ -95,7 +95,6 @@ interface TestApp {
   dialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   visibleDialogs(): readonly { id: string; title: string; createdAt: string; updatedAt: string }[];
   currentDialogId(): string | null;
-  toolMode: 'ordinary' | 'git' | 'monitor';
   exchanges(): readonly { temperatureConclusion?: unknown }[];
 }
 
@@ -1004,7 +1003,8 @@ describe('App', () => {
 
   it('sends repository research only for the requested turn and shows compact trace', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
-    (fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement).click(); fixture.detectChanges();
+    const mode = fixture.nativeElement.querySelector('select[aria-label="Режим инструмента"]') as HTMLSelectElement;
+    mode.value = 'research'; mode.dispatchEvent(new Event('change')); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[aria-label="Поисковый термин"]')).not.toBeNull();
     component.input = 'question'; component.analyze();
     http.expectNone('/api/dialogs/' + dialog().id + '/agent/messages');
@@ -1017,7 +1017,7 @@ describe('App', () => {
       matchesSeen: 3, filesMatched: 2, snippets: 3, evidenceBytes: 1500, reportRef: 'report-1', truncated: false } });
     flushSave(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.technical-details')?.textContent).toContain('report-1');
-    expect(component.useRepositoryResearch).toBe(false);
+    expect(component.toolMode).toBe('ordinary');
     component.input = 'ordinary'; component.analyze();
     const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
     expect(ordinary.request.body).not.toHaveProperty('useRepositoryResearch');
@@ -1026,52 +1026,74 @@ describe('App', () => {
 
   it('authorizes MCP orchestration for one turn and shows bounded server trace', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
-    (fixture.nativeElement.querySelector('#use-mcp-orchestration') as HTMLInputElement).click();
+    const mode = fixture.nativeElement.querySelector('select[aria-label="Режим инструмента"]') as HTMLSelectElement;
+    mode.value = 'orchestration'; mode.dispatchEvent(new Event('change')); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('[aria-label="Разрешить одну локальную проверку"]') as HTMLInputElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('фрагменты кода будут отправлены выбранной внешней модели');
+    expect(fixture.nativeElement.textContent).toContain('фрагменты кода передаются выбранной модели');
     component.input = 'Проверь branch preflight'; component.analyze();
     const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
-    expect(request.request.body).toMatchObject({ useMcpOrchestration: true });
+    expect(request.request.body).toMatchObject({ useMcpOrchestration: true, allowVerificationRun: true });
     expect(request.request.body).not.toHaveProperty('useRepositoryResearch');
     request.flush({ analysis: 'Проверка прошла', orchestrationTrace: { turnId: 'turn-1', status: 'SUCCESS', steps: [
       { number: 1, server: 'workspace', tool: 'search_repository', status: 'SUCCESS' },
       { number: 2, server: 'verification', tool: 'run_allowed_test', status: 'TEST_PASS', testId: 'branch-preflight', runId: 'run-1' },
     ] } });
     flushSave(); fixture.detectChanges();
-    const details = fixture.nativeElement.querySelector('.technical-details') as HTMLDetailsElement;
-    expect(details.textContent).toContain('workspace / search_repository');
-    expect(details.textContent).toContain('verification / run_allowed_test');
-    expect(details.textContent).toContain('run-1');
-    expect(component.useMcpOrchestration).toBe(false);
+    const trace = fixture.nativeElement.querySelector('[aria-label="Фактическая оркестрация MCP"]') as HTMLElement;
+    expect(trace.textContent).toContain('Workspace / search_repository');
+    expect(trace.textContent).toContain('Verification / run_allowed_test');
+    expect(trace.textContent).toContain('TEST_PASS');
+    expect(trace.textContent).toContain('run-1');
+    expect(component.toolMode).toBe('ordinary');
+    expect(component.allowVerificationRun).toBe(false);
     component.input = 'обычный вопрос'; component.analyze();
     const ordinary = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
     expect(ordinary.request.body).not.toHaveProperty('useMcpOrchestration');
     ordinary.flush({ analysis: 'ответ' }); flushSave();
   });
 
+  it('sends inspection without verification permission and resets that permission after mode change', () => {
+    component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
+    const mode = fixture.nativeElement.querySelector('select[aria-label="Режим инструмента"]') as HTMLSelectElement;
+    mode.value = 'orchestration'; mode.dispatchEvent(new Event('change')); fixture.detectChanges();
+    component.input = 'Найди доступную проверку, но не запускай'; component.analyze();
+    const request = http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`);
+    expect(request.request.body).toMatchObject({ useMcpOrchestration: true, allowVerificationRun: false });
+    request.flush({ analysis: 'Найдена проверка', orchestrationTrace: { turnId: 'turn-2', status: 'SUCCESS', steps: [
+      { number: 1, server: 'verification', tool: 'find_allowed_tests', status: 'SUCCESS' },
+    ] } });
+    flushSave(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-label="Фактическая оркестрация MCP"]')?.textContent)
+      .toContain('find_allowed_tests');
+    expect(component.toolMode).toBe('ordinary');
+    expect(component.allowVerificationRun).toBe(false);
+  });
+
   it('clears MCP orchestration authorization on Dialog switch', () => {
     const b = '22222222-2222-2222-2222-222222222222';
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
-    component.useMcpOrchestration = true;
+    component.toolMode = 'orchestration'; component.allowVerificationRun = true;
     component.openDialog(b);
     http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], {
       experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
     }));
     flushHealth(); flushTopology(b); flushMemory(b);
-    expect(component.useMcpOrchestration).toBe(false);
+    expect(component.toolMode).toBe('ordinary');
+    expect(component.allowVerificationRun).toBe(false);
   });
 
   it('clears repository opt-in when opening or creating another Dialog', () => {
     const b = '22222222-2222-2222-2222-222222222222';
     const c = '33333333-3333-3333-3333-333333333333';
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
-    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.toolMode = 'research'; component.repositorySearchQuery = 'apply(';
     component.openDialog(b);
     http.expectOne(`/api/dialogs/${b}`).flush(dialog(b, [], {
       experiment: 'AGENT', selectedMode: 'FREE', selectedStrategy: 'DIRECT', selectedTemperature: 0,
     }));
     flushHealth(); flushTopology(b); flushMemory(b);
-    expect(component.useRepositoryResearch).toBe(false);
+    expect(component.toolMode).toBe('ordinary');
     expect(component.repositorySearchQuery).toBe('');
     component.input = 'ordinary B'; component.analyze();
     const request = http.expectOne(`/api/dialogs/${b}/agent/messages`);
@@ -1080,16 +1102,16 @@ describe('App', () => {
     request.flush({ analysis: 'answer B' });
     http.expectOne(`/api/dialogs/${b}`).flush(dialog(b));
 
-    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.toolMode = 'research'; component.repositorySearchQuery = 'apply(';
     component.newDialog(); http.expectOne('/api/dialogs').flush({ ...dialog(c), state: {} });
     flushHealth(); flushTopology(c); flushMemory(c);
-    expect(component.useRepositoryResearch).toBe(false);
+    expect(component.toolMode).toBe('ordinary');
     expect(component.repositorySearchQuery).toBe('');
   });
 
   it('retains completed repository metadata when the provider fails', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory();
-    component.useRepositoryResearch = true; component.repositorySearchQuery = 'apply(';
+    component.toolMode = 'research'; component.repositorySearchQuery = 'apply(';
     component.input = 'question'; component.analyze();
     http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush({ error: 'provider failed',
       repositoryTrace: { status: 'SUCCESS', stepsCompleted: 3, matchesSeen: 2, filesMatched: 1,
@@ -1102,7 +1124,7 @@ describe('App', () => {
 
   it('shows an unknown repository outcome without an assistant answer', () => {
     component.selectAgent(); flushHealth(); flushTopology(); flushMemory(); fixture.detectChanges();
-    (fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    component.toolMode = 'research';
     component.repositorySearchQuery = 'apply(';
     component.input = 'question'; component.analyze();
     http.expectOne(`/api/dialogs/${dialog().id}/agent/messages`).flush(

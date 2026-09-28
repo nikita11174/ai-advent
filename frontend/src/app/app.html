@@ -191,6 +191,26 @@
           } @else if (trace.code) { <span>Код: {{ trace.code }}</span> }
         </section>
       }
+      @if (agent && result?.repositoryTrace; as research) {
+        <section class="git-tool-trace" aria-label="Фактическое исследование репозитория">
+          <strong>Исследование репозитория · {{ research.status }}</strong>
+          <span>Шаги: {{ research.stepsCompleted }} @if (research.matchesSeen !== undefined) { · совпадения: {{ research.matchesSeen }} · файлы: {{ research.filesMatched }} }</span>
+          @if (research.reportRef) { <span>Отчёт: {{ research.reportRef }}</span> }
+          @if (research.failedStep) { <span>Этап: {{ research.failedStep }} · {{ research.code }}</span> }
+        </section>
+      }
+      @if (agent && result?.orchestrationTrace; as trace) {
+        <section class="git-tool-trace" aria-label="Фактическая оркестрация MCP">
+          <strong>Оркестрация MCP · {{ trace.status === 'SUCCESS' ? 'завершена' : 'не завершена' }}</strong>
+          @for (step of trace.steps; track step.number) {
+            <span>{{ step.number }}. {{ step.server === 'workspace' ? 'Workspace' : 'Verification' }} / {{ step.tool }} ·
+              {{ step.tool === 'run_allowed_test' ? 'MCP выполнен · результат проверки: ' + step.status : 'MCP: ' + step.status }}
+              @if (step.testId) { · testId: {{ step.testId }} }
+              @if (step.runId) { · runId: {{ step.runId }} }
+            </span>
+          }
+        </section>
+      }
       @if (agent && (result?.metrics || result?.contextMetadata || result?.summaryMetrics || result?.factsMetrics?.length || result?.guardMetrics || result?.repositoryTrace || result?.orchestrationTrace)) {
         <details class="technical-details">
           <summary>Технические детали</summary>
@@ -312,20 +332,21 @@
       @if (showLatestButton()) { <button class="latest-button" mat-stroked-button (click)="scrollToLatest()">К последнему сообщению</button> }
       <div class="composer">
         @if (experiment === 'AGENT') {
-          <label><input id="use-repository-research" type="checkbox" [(ngModel)]="useRepositoryResearch" [disabled]="loading() || useMcpOrchestration"> Использовать репозиторий</label>
-          <label><input id="use-mcp-orchestration" type="checkbox" [(ngModel)]="useMcpOrchestration" [disabled]="loading() || useRepositoryResearch"> Оркестрация MCP / разрешить одну локальную проверку</label>
-          @if (useMcpOrchestration) { <small>Проверка может записать build-артефакты. Найденные ограниченные фрагменты кода будут отправлены выбранной внешней модели.</small> }
-          @if (useRepositoryResearch) {
+          @if (toolMode === 'orchestration') {
+            <label class="verification-opt-in"><input type="checkbox" [(ngModel)]="allowVerificationRun" [disabled]="loading()" aria-label="Разрешить одну локальную проверку"> Разрешить одну локальную проверку в этом сообщении</label>
+            <small>Без разрешения можно исследовать репозиторий и найти доступные проверки. Запуск создаёт локальные build-артефакты. Ограниченные фрагменты кода передаются выбранной модели.</small>
+          }
+          @if (toolMode === 'research') {
             <label>Поисковый термин <input id="repository-search-query" type="text" [(ngModel)]="repositorySearchQuery" maxlength="100" [disabled]="loading()" aria-label="Поисковый термин"></label>
             <small>Найденные фрагменты кода будут отправлены выбранной модели.</small>
           }
         }
         <textarea #composerInput matInput [(ngModel)]="input" (input)="resizeComposer($event)" (keydown)="handleKeyboard($event)" rows="2" spellcheck="false" aria-label="Сообщение" placeholder="Задайте вопрос или вставьте код…"></textarea>
         <div class="composer-actions"><div class="composer-mode">
-          @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option><option value="monitor">Сводка монитора</option></select></label> }
+          @if (experiment === 'AGENT') { <label>Режим <select [(ngModel)]="toolMode" (ngModelChange)="onToolModeChange()" aria-label="Режим инструмента"><option value="ordinary">Обычный</option><option value="git">Статус Git</option><option value="monitor">Сводка монитора</option><option value="research">Вопрос по репозиторию</option><option value="orchestration">Инструменты репозитория</option></select></label> }
           <span>Ctrl+Enter — отправить</span>
         </div><div class="action-buttons">
-          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask() || (useRepositoryResearch && !repositorySearchQuery.trim())))">Отправить</button>
+          <button mat-flat-button (click)="analyze()" [disabled]="!input.trim() || loading() || !currentDialogId() || (experiment === 'AGENT' && (topologyBusy() || !agentModelAvailable() || isPausedTask() || (toolMode === 'research' && !repositorySearchQuery.trim())))">Отправить</button>
         </div></div>
       </div>
     </section>

@@ -65,6 +65,8 @@ app-root .primary-nav button[aria-current="page"] { color:#fff; background:#3144
 app-root .composer-mode { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 app-root .composer-mode label { display:flex; align-items:center; gap:6px; color:#59667e; font-size:12px; }
 app-root .composer-mode select { padding:6px 8px; border:1px solid #cbd5e1; border-radius:7px; background:#fff; color:#17223b; font:inherit; }
+app-root .composer .verification-opt-in { display:flex; align-items:center; gap:6px; font-size:12px; }
+app-root .composer > small { display:block; margin:5px 0 8px; color:#62708a; line-height:1.4; }
 app-root .git-tool-trace { display:grid; gap:4px; margin-top:12px; padding:10px 12px; border:1px solid #d9e4f2; border-radius:8px; background:#f4f8fd; color:#43536f; font-size:12px; overflow-wrap:anywhere; }
 app-root .git-tool-trace strong { color:#263f65; }
 .workspace-nav { display:flex; gap:3px; padding-left:12px; border-left:1px solid #43516b; }

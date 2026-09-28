@@ -52,6 +52,11 @@ public final class OrchestrationTools {
 
     public boolean ready() { return workspace.orchestrationReady() && verification.enabled(); }
     public List<ToolDefinition> definitions() { return entries.values().stream().map(Entry::definition).toList(); }
+    public List<ToolDefinition> definitions(boolean allowVerificationRun) {
+        return allowVerificationRun ? definitions() : entries.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(VerificationMcpServerMain.RUN))
+                .map(entry -> entry.getValue().definition()).toList();
+    }
     public String server(String name) { return require(name).server(); }
 
     public void validate(ToolRequest request) {

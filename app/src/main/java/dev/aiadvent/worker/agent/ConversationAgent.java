@@ -180,8 +180,17 @@ public final class ConversationAgent {
                                      AgentConfig requestConfig, Profile profile, Task task,
                                      List<Invariant> invariants, List<TaskAction> allowedActions,
                                      OrchestrationTools tools) throws IOException, ModelExecutionException {
+        return replyWithOrchestration(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task,
+                invariants, allowedActions, tools, true);
+    }
+
+    AgentReply replyWithOrchestration(String input, ContextMode mode, Integer recentMessageCount,
+                                     AgentMemory.Snapshot memory, AgentModelExecutor executor,
+                                     AgentConfig requestConfig, Profile profile, Task task,
+                                     List<Invariant> invariants, List<TaskAction> allowedActions,
+                                     OrchestrationTools tools, boolean allowVerificationRun) throws IOException, ModelExecutionException {
         return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
-                allowedActions, false, false, false, null, tools);
+                allowedActions, false, false, false, null, tools, allowVerificationRun);
     }
 
     private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
@@ -222,6 +231,18 @@ public final class ConversationAgent {
                              List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls,
                              boolean requireGitStatusTool, boolean requireMonitorRead,
                              RepositoryEvidenceReader.Evidence evidence, OrchestrationTools orchestration)
+            throws IOException, ModelExecutionException {
+        return reply(input, mode, recentMessageCount, memory, executor, requestConfig, profile, task, invariants,
+                allowedActions, legacyMaintenanceCalls, requireGitStatusTool, requireMonitorRead, evidence,
+                orchestration, true);
+    }
+
+    private AgentReply reply(String input, ContextMode mode, Integer recentMessageCount, AgentMemory.Snapshot memory,
+                             AgentModelExecutor executor, AgentConfig requestConfig, Profile profile, Task task,
+                             List<Invariant> invariants, List<TaskAction> allowedActions, boolean legacyMaintenanceCalls,
+                             boolean requireGitStatusTool, boolean requireMonitorRead,
+                             RepositoryEvidenceReader.Evidence evidence, OrchestrationTools orchestration,
+                             boolean allowVerificationRun)
             throws IOException, ModelExecutionException {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("Input must not be empty.");
@@ -331,7 +352,7 @@ public final class ConversationAgent {
                         throw new OrchestrationException("TOOL_CAPABILITY_UNSUPPORTED",
                                 new OrchestrationTrace(UUID.randomUUID().toString(), "FAILED", List.of()), null);
                     var run = runOrchestration(nativeExecutor, toModelRequest(outbound, requestConfig),
-                            requestConfig.contextTokenLimit(), orchestration);
+                            requestConfig.contextTokenLimit(), orchestration, allowVerificationRun);
                     completion = run.completion();
                     contextTokens = run.contextTokens();
                     orchestrationTrace = run.trace();
@@ -472,6 +493,12 @@ public final class ConversationAgent {
     static OrchestrationRun runOrchestration(ToolCapableModelExecutor executor,
                                                     AgentModelRequest request, Integer contextLimit,
                                                     OrchestrationTools tools) {
+        return runOrchestration(executor, request, contextLimit, tools, true);
+    }
+
+    static OrchestrationRun runOrchestration(ToolCapableModelExecutor executor,
+                                                    AgentModelRequest request, Integer contextLimit,
+                                                    OrchestrationTools tools, boolean allowVerificationRun) {
         String turnId = UUID.randomUUID().toString();
         var steps = new ArrayList<OrchestrationTrace.Step>();
         var seen = new java.util.HashSet<String>();
@@ -481,7 +508,7 @@ public final class ConversationAgent {
         var discoveredTests = new java.util.HashSet<String>();
         int searches = 0;
         try {
-            var prepared = executor.prepareChoiceTurn(request, tools.definitions());
+            var prepared = executor.prepareChoiceTurn(request, tools.definitions(allowVerificationRun));
             long tokens = checkPrepared(prepared.estimatedInputTokens(), contextLimit);
             ToolCapableModelExecutor.ToolStep decision = executor.beginToolTurn(prepared);
             while (decision instanceof ToolRequestStep || decision instanceof ToolCapableModelExecutor.ToolRequestBatchStep) {
@@ -495,6 +522,8 @@ public final class ConversationAgent {
                 var batchSeen = new java.util.HashSet<String>();
                 int batchSearches = 0;
                 for (var call : calls) {
+                    if (!allowVerificationRun && call.name().equals("run_allowed_test"))
+                        throw new IllegalStateException("TEST_NOT_AUTHORIZED");
                     tools.validate(call);
                     if (call.name().equals("run_allowed_test")
                             && (!discoveredTests.contains(call.arguments().path("testId").asText())

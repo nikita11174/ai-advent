@@ -88,11 +88,17 @@ class AgentController {
         }
         AgentReply reply;
         try {
-            reply = agents.replyWithOrchestration(id, request.input(), request.contextMode(), request.recentMessageCount(),
-                    request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
-                    Boolean.TRUE.equals(request.requireGitStatusTool()),
-                    Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence,
-                    useOrchestration ? orchestration : null);
+            if (useOrchestration && Boolean.FALSE.equals(request.allowVerificationRun()))
+                reply = agents.replyWithOrchestration(id, request.input(), request.contextMode(), request.recentMessageCount(),
+                        request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
+                        Boolean.TRUE.equals(request.requireGitStatusTool()),
+                        Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence, orchestration, false);
+            else
+                reply = agents.replyWithOrchestration(id, request.input(), request.contextMode(), request.recentMessageCount(),
+                        request.branchId(), request.taskId(), request.agentModelKey(), request.profileId(),
+                        Boolean.TRUE.equals(request.requireGitStatusTool()),
+                        Boolean.TRUE.equals(request.requireRepositoryMonitorRead()), evidence,
+                        useOrchestration ? orchestration : null);
         } catch (ModelExecutionException e) {
             if (repositoryTrace == null) throw e;
             throw new RepositoryModelFailure(e, repositoryTrace, null, java.util.List.of());
@@ -279,21 +285,21 @@ class AgentController {
     record AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                         UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool,
                         Boolean requireRepositoryMonitorRead, Boolean useRepositoryResearch,
-                        String repositorySearchQuery, Boolean useMcpOrchestration) {
+                        String repositorySearchQuery, Boolean useMcpOrchestration, Boolean allowVerificationRun) {
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId, Boolean requireGitStatusTool) {
             this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId,
-                    requireGitStatusTool, false, false, null, false);
+                    requireGitStatusTool, false, false, null, false, null);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId,
                      UUID taskId, String agentModelKey, UUID profileId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false, false, null, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, agentModelKey, profileId, false, false, false, null, false, null);
         }
         AgentRequest(String input, ContextMode contextMode, Integer recentMessageCount, String branchId, UUID taskId) {
-            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false, false, null, false);
+            this(input, contextMode, recentMessageCount, branchId, taskId, null, null, false, false, false, null, false, null);
         }
         AgentRequest(String input) {
-            this(input, null, null, null, null, null, null, false, false, false, null, false);
+            this(input, null, null, null, null, null, null, false, false, false, null, false, null);
         }
     }
 

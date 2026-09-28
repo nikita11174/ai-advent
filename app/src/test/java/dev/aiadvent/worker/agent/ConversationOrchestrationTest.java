@@ -91,6 +91,18 @@ class ConversationOrchestrationTest {
         verify(tools, never()).execute(any());
     }
 
+    @Test void inspectionTurnRejectsModelRequestedRunBeforeRouting() throws Exception {
+        setup();
+        when(model.beginToolTurn(prepared)).thenReturn(step("find_allowed_tests", "{\"concept\":\"branch\"}"));
+        when(model.continueChoiceTurn(next)).thenReturn(step("run_allowed_test", "{\"testId\":\"branch-preflight\"}"));
+        var error = assertThrows(OrchestrationException.class, () ->
+                ConversationAgent.runOrchestration(model, request, 1000, tools, false));
+        assertEquals("TEST_NOT_AUTHORIZED", error.getMessage());
+        assertEquals(1, error.trace().steps().size());
+        verify(tools, never()).execute(argThat(call -> call.name().equals("run_allowed_test")));
+        verify(tools).definitions(false);
+    }
+
     @Test void sameResponseDiscoveryCannotAuthorizeRun() throws Exception {
         setup();
         var batch = new ToolCapableModelExecutor.ToolRequestBatchStep(List.of(
